@@ -1,0 +1,49 @@
+[Unit]
+Description=docsnx daily notifications (plan expiry + record reminders)
+# Deliberately no Requires=postgresql.service: the database is REMOTE, unlike
+# what docsnx.service still declares. A missing local unit must not make the
+# timer's job unstartable.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=azureuser
+Group=azureuser
+# scripts/loadEnv reads .env.local relative to the working dir, so this has to
+# be the app root — same as docsnx.service.
+WorkingDirectory=/opt/docsnx
+Environment=NODE_ENV=production
+# getAppBaseUrl() builds the renewal links inside the expiry EMAILS from this.
+# Left unset it falls back to localhost and every emailed link is dead.
+Environment=APP_URL=https://www.docsnx.com
+# tsx, not next: this runs the TypeScript from source, so it needs no build and
+# a stale .next cannot make it wrong.
+ExecStart=/opt/docsnx/node_modules/.bin/tsx scripts/plan-expiry-cron.ts
+SyslogIdentifier=docsnx-notify
+# One run should never take this long; if it hangs on Drive or FCM, the next
+# day's run should find a clear field rather than queue behind it.
+TimeoutStartSec=30min
+
+# ── Hardening, mirrored from docsnx.service ──────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+# Read-only everywhere else, including /opt/docsnx itself: this job reads the
+# source and writes only to Postgres, Drive and FCM.
+NoExecPaths=/tmp /var/tmp /dev/shm
+# Incident 2026-08-12 — every service on this host runs as the same uid, so the
+# siblings' env files stay out of reach here too.
+InaccessiblePaths=/opt/vivaahnx /opt/vastipatrak /opt/arogyam /opt/evolution
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+# Postgres, Google Drive, FCM and SMTP are all outbound TCP.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

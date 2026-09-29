@@ -1,0 +1,673 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════
+   DOCSNX BRAND TOKENS — from the brand kit
+   ═══════════════════════════════════════════
+   Hex, and outside the light/dark blocks on purpose: the brand palette does
+   not change with the theme. These colour the WORDMARK and the mark's
+   surroundings (`.brand-gradient-text`, /logo-preview) — the app's own
+   `--primary`/`--accent` chrome tokens below are tuned separately for buttons
+   and focus rings and are not derived from these. */
+:root {
+  --docsnx-navy: #0D1330;
+  --docsnx-blue: #2563EB;
+  --docsnx-purple: #7C3AED;
+  --docsnx-pink: #EC4899;
+  --docsnx-light-purple: #EDE9FE;
+  --docsnx-surface: #F5F7FA;
+  --docsnx-white: #FFFFFF;
+  --docsnx-gradient: linear-gradient(135deg, #2563EB 0%, #7C3AED 65%, #EC4899 100%);
+}
+
+/* ═══════════════════════════════════════════
+   SHADCN/UI CSS VARIABLES — LIGHT MODE (DEFAULT)
+   ═══════════════════════════════════════════ */
+@layer base {
+  :root {
+    /*
+     * ── THE CANVAS IS TINTED AND THE CARD IS WHITE ─────────────────────────
+     *
+     * `--background` and `--card` were BOTH pure white, and the app paints its
+     * surfaces as alpha washes over them — 224 `bg-card/<n>`, 174 `bg-muted/<n>`,
+     * 487 `border-border/<n>` at the last count. A 30% white card over near-black
+     * is a visible surface; the same wash over a white page is nothing at all,
+     * which is why light mode had no boundary between one record and the next.
+     *
+     * So the page gets a tint and the card keeps the white. Every existing
+     * `bg-card/<n>` becomes a lighter surface on a darker ground without a single
+     * callsite changing, and `border-border/<n>` finally has something to sit
+     * against. Same pairing GitHub's light theme uses, and for the same reason.
+     *
+     * The corollary: `bg-background` is now the CANVAS, not a surface. A form
+     * control that fills itself with it reads as a hole punched in the card —
+     * fields use `bg-field` (below) and raised controls use `bg-card`.
+     */
+    --background: 220 20% 97%;
+    --foreground: 222 30% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 30% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 30% 12%;
+
+    --primary: 258 90% 66%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 16% 93%;
+    --secondary-foreground: 222 30% 12%;
+
+    --muted: 220 18% 95%;
+    /* 8.1:1 on the card, 7.6:1 on `--muted` itself — it was 240 5% 45%, which
+       cleared AA on white by a hair and failed everywhere the app dims it
+       further (`text-faint` was ~2.2:1). It carries most of the
+       secondary text in the app, so it is sized for those alpha variants. */
+    --muted-foreground: 220 13% 34%;
+    /*
+     * ── THE THIRD TIER, AS A COLOUR AND NOT AN ALPHA ───────────────────────
+     *
+     * 130 callsites dimmed the secondary token to reach a third tier —
+     * `text-faint`, `/50`, even `/30`. That cannot work: the
+     * secondary token is already sized to sit just above AA, so ANY alpha below
+     * 1 drops it under. `/70` measured 3.6:1 on the card and `/50` about 2.2:1,
+     * which is most of what "the font colour is very dull" was describing.
+     *
+     * A third tier has to be its own colour, chosen to clear 4.5:1 on the
+     * WORST background it lands on (`--muted`, i.e. a zebra row or a table
+     * header) rather than on the card. The three tiers now measure 15.3 / 6.9 /
+     * 5.0 against that background — visibly three steps, all of them readable.
+     */
+    --faint: 220 10% 42%;
+
+    --accent: 255 92% 76%;
+    --accent-foreground: 258 90% 30%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* ── STATUS TOKENS — see the dark block for why these exist ─────────── */
+    --danger-text: 0 72% 41%;      --danger-surface: 0 86% 97%;    --danger-border: 0 75% 85%;
+    --warning-text: 25 90% 32%;    --warning-surface: 45 93% 96%;  --warning-border: 40 80% 78%;
+    --success-text: 160 84% 26%;   --success-surface: 152 76% 96%; --success-border: 152 55% 80%;
+    --info-text: 258 75% 48%;      --info-surface: 258 90% 97%;    --info-border: 258 65% 85%;
+
+    /* A destructive CONTROL — see the dark block. 5.75:1 on white. */
+    --danger-action: 0 74% 45%;
+
+    /* Solid fills for buttons — a saturated brand colour, not a text colour. */
+    --danger-solid: 0 84% 60%;
+    --warning-solid: 38 92% 50%;
+    --success-solid: 160 84% 39%;
+
+    --border: 220 14% 84%;
+    --input: 220 14% 84%;
+    /*
+     * THE FIELD FILL — separate from `--input`, which is the field BORDER.
+     *
+     * `--input` is read by BOTH `bg-input` and `border-input` (see the filter
+     * trigger in src/components/ui/data-table.jsx), so it cannot go white to
+     * suit the fill without erasing the outline. A field is white on the tinted
+     * canvas; in dark it stays the raised grey it already was.
+     */
+    --field: 0 0% 100%;
+    --ring: 258 90% 66%;
+
+    --radius: 12px;
+
+    /*
+     * ── ELEVATION IS THEME-DEPENDENT ───────────────────────────────────────
+     *
+     * `shadow-glass` resolved to `0 8px 32px rgba(0,0,0,0.4)` in BOTH themes.
+     * Over near-black that is a soft lift; over white it is a grey smudge under
+     * every card in the app — a large part of what read as "dull". Light gets a
+     * tight, low-alpha pair (the standard two-layer contact + ambient shadow);
+     * dark keeps exactly what it had. Both `shadow-glass` utilities in
+     * tailwind.config.js resolve to these, so all ~200 callsites retune at once.
+     */
+    --shadow-card: 0 1px 3px 0 rgb(16 24 40 / 0.08), 0 1px 2px -1px rgb(16 24 40 / 0.06);
+    --shadow-hover: 0 8px 20px -6px rgb(16 24 40 / 0.14), 0 2px 6px -2px rgb(16 24 40 / 0.08);
+
+    /* Faint brand warmth rather than white-on-white; at 96% lightness these read
+       as a tint on the canvas and disappear entirely under a card. */
+    --orb-primary: 258 60% 96%;
+    --orb-secondary: 216 60% 96%;
+
+    --glass-inner-glow: 0 0 #0000;
+    color-scheme: light;
+    --scrollbar-thumb: rgba(0, 0, 0, 0.18);
+    --scrollbar-track: transparent;
+  }
+
+  [data-theme="dark"] {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 100%;
+
+    --card: 240 10% 6%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 240 10% 8%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 258 90% 66%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 10% 12%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 240 10% 12%;
+    --muted-foreground: 214 32% 91%;
+    /* See the light block. 8.8:1 on the card against the secondary tier's
+       15.5:1 — a real step down that is still comfortably readable. */
+    --faint: 214 20% 70%;
+
+    --accent: 263 70% 42%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    /*
+     * ── STATUS TOKENS: TEXT, SURFACE AND BORDER ARE THREE DIFFERENT COLOURS ─
+     *
+     * `--destructive` above is a FILL. On dark it is #7F1D1D, a maroon chosen to
+     * sit behind white button text, and it is correct for that. It was also
+     * being used as the alert's TEXT colour over a 10% tint of itself, which
+     * measures 1.87:1 against the card — the red-on-black that made every
+     * warning on the bulk-scan screen unreadable. A colour cannot be both: a
+     * fill must be dark enough for white text, and text must be light enough to
+     * clear the page. So each role gets its own token and `--destructive` keeps
+     * doing the one job it was right for.
+     *
+     * Every `-text` value below clears 4.5:1 (WCAG AA body text) against BOTH
+     * its own surface and the bare page, so an alert stays legible even where a
+     * glass card paints something else underneath. Verified in both themes;
+     * re-measure if you touch these. Light values are the dark ones inverted in
+     * lightness, not different hues, so the two themes read as one palette.
+     */
+    --danger-text: 0 91% 76%;      --danger-surface: 0 45% 13%;    --danger-border: 0 50% 30%;
+    --warning-text: 43 96% 66%;    --warning-surface: 38 50% 12%;  --warning-border: 38 55% 28%;
+    --success-text: 152 76% 66%;   --success-surface: 158 50% 11%; --success-border: 158 45% 26%;
+    --info-text: 255 92% 80%;      --info-surface: 258 45% 15%;    --info-border: 258 50% 32%;
+
+    /*
+     * ── A DESTRUCTIVE CONTROL IS NOT A DESTRUCTIVE MESSAGE ─────────────────
+     *
+     * `--danger-text` above is #FCA5A5 here — correct for a sentence, too pale
+     * for a 16px trash icon, which stops reading as dangerous well before it
+     * stops being legible. A Delete affordance has to carry that weight at
+     * glyph size, so it gets a more saturated rung of its own.
+     *
+     * Still 6.43:1 against the card (4.5:1, not merely the 3:1 a non-text UI
+     * control would need) because half these callsites are "Delete" menu-item
+     * LABELS, not icons.
+     *
+     * Not to be used for a fill: white on this fails. That is `--destructive`.
+     */
+    --danger-action: 0 84% 68%;
+
+    --danger-solid: 0 72% 51%;
+    --warning-solid: 38 92% 50%;
+    --success-solid: 160 84% 39%;
+
+    --border: 240 10% 12%;
+    --input: 240 10% 12%;
+    /* See the light block: the field FILL, distinct from the field border. On
+       dark the two happen to coincide, which is why one token used to serve. */
+    --field: 240 10% 12%;
+    --ring: 258 90% 66%;
+
+    /* The glass shadow this theme was always tuned for, now behind a token so
+       light can differ. Unchanged values. */
+    --shadow-card: 0 8px 32px 0 rgb(0 0 0 / 0.4);
+    --shadow-hover: 0 12px 40px 0 rgb(0 0 0 / 0.5);
+
+    --orb-primary: 261 48% 20%;
+    --orb-secondary: 261 48% 20%;
+    
+    --glass-inner-glow: inset 0 0 0 1px rgba(255,255,255,0.1);
+    color-scheme: dark;
+    --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+    --scrollbar-track: transparent;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: none;
+    touch-action: manipulation;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+    font-size: 15px;
+    line-height: 1.6;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Native Mobile App Touch Ergonomics */
+  button, a, input, select, textarea, [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a, [role="button"], nav {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-heading font-bold tracking-tight leading-tight;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   AMBIENT BACKGROUND GRADIENTS
+   ═══════════════════════════════════════════ */
+body::before {
+  content: '';
+  position: fixed;
+  top: -20%;
+  left: -15%;
+  width: 50%;
+  height: 50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, hsl(var(--orb-primary)) 0%, transparent 70%);
+  z-index: -2;
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -10%;
+  right: -10%;
+  width: 45%;
+  height: 45%;
+  border-radius: 50%;
+  background: radial-gradient(circle, hsl(var(--orb-secondary)) 0%, transparent 70%);
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════
+   GLASS CARD UTILITY
+   ═══════════════════════════════════════════ */
+@layer components {
+  /*
+   * THE PAGE GUTTER — the single horizontal inset every page shares.
+   *
+   * Applied once, on <main> in Shell.js. Pages must not add padding of their
+   * own on top of it (see src/app/components/PageContainer.jsx); a dozen of
+   * them used to, which is why no two modules had the same left edge.
+   *
+   * `max(…, env(safe-area-inset-*))` rather than a flat value because
+   * layout.js sets `viewportFit: "cover"`, so on a notched phone in LANDSCAPE
+   * the physical left edge is under the notch. In portrait, and on every
+   * desktop browser, `env()` resolves to 0 and this is exactly 16/24/32px —
+   * i.e. identical to the `p-4 md:p-6 lg:p-8` it replaces.
+   */
+  .page-gutter {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+
+  @media (min-width: 768px) {
+    .page-gutter {
+      padding-top: 1.5rem;
+      padding-bottom: 1.5rem;
+      padding-left: max(1.5rem, env(safe-area-inset-left));
+      padding-right: max(1.5rem, env(safe-area-inset-right));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .page-gutter {
+      padding-top: 2rem;
+      padding-bottom: 2rem;
+      padding-left: max(2rem, env(safe-area-inset-left));
+      padding-right: max(2rem, env(safe-area-inset-right));
+    }
+  }
+
+  .glass-card {
+    @apply bg-card/85 backdrop-blur-glass border border-border rounded-xl shadow-glass transition-all duration-300;
+    box-shadow: var(--glass-inner-glow), var(--tw-shadow);
+  }
+
+  .glass-card:not(.static):hover {
+    @apply border-border/50 shadow-glass-hover -translate-y-0.5;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--foreground)) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* The "NX" of the wordmark — see BrandWordmark.tsx. Unlike `.gradient-text`
+     this never blends toward the foreground, so it is the same on both themes. */
+  .brand-gradient-text {
+    background: var(--docsnx-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Scrollbar Utilities */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Skeleton Pulse */
+  .skeleton {
+    @apply animate-pulse bg-muted rounded-lg;
+  }
+
+  /* Stat card glow */
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    top: -20px;
+    right: -20px;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--stat-glow, rgba(139, 92, 246, 0.15)) 0%, transparent 70%);
+    pointer-events: none;
+    transition: all 0.3s ease;
+  }
+  .stat-card:hover::after {
+    width: 120px;
+    height: 120px;
+  }
+
+  /* Spin animation */
+  .spin {
+    @apply animate-spin;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   LOADING SPLASH
+   ═══════════════════════════════════════════ */
+.loading-splash {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+.loading-logo {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.loading-bars {
+  display: flex;
+  gap: 6px;
+}
+
+.loading-bar {
+  width: 4px;
+  height: 32px;
+  border-radius: 99px;
+  background: hsl(var(--primary));
+  animation: loadingBar 1.2s ease-in-out infinite;
+}
+
+.loading-bar:nth-child(2) { animation-delay: 0.1s; }
+.loading-bar:nth-child(3) { animation-delay: 0.2s; }
+
+@keyframes loadingBar {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════
+   SPOTLIGHT SEARCH OVERLAY
+   ═══════════════════════════════════════════ */
+.spotlight-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px 16px;
+  animation: fadeIn 0.15s ease;
+}
+
+.spotlight-box {
+  width: 100%;
+  max-width: 560px;
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ═══════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════ */
+/*
+ * fadeIn animates OPACITY ONLY — deliberately, and it must stay that way.
+ *
+ * It runs `forwards` on <main> (see Shell.js), and a filling animation keeps
+ * applying its effect value forever. Any transform in these keyframes therefore
+ * leaves <main> permanently transformed — even a `translateY(0)` or a `none`
+ * end frame, both of which compute to the identity MATRIX while the animation
+ * fills. A transformed element is the containing block for every
+ * `position: fixed` descendant, so with the old 8px slide-up here, `fixed`
+ * inside a page resolved against <main> instead of the viewport: floating
+ * action buttons anchored to `bottom` landed below the fold, and the
+ * `fixed inset-0` click-catchers under row menus stopped covering the screen.
+ *
+ * Adding a transform back re-breaks all of that. Animate a wrapper inside the
+ * page instead, or portal the fixed element to <body>.
+ */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.3s; }
+
+/* ═══════════════════════════════════════════
+   MISCELLANEOUS UTILITIES
+   ═══════════════════════════════════════════ */
+.font-mono {
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+}
+
+select.form-input option {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+}
+
+/* ═══════════════════════════════════════════
+   BROWSER AUTOFILL — THE CHROME THAT IGNORES `color-scheme`
+   ═══════════════════════════════════════════
+
+   Picking a saved credential out of the browser's password manager hands the
+   field over to the UA stylesheet: Chrome paints its own background and its own
+   text colour and neither is ours. On a machine whose OS is set to dark it uses
+   the dark autofill pair — rgba(70,90,126,.4) behind WHITE text — and it does
+   that on OUR LIGHT PAGE, because the swatch is chosen from the OS preference,
+   not from the `color-scheme: light` the page declares. White on a 40% slate
+   wash over a white card measures 1.6:1: the sign-in screen showed the member
+   their own email address as a ghost.
+
+   `background-color` cannot fix it — the UA rule wins. A 1000px inset
+   box-shadow is the standard way to repaint the field from inside, and it
+   inherits the element's own border-radius, so `rounded-xl` survives. Text is
+   forced with `-webkit-text-fill-color`, which is the only property that beats
+   the UA's colour. The fill is `--field`, the same token <Input> paints itself
+   with, so a saved credential does not land in a differently coloured box.
+
+   The absurd `transition` delay is the second half of the trick: Chrome
+   re-applies the highlight on a timer after the value is filled, and parking
+   the transition ~317 years out means it never visibly arrives.
+
+   Both spellings are listed on purpose — `:autofill` is the standard (Firefox,
+   Safari 15+), `:-webkit-autofill` is Chrome's, and a browser that does not
+   know one selector drops that rule ONLY, not the block. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: hsl(var(--foreground));
+  caret-color: hsl(var(--foreground));
+  -webkit-box-shadow: 0 0 0 1000px hsl(var(--field)) inset;
+  box-shadow: 0 0 0 1000px hsl(var(--field)) inset;
+  transition: background-color 10000s ease-in-out 0s;
+}
+
+input:autofill,
+input:autofill:hover,
+input:autofill:focus,
+textarea:autofill,
+select:autofill {
+  -webkit-text-fill-color: hsl(var(--foreground));
+  caret-color: hsl(var(--foreground));
+  box-shadow: 0 0 0 1000px hsl(var(--field)) inset;
+  transition: background-color 10000s ease-in-out 0s;
+}
+
+/* The focus ring is a box-shadow too on some controls; the repaint above must
+   not swallow the border the field draws for itself. */
+input:-webkit-autofill:focus-visible,
+input:autofill:focus-visible {
+  border-color: hsl(var(--primary));
+}
+
+/* Modal system compatibility layer */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 20px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+  animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(20px);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+.modal-close:hover { color: hsl(var(--foreground)); }
+
+.modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid hsl(var(--border));
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* Notification popup */
+.notifications-panel {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}

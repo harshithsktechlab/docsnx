@@ -1,0 +1,48 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  0051 — an index the PLATFORM-WIDE counts can actually use               ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- Three super-admin screens count documents across EVERY tenant:
+--
+--   /api/admin/tenants             GROUP BY tenant_id
+--   /api/admin/document-categories GROUP BY (module_key, document_key)
+--   /api/admin/document-fields     COUNT for one category
+--
+-- Every index on `documents` leads with `tenant_id`, because every ordinary
+-- query is tenant-scoped and must be. None of them can serve a grouping that
+-- has no tenant predicate, so the last two were heap scans over the whole
+-- table — fine at today's volume and fatal well before the 200-500M rows the
+-- business account is being designed for.
+--
+-- ── WHAT THIS DOES AND DOES NOT FIX ────────────────────────────────────────
+-- It makes the two CATEGORY counts index-only scans over a partial index
+-- instead of scans of the heap. That is a large constant-factor win and it buys
+-- real runway; it does not make them O(1).
+--
+-- The O(1) answer is a summary table maintained on write, and it is
+-- deliberately NOT built here: a counter is only useful if it is exactly right,
+-- it would have to be updated from six write paths (create, soft delete, bulk
+-- delete, member removal, purge, restore), and a counter that drifts is worse
+-- than a query that is slow — it is a number an operator will believe. That is
+-- the change to make when a tenant approaches the volume, with the write paths
+-- in front of you.
+--
+-- The GROUP BY tenant_id needs nothing: several tenant-LEADING indexes already
+-- provide that ordering, and the planner picks among them (with seqscan off on
+-- an empty table it chose `documents_tenant_holder_idx`). Only the two category
+-- counts had no index that could serve them at all.
+--
+-- ── THE PREDICATE MUST MATCH `visibleDocument()` EXACTLY ───────────────────
+-- Postgres only uses a partial index when it can prove the query's WHERE
+-- implies the index predicate. `visibleDocument()` is
+-- `deleted_at IS NULL AND status = 'active'` (src/lib/records/documentVisibility.ts)
+-- and this mirrors it literally. Changing one without the other silently
+-- returns the planner to a seq scan, with no error and no visible symptom
+-- beyond the screens getting slower.
+--
+-- The DENORMALISED category columns, not `category_id`: both counting callers
+-- group by the (module_key, document_key) PAIR, and reading it off `documents`
+-- lets them drop the join to `document_categories` entirely.
+CREATE INDEX IF NOT EXISTS "documents_category_visible_idx"
+  ON "documents" ("category_module_key", "category_document_key")
+  WHERE "deleted_at" IS NULL AND "status" = 'active';--> statement-breakpoint

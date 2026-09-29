@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  app:
+    container_name: docsnx-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3005:3005"
+    environment:
+      - DATABASE_URL=postgresql://admin:dev_secure_2026@shared-postgres:5432/docsnx_db?schema=public
+      - JWT_SECRET=standalone_docsnx_secret_xyz
+      - ENCRYPTION_SECRET=docsnx_aes256_secret_key_32_bytes_long_!
+      - PORT=3005
+      - GEMINI_API_KEY=AIzaSyD677osYLyxLhns7LmtnGil1_6LlblZaQY
+      - RAZORPAY_KEY_ID=rzp_test_T9PDtiYjBifbX3
+      - RAZORPAY_KEY_SECRET=7WCzjanflOCGkF5aEmm5ClAZ
+      - RAZORPAY_WEBHOOK_SECRET=
+      # No UPLOAD_DIR and no uploads volume: user files are stored ONLY on the
+      # tenant's own Google Drive, encrypted. This server keeps metadata in
+      # Postgres and nothing else, so persisting a writable uploads mount would
+      # contradict that guarantee. AI scans use a swept scratch dir under
+      # os.tmpdir() (see src/lib/documentProcessor.ts), never a durable volume.
+    networks:
+      - standalone-apps-network
+
+networks:
+  standalone-apps-network:
+    external: true
+
+
+

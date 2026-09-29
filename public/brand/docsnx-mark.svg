@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<defs>
+  <linearGradient id="g" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0%" stop-color="#2563EB"/>
+    <stop offset="62%" stop-color="#7C3AED"/>
+    <stop offset="100%" stop-color="#EC4899"/>
+  </linearGradient>
+  <filter id="s" x="-30%" y="-30%" width="160%" height="160%">
+    <feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity=".16"/>
+  </filter>
+</defs>
+<path d="M92 48h225l103 103v275c0 21-17 38-38 38H92c-21 0-38-17-38-38V86c0-21 17-38 38-38z" fill="url(#g)" filter="url(#s)"/>
+<path d="M317 48v84c0 11 9 20 20 20h83z" fill="#ffffff" opacity=".20"/>
+<rect x="119" y="132" width="150" height="18" rx="9" fill="#fff" opacity=".95"/>
+<rect x="119" y="172" width="205" height="18" rx="9" fill="#fff" opacity=".95"/>
+<text x="111" y="315" font-family="Arial, Helvetica, sans-serif" font-size="142" font-weight="800" fill="#fff" letter-spacing="-10">NX</text>
+<path d="M382 190 l10 25 25 10-25 10-10 25-10-25-25-10 25-10z" fill="#fff"/>
+<rect x="411" y="177" width="10" height="10" rx="2" fill="#fff"/>
+<rect x="431" y="197" width="7" height="7" rx="2" fill="#fff" opacity=".9"/>
+</svg>

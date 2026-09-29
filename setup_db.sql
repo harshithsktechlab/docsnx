@@ -1,0 +1,4 @@
+CREATE USER admin WITH PASSWORD 'dev_secure_2026';
+CREATE DATABASE docsnx_db;
+GRANT ALL PRIVILEGES ON DATABASE docsnx_db TO admin;
+ALTER DATABASE docsnx_db OWNER TO admin;

@@ -1,0 +1,76 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.next-dev/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# Claude Code — commit shared config (.claude/settings.json, agents, skills,
+# commands, hooks) but keep machine-specific overrides and live MCP creds local
+.claude/settings.local.json
+.mcp.json
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+*.zip
+
+# sensitive data / local dumps (never commit)
+full_dump.sql
+test-login.json
+dump-users.mjs
+/google client/
+*.dump
+# dev-only bootstrap: creates a SUPER_ADMIN with a weak default password
+scripts/create-rachana-admin.mjs
+# secrets stored in public/ debug logs (removed from code, but never commit)
+public/*_debug.log
+# user-uploaded files. Prod uses UPLOAD_DIR=/var/lib/docsnx/uploads; this only
+# catches the local fallback in lib/upload.ts. Never commit tenant documents.
+public/uploads/
+
+# local rollback copy of a previous build output
+/.next.rollback/
+# dated rollback copies, e.g. .next.rollback-20260911/
+/.next.rollback-*/
+# local backup copy of a previous build output (sibling of .next.rollback)
+/.next.bak/
+
+# Playwright run artifacts
+/test-results/
+
+# the full brand kit (PDF, reference board, every icon size); only the files the app
+# references are copied into public/
+DocsNX-Brand-Assets/

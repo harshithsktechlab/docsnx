@@ -1,0 +1,43 @@
+[Unit]
+Description=docsnx nightly PostgreSQL backup
+# Unlike docsnx-notify.service, this one DOES depend on the local cluster: the
+# database it dumps is on this host (98.70.42.113 is this box's own public IP —
+# the "remote database" in older notes was always this cluster, which is why
+# dropping the local docsnx_db on 2026-09-02 took production down).
+Requires=postgresql.service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+# Runs as the postgres superuser over the local socket, so no password appears
+# in this unit, in the script, or in the process table. See the header of
+# scripts/pg-backup.sh.
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/bash /opt/docsnx/scripts/pg-backup.sh
+SyslogIdentifier=docsnx-db-backup
+# A dump of a ~120 MB cluster is seconds; anything approaching this is a hang.
+TimeoutStartSec=30min
+
+# ── Hardening, mirrored from docsnx-notify.service ───────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+# The one path this job is allowed to write. Everything else stays read-only.
+ReadWritePaths=/var/backups/postgres
+NoExecPaths=/tmp /var/tmp /dev/shm
+# Incident 2026-08-12 — every app on this host shares a uid; the siblings' env
+# files stay out of reach here too.
+InaccessiblePaths=/opt/vivaahnx /opt/vastipatrak /opt/arogyam /opt/evolution
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+# Local Unix socket only — this job never leaves the box.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

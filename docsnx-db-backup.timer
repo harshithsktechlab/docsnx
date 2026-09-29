@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the docsnx PostgreSQL backup nightly
+
+[Timer]
+# 20:30 UTC = 02:00 IST — well clear of docsnx-notify at 01:45 UTC, and in the
+# quietest part of the Indian night, so a dump never overlaps a working day.
+OnCalendar=*-*-* 20:30:00
+# A reboot straddling the scheduled minute must not cost a night's backup.
+Persistent=true
+# Spread the write burst so it cannot collide to the second with the other
+# timers on this shared host.
+RandomizedDelaySec=5min
+Unit=docsnx-db-backup.service
+
+[Install]
+WantedBy=timers.target

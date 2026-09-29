@@ -1,0 +1,20 @@
+{
+  "_README": "TEMPLATE ONLY. Copy to .mcp.json to enable, then restart Claude Code. .mcp.json is committed and shared with the team, so it must NEVER contain secrets — reference env vars with ${VAR} and put real values in .env (gitignored). SECURITY: docsnx is a multi-tenant vault; a Postgres MCP bypasses the app's RLS/auth layer, so ONLY ever point it at a LOCAL or READ-REPLICA database, never production primary. Prefer read-only credentials.",
+
+  "mcpServers": {
+    "_postgres_readonly": {
+      "_disabled_note": "Rename this key to 'postgres' to enable. Use a READ-ONLY, non-prod connection string.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "${DOCSNX_READONLY_DATABASE_URL}"]
+    },
+
+    "_filesystem_note": "The built-in Read/Grep/Glob tools already cover the repo; a filesystem MCP is usually unnecessary and is intentionally omitted.",
+
+    "_context7_docs": {
+      "_disabled_note": "Rename to 'context7' to enable up-to-date library docs (Next.js 15, Drizzle, Radix) inline. No secrets required; requires network + a free API key in CONTEXT7_API_KEY.",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "env": { "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}" }
+    }
+  }
+}

@@ -1,0 +1,454 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784803525271,
+      "tag": "0000_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784808550253,
+      "tag": "0001_widen_email_verification_otp",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785167060074,
+      "tag": "0002_add_google_drive_folder_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785394102470,
+      "tag": "0003_audit_logs_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785911689634,
+      "tag": "0004_document_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785940113930,
+      "tag": "0005_vault_key_hierarchy",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786060800000,
+      "tag": "0006_document_categories_drop_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786060900000,
+      "tag": "0007_seed_document_category_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786061000000,
+      "tag": "0008_document_category_fields_csv",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786061100000,
+      "tag": "0009_vault_document_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786061200000,
+      "tag": "0010_vault_all_modules",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786061300000,
+      "tag": "0011_passwords_vault",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786061400000,
+      "tag": "0012_document_categories_composite_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1722981400000,
+      "tag": "0013_documents_contractagreements_title_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786061401000,
+      "tag": "0014_document_category_fields_reseed",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786061402000,
+      "tag": "0015_taxonomy_reshuffle",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786061403000,
+      "tag": "0016_documents_universal_record",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786061404000,
+      "tag": "0017_module_miscellaneous_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786061405000,
+      "tag": "0018_miscellaneous_policy_union",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786061406000,
+      "tag": "0019_drop_consolidated_record_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786061407000,
+      "tag": "0020_holder_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786061408000,
+      "tag": "0021_documents_deleted_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786061409000,
+      "tag": "0022_category_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786061410000,
+      "tag": "0023_master_taxonomy_realignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786061411000,
+      "tag": "0024_permissions_sub_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786061412000,
+      "tag": "0025_category_field_spec",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786061413000,
+      "tag": "0026_drop_documents_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786061414000,
+      "tag": "0027_deleted_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786061415000,
+      "tag": "0028_plan_expiry_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786061416000,
+      "tag": "0029_credit_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786061417000,
+      "tag": "0030_gemini_3_flash_lite",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786061418000,
+      "tag": "0031_whatsapp_sender",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786061419000,
+      "tag": "0032_members_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786061420000,
+      "tag": "0033_category_field_lists",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786061421000,
+      "tag": "0034_category_ocr_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786061422000,
+      "tag": "0035_drop_retired_category_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786061423000,
+      "tag": "0036_drop_retired_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786061424000,
+      "tag": "0037_category_field_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786061425000,
+      "tag": "0038_custom_fields_plaintext",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786061426000,
+      "tag": "0039_phone_dial_and_first_login",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786061427000,
+      "tag": "0040_optional_member_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786061428000,
+      "tag": "0041_custom_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786061429000,
+      "tag": "0042_unrenderable_field_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786061430000,
+      "tag": "0043_document_source_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786061431000,
+      "tag": "0044_tenant_billing_contact",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786061432000,
+      "tag": "0045_drive_quota_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786061433000,
+      "tag": "0046_notification_dedupe_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786061434000,
+      "tag": "0047_vehicle_insurance_mirror",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786061435000,
+      "tag": "0048_field_alert_days",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1786061436000,
+      "tag": "0049_max_upload_bytes",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786061437000,
+      "tag": "0050_business_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1786061438000,
+      "tag": "0051_platform_wide_count_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1786061439000,
+      "tag": "0052_dual_channel_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1786061440000,
+      "tag": "0053_company_scoped_utilities",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1786061441000,
+      "tag": "0054_company_scoped_analysis_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1786061442000,
+      "tag": "0055_drop_retired_business_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1786061443000,
+      "tag": "0056_workspace_scoped_members_and_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1786061444000,
+      "tag": "0057_account_axis_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1786061445000,
+      "tag": "0058_the_price_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1786061446000,
+      "tag": "0059_notifications_learn_the_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1786061447000,
+      "tag": "0060_drop_ai_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1786061448000,
+      "tag": "0061_addon_quantity",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786061449000,
+      "tag": "0062_deleted_accounts_phone_dial_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786061450000,
+      "tag": "0063_user_sign_in_disabled",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  0034 — which fields a scan should read off the document                 ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- One column, additive, forward-only.
+--
+-- The rule this stores already existed — as an inline filter inside the prompt
+-- builder, `extractCategoryFields` in src/lib/ai.js:
+--
+--     fields.filter((f) => f.fieldKey !== 'custom_fields'
+--                       && f.fieldKey !== 'holder_name')
+--
+-- That is what the add form's upload-and-autofill asks a model for, per
+-- sub-category, today. It was invisible to SQL, invisible to anyone reading the
+-- taxonomy, and impossible to inspect one category at a time. This promotes it
+-- to a column beside the two lists 0033 added:
+--
+--   ocr_fields → all_fields minus `holder_name` and `custom_fields`
+--                identity/pan_card → 'document_title,pan_number,father_name,
+--                                     date_of_birth,issue_date,notes'
+--
+-- Those two are excluded because a DOCUMENT does not state either: the holder
+-- is answered once by the form's "Belongs to" picker (and asked of the model
+-- once, as `holderName`), and custom fields are label/value rows the user
+-- invents. Everything else a category declares is fair game, which is what
+-- makes the identifiers, the reminder-bearing dates the follow-up page runs on,
+-- and the open-tier fields AI analysis reasons over all fillable from one pass.
+--
+-- ── NOT MERELY DESCRIPTIVE ────────────────────────────────────────────────
+-- Unlike mandatory_fields / all_fields, this column's rule is SHARED with the
+-- code that acts on it: `ocrFieldKeys()` in src/lib/documentCategoryFields.ts
+-- builds both this column and the prompt's ask-list, so the row states the
+-- prompt actually issued rather than a description of one.
+--
+-- Being read is a separate axis from being SEALED. A key here may also appear
+-- in encrypted_fields — extraction decides what is asked for, the encrypt
+-- policy decides where the answer is stored. This migration changes neither the
+-- policy nor what any existing prompt asks for.
+--
+-- ── SEEDED FROM TYPESCRIPT, NOT FROM SQL ──────────────────────────────────
+-- Same call as 0025 and 0033, for the same reason: generating the list from the
+-- TS source is what keeps the two in step. The column lands EMPTY. Run,
+-- immediately after this:
+--
+--     npx tsx scripts/seed_document_category_fields.ts
+--
+-- '' means NOT SEEDED. Nothing reads the column for behaviour — the prompt
+-- applies `ocrFieldKeys` to the stored `fields` spec directly — so the gap
+-- between migrating and seeding costs nothing.
+--
+-- No RLS change. `document_category_fields` is global reference data: its
+-- tenant_id was dropped in 0008 and it carries no policy, so it appears in
+-- neither list in scripts/apply-rls.js. Field KEY names are not tenant data.
+
+ALTER TABLE "document_category_fields"
+  ADD COLUMN IF NOT EXISTS "ocr_fields" text DEFAULT '' NOT NULL;

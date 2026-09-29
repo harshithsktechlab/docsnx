@@ -1,0 +1,13 @@
+[Unit]
+Description=Run docsnx daily notifications
+
+[Timer]
+# 01:45 UTC = 07:15 IST — the time scripts/plan-expiry-cron.ts has always
+# suggested, and a reasonable hour to be told a policy lapses this week.
+OnCalendar=*-*-* 01:45:00
+# A reboot straddling the scheduled minute must not cost a day's notices.
+Persistent=true
+Unit=docsnx-notify.service
+
+[Install]
+WantedBy=timers.target

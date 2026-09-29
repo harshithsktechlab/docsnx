@@ -1,0 +1,10 @@
+LIFE INSURANCE CORPORATION OF INDIA (LIC)
+Policyholder Name: Archi Patel
+Policy Number: 987654321
+Plan: Jeevan Anand (Endowment Plan)
+Sum Assured: Rs 25,00,000
+Premium Amount: Rs 45,000 / Year
+Next Premium Due Date: 2026-08-15
+Maturity Date: 2045-08-15
+Nominee: Sunil Patel (Relationship: Father)
+Status: In Force

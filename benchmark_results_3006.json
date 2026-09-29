@@ -1,0 +1,62 @@
+[
+  {
+    "concurrency": 10,
+    "durationSec": 5,
+    "totalRequests": 240,
+    "successCount": 240,
+    "errorCount": 0,
+    "rps": 47.27,
+    "p50": 150.72,
+    "p90": 470.19,
+    "p95": 662.23,
+    "p99": 898.65,
+    "memoryDeltaMB": "5.94",
+    "cpuUserSec": "0.53",
+    "cpuSystemSec": "0.63"
+  },
+  {
+    "concurrency": 25,
+    "durationSec": 5,
+    "totalRequests": 449,
+    "successCount": 449,
+    "errorCount": 0,
+    "rps": 86.58,
+    "p50": 253.11,
+    "p90": 460.13,
+    "p95": 693.99,
+    "p99": 960.43,
+    "memoryDeltaMB": "3.64",
+    "cpuUserSec": "0.64",
+    "cpuSystemSec": "0.88"
+  },
+  {
+    "concurrency": 50,
+    "durationSec": 5,
+    "totalRequests": 664,
+    "successCount": 664,
+    "errorCount": 0,
+    "rps": 123.51,
+    "p50": 388.41,
+    "p90": 490.17,
+    "p95": 535.14,
+    "p99": 797.15,
+    "memoryDeltaMB": "3.38",
+    "cpuUserSec": "0.81",
+    "cpuSystemSec": "1.05"
+  },
+  {
+    "concurrency": 100,
+    "durationSec": 5,
+    "totalRequests": 280,
+    "successCount": 280,
+    "errorCount": 0,
+    "rps": 46.87,
+    "p50": 1726.69,
+    "p90": 3430.45,
+    "p95": 3947.8,
+    "p99": 4238.42,
+    "memoryDeltaMB": "-10.00",
+    "cpuUserSec": "0.50",
+    "cpuSystemSec": "0.61"
+  }
+]

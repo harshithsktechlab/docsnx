@@ -1,0 +1,29 @@
+﻿HDFC BANK LIMITED
+Branch: Koramangala, Bengaluru
+Account Statement
+
+Account Holder: Archi Patel
+Account Number: XXXX-XXXX-4521
+Account Type: Savings Account
+IFSC Code: HDFC0001234
+
+Period: 01 Jun 2026 - 30 Jun 2026
+
+Opening Balance: INR 45,230.00
+
+Transactions:
+06/01/2026  By Transfer - Salary Deposit            +85,000.00
+06/03/2026  To UPI - Swiggy Food Order              -850.00
+06/05/2026  To HDFC Credit Card Payment             -12,500.00
+06/10/2026  To SIP - ICICI Pru Bluechip Fund        -5,000.00
+06/15/2026  By Transfer - Rental Income             +15,000.00
+06/18/2026  To UPI - Amazon Shopping                -3,200.00
+06/22/2026  To LIC Premium Payment                  -7,500.00
+06/25/2026  To Electricity Bill - BESCOM            -1,250.00
+06/28/2026  To UPI - Zomato                         -450.00
+06/30/2026  To Mobile Recharge - Jio               -299.00
+
+Closing Balance: INR 1,14,181.00
+
+This is a computer generated statement. No signature required.
+HDFC Bank Limited | CIN: L65920MH1994PLC080618

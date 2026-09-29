@@ -1,0 +1,42 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  0046 — notifications.dedupe_key                                         ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- The bell has never shown anyone anything: this table held zero rows, all
+-- time. Not a UI fault — the panel, the API and the FCM stack are all correct.
+-- It had almost no writers. The plan-expiry ladder was the one scheduled
+-- producer and nothing ever scheduled it, and the renewal engine that the
+-- panel's own copy promises ("Active Alerts" / "All records up to date!")
+-- fed the follow-up page and stopped there.
+--
+-- The daily job that fixes that (scripts/plan-expiry-cron.ts) announces
+-- STANDING FACTS, not events. A policy lapsing in nine days is equally true
+-- tomorrow morning. Without something to say "already told them", the cron
+-- would file a fresh copy of every reminder every day until the record was
+-- renewed, and the bell would go from empty to unreadable — which is the same
+-- feature not working, in the other direction.
+--
+-- ── WHY A COLUMN AND AN INDEX, NOT A LOOKUP ────────────────────────────────
+-- The writer inserts with ON CONFLICT DO NOTHING and lets Postgres decide
+-- whether the notice is new. The obvious alternative — SELECT "have I sent
+-- this?", then INSERT — is a race: two overlapping runs both read "no" and both
+-- insert. It is also what tells the cron whether to send a PUSH, since only the
+-- rows the insert actually returns are new.
+--
+-- ── WHY NULLABLE, AND WHY NULL IS NOT A KEY ────────────────────────────────
+-- The event-driven writers — a to-do assigned, a manual POST /api/notifications
+-- — describe something that just happened and cannot repeat, so they leave this
+-- NULL. Postgres treats NULLs as distinct under a unique index, so any number
+-- of them coexist and no existing writer changes behaviour.
+--
+-- ── WHY THE KEY INCLUDES user_id ───────────────────────────────────────────
+-- Every member of a workspace gets their own copy of the same notice. Keyed on
+-- tenant alone, the first member reached would take the notice and the rest
+-- would be silently deduped out of it.
+--
+-- Additive: one nullable column and one index over a table with no rows.
+-- Nothing rewritten, nothing backfilled.
+
+ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "dedupe_key" varchar(255);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "notifications_tenant_user_dedupe_idx" ON "notifications" ("tenant_id","user_id","dedupe_key");

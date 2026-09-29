@@ -1,0 +1,10 @@
+GOVERNMENT OF GUJARAT - VEHICLE REGISTRATION CERTIFICATE (RC)
+Owner Name: Archi Patel
+Registration Number: GJ-01-AB-1234
+Vehicle Make & Model: Tata Nexon EV Max
+Chassis Number: MAT1234567890EV01
+Engine/Motor Number: EVM987654321
+Registration Date: 2024-03-10
+Insurance Expiry Date: 2027-03-09
+Fitness Valid Upto: 2039-03-09
+Fuel Type: Electric

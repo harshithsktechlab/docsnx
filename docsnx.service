@@ -1,0 +1,98 @@
+[Unit]
+Description=docsnx (Next.js 15 production server)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=azureuser
+Group=azureuser
+# Working dir is the app root: Next still reads .env.production from here for
+# non-secret configuration (NEXT_PUBLIC_* must be there — they are inlined into
+# the client bundle at build time, when systemd credentials do not exist).
+# Secrets are NOT in that file; see LoadCredentialEncrypted below.
+WorkingDirectory=/opt/docsnx
+Environment=NODE_ENV=production
+Environment=PORT=3005
+Environment=HOSTNAME=127.0.0.1
+# Public origin for emailed links (password reset). Must NOT fall back to localhost.
+Environment=APP_URL=https://www.docsnx.com
+# Uploaded files live outside public/ so they are never precached by the service
+# worker nor served statically past the tenant check in /api/uploads/[filename].
+Environment=UPLOAD_DIR=/var/lib/docsnx/uploads
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# Sealed with `systemd-creds encrypt --with-key=host+tpm2` (see
+# scripts/seal-credentials.sh). systemd decrypts them as root at start into
+# $CREDENTIALS_DIRECTORY — a 0400 tmpfs inside this unit's private mount
+# namespace — and scripts/start-with-credentials.sh exports them into the
+# environment before handing off to Next.
+#
+# This replaces the plaintext /opt/docsnx/.env.local that used to sit inside the
+# app's own working directory. Two things change: nothing readable is on disk at
+# rest, and the credentials path does not exist for any other service, so the
+# shared-uid cross-app read that made the 2026-08-12 incident so wide is closed
+# by the kernel rather than by the InaccessiblePaths denylist below.
+#
+# A blob whose name does not match its --name= stamp is refused, so a swapped
+# file is a hard start failure rather than a silent wrong value.
+LoadCredentialEncrypted=DATABASE_URL:/etc/docsnx/credentials/DATABASE_URL.cred
+LoadCredentialEncrypted=JWT_SECRET:/etc/docsnx/credentials/JWT_SECRET.cred
+LoadCredentialEncrypted=UDYAMNX_JWT_SECRET:/etc/docsnx/credentials/UDYAMNX_JWT_SECRET.cred
+LoadCredentialEncrypted=ENCRYPTION_SECRET:/etc/docsnx/credentials/ENCRYPTION_SECRET.cred
+LoadCredentialEncrypted=BLIND_INDEX_KEY:/etc/docsnx/credentials/BLIND_INDEX_KEY.cred
+LoadCredentialEncrypted=GEMINI_API_KEY:/etc/docsnx/credentials/GEMINI_API_KEY.cred
+LoadCredentialEncrypted=GOOGLE_CLIENT_SECRET:/etc/docsnx/credentials/GOOGLE_CLIENT_SECRET.cred
+LoadCredentialEncrypted=RAZORPAY_KEY_SECRET:/etc/docsnx/credentials/RAZORPAY_KEY_SECRET.cred
+LoadCredentialEncrypted=RAZORPAY_WEBHOOK_SECRET:/etc/docsnx/credentials/RAZORPAY_WEBHOOK_SECRET.cred
+LoadCredentialEncrypted=FIREBASE_SERVICE_ACCOUNT:/etc/docsnx/credentials/FIREBASE_SERVICE_ACCOUNT.cred
+LoadCredentialEncrypted=AZURE_STORAGE_CONNECTION_STRING:/etc/docsnx/credentials/AZURE_STORAGE_CONNECTION_STRING.cred
+LoadCredentialEncrypted=NOTIFICATION_SERVICE_API_KEY:/etc/docsnx/credentials/NOTIFICATION_SERVICE_API_KEY.cred
+
+# Bind loopback only; nginx terminates TLS and proxies to 127.0.0.1:3005.
+# The wrapper exports the credentials above, then execs `next start` on this port.
+ExecStart=/opt/docsnx/scripts/start-with-credentials.sh
+Restart=always
+RestartSec=5
+SyslogIdentifier=docsnx
+
+# ── Hardening ────────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+# strict, not full: `full` leaves /opt readable and writable, which is how a
+# compromised docsnx could reach its siblings' secrets (incident 2026-08-12).
+ProtectSystem=strict
+ReadWritePaths=/opt/docsnx/.next /var/lib/docsnx/uploads
+
+# Incident 2026-08-12 — the two controls aimed at the observed attack chain:
+#
+# 1. The payload was fetched into /tmp and executed there. PrivateTmp already
+#    gave the service its own /tmp; NoExecPaths makes that tmp non-executable,
+#    so "download a binary and run it" stops working even if code execution is
+#    achieved again via some future flaw. Does not depend on knowing the bug.
+NoExecPaths=/tmp /var/tmp /dev/shm
+#
+# 2. Every service on this host runs as the same azureuser uid, so RCE in
+#    docsnx meant read access to the sibling apps' env files and secrets.
+#    Per-app uids are the real fix; until then, hide the siblings outright.
+#    Kept as defence in depth now that docsnx's own secrets are TPM-sealed
+#    credentials rather than a readable file — the siblings still have theirs.
+InaccessiblePaths=/opt/vivaahnx /opt/vastipatrak /opt/arogyam /opt/evolution
+
+# NOTE: deliberately NOT setting MemoryDenyWriteExecute — V8's JIT needs
+# writable+executable pages and the service would fail to start.
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
