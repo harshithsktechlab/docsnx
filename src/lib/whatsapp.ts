@@ -312,19 +312,38 @@ export async function sendWhatsAppText(
   if (!number) return { success: false, error: 'No usable phone number' };
 
   const config = await getWhatsAppConfig();
+
+  console.log(`[whatsapp] send to ${phone} via instance "${config?.instance}"`);
+  console.log(`[whatsapp] message body: "${text}"`);
   if (!config) return { success: false, error: 'WhatsApp not configured' };
 
   try {
     // No `delay`/`presence` pacing here on purpose. A human-looking typing pause
     // is right for bulk outreach and wrong for a code that expires in fifteen
     // minutes.
-    const response = await fetch(`${config.apiUrl}/message/sendText/${encodeURIComponent(config.instance)}`, {
-      method: 'POST',
-      headers: authHeaders(config.apiKey),
-      body: JSON.stringify({ number, text }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    // const response = await fetch(`${config.apiUrl}/message/sendText/${encodeURIComponent(config.instance)}`, {
+    //   method: 'POST',
+    //   headers: authHeaders(config.apiKey),
+    //   body: JSON.stringify({ number, text }),
+    //   signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    // });
 
+    const response = await fetch(`${process.env.WHATSAPP_BUSINESS_API_URL}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.WHATSAPP_API_TOKEN}`,
+        'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: phone,
+          type: 'text',
+          text: { body: text },
+        }),
+      },
+    )
+
+    console.log(`[whatsapp] send to ${number} response:`, response.status, response.ok);
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       console.error(`[whatsapp] send to ${number} failed (${response.status}): ${detail}`);
