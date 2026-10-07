@@ -2,6 +2,7 @@
 import { PasswordInput } from '@/components/ui/password-input';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   Settings, Loader2, Save
@@ -17,7 +18,16 @@ import PageContainer from '@/app/components/PageContainer';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
+const PROVIDER_LABELS = { smtp: 'SMTP', graph: 'Microsoft Graph', gmail: 'Gmail API' };
+
 export default function AdminSettingsPage() {
+  /** The single active email provider, read from /api/admin/email-provider. */
+  const [emailProvider, setEmailProvider] = useState(null);
+  useEffect(() => {
+    apiCall('/api/admin/email-provider')
+      .then(({ json }) => { if (json?.success) setEmailProvider(json.config.provider); })
+      .catch(() => {});
+  }, []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   /** Whether an SMTP password is already stored. The route never sends it back. */
@@ -251,6 +261,23 @@ export default function AdminSettingsPage() {
           </TabsContent>
 
           <TabsContent value="email" className="space-y-6">
+            <Card className="border-primary/40 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-xl">Email Provider</CardTitle>
+                <CardDescription>
+                  Choose how the platform sends email: SMTP, Microsoft Graph or Gmail API. Only one is active at a time.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                <p className="text-sm">
+                  Active provider:{' '}
+                  <strong>{emailProvider ? PROVIDER_LABELS[emailProvider] || emailProvider : '…'}</strong>
+                </p>
+                <Button asChild type="button" variant="outline">
+                  <Link href="/admin/smtp">Change email provider</Link>
+                </Button>
+              </CardContent>
+            </Card>
             <Card className="border-border/40 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-xl">SMTP Configuration (Emails)</CardTitle>

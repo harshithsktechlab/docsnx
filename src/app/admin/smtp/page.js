@@ -16,15 +16,32 @@ import PageContainer from '@/app/components/PageContainer';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
+const PROVIDERS = [
+  { id: 'smtp', label: 'SMTP', hint: 'Any standard mail server' },
+  { id: 'graph', label: 'Microsoft Graph', hint: 'Microsoft 365 / Exchange Online' },
+  { id: 'gmail', label: 'Gmail API', hint: 'Google Workspace' },
+];
+
 export default function SmtpConfigPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  /** Optional inbox for the test email; blank means the signed-in admin's own address. */
+  const [testTo, setTestTo] = useState('');
   /** Whether a password is already saved — decides the placeholder and `required`. */
   const [hasStoredPassword, setHasStoredPassword] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  /** The ONE active provider: 'smtp' | 'graph' | 'gmail'. Secrets are write-only. */
+  const [provider, setProvider] = useState('smtp');
+  const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [hasGraphSecret, setHasGraphSecret] = useState(false);
+  const [hasGmailKey, setHasGmailKey] = useState(false);
+  const [providerData, setProviderData] = useState({
+    graphTenantId: '', graphClientId: '', graphClientSecret: '', graphSenderMailbox: '',
+    gmailClientEmail: '', gmailPrivateKey: '', gmailSenderMailbox: '',
+  });
   const [formData, setFormData] = useState({
     smtpHost: '',
     smtpPort: 587,
@@ -56,6 +73,15 @@ export default function SmtpConfigPage() {
 
   const fetchSmtpConfig = async () => {
     try {
+      const { json: pj } = await apiCall('/api/admin/email-provider');
+      if (pj.success && pj.config) {
+        const { provider: active, smtpConfigured: smtpOk, hasGraphSecret: g, hasGmailKey: k, ...rest } = pj.config;
+        setProvider(active);
+        setSmtpConfigured(!!smtpOk);
+        setHasGraphSecret(!!g);
+        setHasGmailKey(!!k);
+        setProviderData(prev => ({ ...prev, ...rest, graphClientSecret: '', gmailPrivateKey: '' }));
+      }
       const { json } = await apiCall('/api/admin/smtp');
       if (json.success && json.config) {
         // `hasPassword`, never the password — the route stopped decrypting the
@@ -86,13 +112,35 @@ export default function SmtpConfigPage() {
     setSuccess('');
     setError('');
     try {
-      const { json } = await apiCall('/api/admin/smtp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      // SMTP saves its own fields first; the other providers have nothing there.
+      let json = { success: true };
+      if (provider === 'smtp') {
+        ({ json } = await apiCall('/api/admin/smtp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        }));
+      }
+      // Then make the chosen provider the single active one.
       if (json.success) {
-        setSuccess('SMTP Server configurations updated successfully.');
+        const body = provider === 'graph'
+          ? { provider, graphTenantId: providerData.graphTenantId, graphClientId: providerData.graphClientId,
+              graphClientSecret: providerData.graphClientSecret, graphSenderMailbox: providerData.graphSenderMailbox }
+          : provider === 'gmail'
+            ? { provider, gmailClientEmail: providerData.gmailClientEmail,
+                gmailPrivateKey: providerData.gmailPrivateKey, gmailSenderMailbox: providerData.gmailSenderMailbox }
+            : { provider };
+        ({ json } = await apiCall('/api/admin/email-provider', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        }));
+      }
+      if (json.success) {
+        setSuccess('Email provider configuration updated successfully.');
+        if (provider === 'smtp') setSmtpConfigured(true);
+        if (provider === 'graph') { setHasGraphSecret(true); setProviderData(prev => ({ ...prev, graphClientSecret: '' })); }
+        if (provider === 'gmail') { setHasGmailKey(true); setProviderData(prev => ({ ...prev, gmailPrivateKey: '' })); }
         // A typed password has been consumed. Clearing it keeps the field's
         // meaning consistent — empty means "keep the saved one" — and stops the
         // credential sitting in state after it has been stored.
@@ -124,7 +172,11 @@ export default function SmtpConfigPage() {
     setSuccess('');
     setError('');
     try {
-      const { json } = await apiCall('/api/admin/smtp/test', { method: 'POST' });
+      const { json } = await apiCall('/api/admin/smtp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testTo.trim() || undefined }),
+      });
       if (json.success) {
         setSuccess(json.message || 'Test email sent.');
       } else {
@@ -182,13 +234,103 @@ export default function SmtpConfigPage() {
           <CardHeader>
             <CardTitle className="text-lg font-bold text-primary flex items-center gap-2">
               <Mail size={18} />
-              <span>SMTP Mail Configuration</span>
+              <span>Email Provider</span>
             </CardTitle>
             <CardDescription className="text-xs">
-              This configuration enables standard platform notifications, system verification emails, and alerts delivery.
+              Choose how the platform sends email (verification codes, password resets, invoices, alerts). Only one provider is active at a time.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            <div role="radiogroup" aria-label="Email provider" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {PROVIDERS.map(opt => (
+                <label
+                  key={opt.id}
+                  className={`flex flex-col gap-0.5 rounded-lg border p-3 cursor-pointer text-sm ${provider === opt.id ? 'border-primary bg-primary/10' : 'border-border/50'}`}
+                >
+                  <span className="flex items-center gap-2 font-semibold text-foreground">
+                    <input
+                      type="radio"
+                      name="emailProvider"
+                      className="accent-primary"
+                      checked={provider === opt.id}
+                      onChange={() => { setProvider(opt.id); setSuccess(''); setError(''); }}
+                    />
+                    {opt.label}
+                    {provider === opt.id && <span className="ml-auto text-[10px] uppercase text-primary">Active on save</span>}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{opt.hint}</span>
+                </label>
+              ))}
+            </div>
+
+            {provider === 'graph' && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Directory (Tenant) ID *</Label>
+                    <Input value={providerData.graphTenantId} required
+                      onChange={e => setProviderData(prev => ({ ...prev, graphTenantId: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Application (Client) ID *</Label>
+                    <Input value={providerData.graphClientId} required
+                      onChange={e => setProviderData(prev => ({ ...prev, graphClientId: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Client Secret {hasGraphSecret ? '' : '*'}</Label>
+                  <PasswordInput
+                    autoComplete="new-password"
+                    placeholder={hasGraphSecret ? 'Saved — leave blank to keep it' : 'Client secret value'}
+                    value={providerData.graphClientSecret}
+                    onChange={e => setProviderData(prev => ({ ...prev, graphClientSecret: e.target.value }))}
+                    required={!hasGraphSecret}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Sender Mailbox *</Label>
+                  <Input type="email" placeholder="noreply@yourdomain.com" value={providerData.graphSenderMailbox} required
+                    onChange={e => setProviderData(prev => ({ ...prev, graphSenderMailbox: e.target.value }))} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Register an Azure app, add the <strong>Mail.Send</strong> application permission and grant admin
+                  consent. Consider an Exchange ApplicationAccessPolicy so the app can only send as this mailbox.
+                </p>
+              </>
+            )}
+
+            {provider === 'gmail' && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Service Account Email *</Label>
+                    <Input type="email" value={providerData.gmailClientEmail} required
+                      onChange={e => setProviderData(prev => ({ ...prev, gmailClientEmail: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Sender Mailbox *</Label>
+                    <Input type="email" placeholder="noreply@yourdomain.com" value={providerData.gmailSenderMailbox} required
+                      onChange={e => setProviderData(prev => ({ ...prev, gmailSenderMailbox: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Service Account Private Key {hasGmailKey ? '' : '*'}</Label>
+                  <PasswordInput
+                    autoComplete="new-password"
+                    placeholder={hasGmailKey ? 'Saved — leave blank to keep it' : '-----BEGIN PRIVATE KEY-----…'}
+                    value={providerData.gmailPrivateKey}
+                    onChange={e => setProviderData(prev => ({ ...prev, gmailPrivateKey: e.target.value }))}
+                    required={!hasGmailKey}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Needs a Google Workspace service account with domain-wide delegation for the
+                  <strong> gmail.send</strong> scope.
+                </p>
+              </>
+            )}
+
+            {provider === 'smtp' && (<>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label>SMTP Host Address *</Label>
@@ -292,11 +434,12 @@ export default function SmtpConfigPage() {
                 <AlertDescription className="text-xs">{securityIssue}</AlertDescription>
               </Alert>
             )}
+            </>)}
           </CardContent>
           <CardFooter className="pt-2 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             <Button 
               type="submit" 
-              disabled={saving || !!securityIssue}
+              disabled={saving || (provider === 'smtp' && !!securityIssue)}
               className="w-full sm:w-auto font-bold h-10 px-5 text-xs bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-2"
             >
               {saving ? (
@@ -307,7 +450,7 @@ export default function SmtpConfigPage() {
               ) : (
                 <>
                   <Save size={14} />
-                  <span>Save SMTP Configuration</span>
+                  <span>Save &amp; Activate Provider</span>
                 </>
               )}
             </Button>
@@ -316,6 +459,14 @@ export default function SmtpConfigPage() {
               SAVED row, so it is only meaningful after a save — hence the note
               beside it rather than a tooltip nobody opens.
             */}
+            <Input
+              type="email"
+              placeholder="Send test to (optional)"
+              value={testTo}
+              onChange={e => setTestTo(e.target.value)}
+              className="w-full sm:w-64 h-10 text-xs"
+              aria-label="Send test email to"
+            />
             <Button
               type="button"
               variant="outline"
@@ -336,7 +487,7 @@ export default function SmtpConfigPage() {
               )}
             </Button>
             <span className="text-xs text-muted-foreground sm:ml-1">
-              Sends to your own address using the <strong>saved</strong> settings. Save first.
+              Sends using the <strong>saved</strong> settings to the address at left, or to your own if blank. Save first.
             </span>
           </CardFooter>
         </Card>

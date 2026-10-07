@@ -204,6 +204,15 @@ export async function getWhatsAppConfig(): Promise<WhatsAppConfig | null> {
 }
 
 /**
+ * Can a WhatsApp code actually be delivered right now? Same gate the send path
+ * uses, so "required" and "deliverable" cannot disagree. Feed the result to
+ * `requiredChannels(user, { whatsappEnabled })`.
+ */
+export async function isWhatsAppEnabled(): Promise<boolean> {
+  return (await getWhatsAppConfig()) !== null;
+}
+
+/**
  * Every instance the engine holds, for the admin picker.
  *
  * Returns `[]` rather than throwing on any failure — a dead engine should make

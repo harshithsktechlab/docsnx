@@ -26,6 +26,7 @@ import { withTenant } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { issueOtpChallenge, isFullyVerified } from '@/lib/otpChallenge';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 
@@ -59,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: 'Member not found' }, { status: 404 });
     }
 
-    if (isFullyVerified(target)) {
+    if (isFullyVerified(target, { whatsappEnabled: await isWhatsAppEnabled() })) {
       return NextResponse.json({
         error: 'This member has already completed verification.',
       }, { status: 400 });

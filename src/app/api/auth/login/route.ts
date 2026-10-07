@@ -6,6 +6,7 @@ import { findUserByIdentifier } from '@/lib/authLookup';
 import { findErasedAccount, erasedAccountResponse } from '@/lib/account/erasedAccountLookup';
 import { isSignInDisabled, signInDisabledResponse } from '@/lib/account/signInDisabled';
 import { issueOtpChallenge, isFullyVerified } from '@/lib/otpChallenge';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { z } from 'zod';
 import { serverError } from '@/lib/routeError';
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
     // messages at someone else's inbox or handset without already holding their
     // credentials. It used to refuse without issuing anything, leaving the
     // person to find the Resend button on a screen they had never seen.
-    if (!isFullyVerified(user)) {
+    if (!isFullyVerified(user, { whatsappEnabled: await isWhatsAppEnabled() })) {
       const {
         emailHint, phoneHint, issued, delivered, channels, needsEmailCode, needsPhoneCode,
       } = await issueOtpChallenge(user);

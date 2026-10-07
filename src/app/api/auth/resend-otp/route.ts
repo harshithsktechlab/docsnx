@@ -3,6 +3,7 @@ import { authRateLimiter } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { findUserByIdentifier } from '@/lib/authLookup';
 import { issueOtpChallenge, isFullyVerified } from '@/lib/otpChallenge';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { serverError } from '@/lib/routeError';
 import { isSignInDisabled } from '@/lib/account/signInDisabled';
 
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
     // destination rather than a different message. A member whose sign-in is
     // off is a non-case too: no code is sent, and nothing says why, since this
     // route takes no password.
-    if (!user || isFullyVerified(user) || isSignInDisabled(user)) {
+    if (!user || isFullyVerified(user, { whatsappEnabled: await isWhatsAppEnabled() }) || isSignInDisabled(user)) {
       return NextResponse.json({
         success: true,
         message: GENERIC,

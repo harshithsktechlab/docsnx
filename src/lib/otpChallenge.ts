@@ -52,10 +52,10 @@ import { db } from './db';
 import { users } from '../db/schema';
 import { hashToken } from './fieldCrypto';
 import { sendVerificationOtpEmail } from './mailer';
-import { sendWhatsAppOtp } from './whatsapp';
+import { sendWhatsAppOtp, isWhatsAppEnabled } from './whatsapp';
 import { maskEmail, maskPhone } from './dataMasking';
 import { toDialString } from './phone';
-import { requiredChannels, outstandingChannels } from './verificationChannels';
+import { requiredChannels, outstandingChannels, type ChannelOptions } from './verificationChannels';
 
 /** How long a code is good for. Mirrored by the copy in both messages. */
 export const OTP_TTL_MS = 15 * 60 * 1000;
@@ -143,8 +143,11 @@ export {
 export type { VerifiableUser, VerifiableRole } from './verificationChannels';
 
 /** Masked destinations for the verification screen's copy. Never the raw code. */
-export function otpHints(user: { role: string; email: string | null; phoneNumber: string | null }) {
-  const required = requiredChannels(user);
+export function otpHints(
+  user: { role: string; email: string | null; phoneNumber: string | null },
+  opts: ChannelOptions = {},
+) {
+  const required = requiredChannels(user, opts);
   return {
     // Empty for a member: no code is going there, so naming it on the verify
     // screen would send them to an inbox that will never receive one.
@@ -175,8 +178,9 @@ function sixDigits(): string {
  * limits; the routes do, at the IP.
  */
 export async function issueOtpChallenge(user: ChallengeTarget): Promise<OtpChallenge> {
-  const hints = otpHints(user);
-  const outstanding = outstandingChannels(user);
+  const opts = { whatsappEnabled: await isWhatsAppEnabled() };
+  const hints = otpHints(user, opts);
+  const outstanding = outstandingChannels(user, opts);
   const base = {
     ...hints,
     needsEmailCode: outstanding.email,

@@ -7,6 +7,7 @@ import { newTenantPlanValues, recordSignupGrant } from '@/lib/planProvisioning';
 import { validateUserContacts } from '@/lib/userContactValidation';
 import { defaultWorkspaceName } from '@/lib/workspaceName';
 import { issueOtpChallenge, isFullyVerified } from '@/lib/otpChallenge';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { isReclaimablePending } from '@/lib/pendingSignup';
 import { toDialString } from '@/lib/phone';
 import {
@@ -232,7 +233,7 @@ export async function POST(req: Request) {
 
       // A finished account. Same wording it has always answered with; the flag
       // is what lets the register page offer Sign in instead of a dead toast.
-      if (isFullyVerified(row)) {
+      if (isFullyVerified(row, { whatsappEnabled: await isWhatsAppEnabled() })) {
         const message = hitByEmail ? 'Email already registered' : DUPLICATE_PHONE_MESSAGE;
         return NextResponse.json({
           error: message,
