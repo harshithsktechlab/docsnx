@@ -27,6 +27,15 @@ import { toDialString } from './phone';
 
 export type VerifiableRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'STANDARD';
 
+/**
+ * `whatsappEnabled: false` drops the phone channel for admins. Omitted means
+ * "on", so callers that cannot know (the browser) keep the full rule. Server
+ * routes pass the real value from `isWhatsAppEnabled()`.
+ */
+export interface ChannelOptions {
+  whatsappEnabled?: boolean;
+}
+
 /** What the predicates read. Structural, so a full row or a projection fits. */
 export interface VerifiableUser {
   role: VerifiableRole | string;
@@ -54,8 +63,16 @@ export interface VerifiedFlags {
  * permanent lockout; `validateUserContacts` already makes both mandatory on
  * every write path, so a modern row never takes that branch.
  */
-export function requiredChannels(user: VerifiableUser): { email: boolean; phone: boolean } {
+export function requiredChannels(
+  user: VerifiableUser,
+  opts: ChannelOptions = {},
+): { email: boolean; phone: boolean } {
   if (user.role === 'STANDARD') return { email: false, phone: true };
+
+  // WhatsApp is switched off (or cannot send): a code on that channel would be
+  // minted and never delivered, so an admin proves their inbox alone until it
+  // is back. Fails closed to email, never to zero channels.
+  if (opts.whatsappEnabled === false) return { email: true, phone: false };
 
   const email = !!user.email;
   const phone = !!toDialString(user.phoneNumber);
@@ -69,16 +86,20 @@ export function requiredChannels(user: VerifiableUser): { email: boolean; phone:
 }
 
 /** Has this account cleared every channel its role requires? */
-export function isFullyVerified(user: VerifiableUser & VerifiedFlags): boolean {
-  const required = requiredChannels(user);
+export function isFullyVerified(
+  user: VerifiableUser & VerifiedFlags,
+  opts: ChannelOptions = {},
+): boolean {
+  const required = requiredChannels(user, opts);
   return (!required.email || user.emailVerified) && (!required.phone || user.phoneVerified);
 }
 
 /** Which code boxes this account still owes, for the verify screen to render. */
 export function outstandingChannels(
   user: VerifiableUser & VerifiedFlags,
+  opts: ChannelOptions = {},
 ): { email: boolean; phone: boolean } {
-  const required = requiredChannels(user);
+  const required = requiredChannels(user, opts);
   return {
     email: required.email && !user.emailVerified,
     phone: required.phone && !user.phoneVerified,

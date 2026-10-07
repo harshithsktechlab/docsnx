@@ -10,12 +10,13 @@
  * nothing an operator could press to find that out. This is that button.
  *
  * ── WHERE IT SENDS, AND WHY NOT ANYWHERE ELSE ──────────────────────────────
- * To the CALLER'S OWN address, read from their session. Never an address from
- * the request body: an authenticated relay that mails arbitrary text to an
- * arbitrary recipient from the platform's own From header is a spam cannon with
- * a login, and the test is just as conclusive sent to oneself.
+ * By default to the CALLER'S OWN address, read from their session. A super admin
+ * may name ONE other address in `to` (e.g. a colleague confirming receipt); the
+ * body is fixed server-side text, the route is SUPER_ADMIN-only, and the
+ * recipient is audited. Still not a relay: no custom subject or message body.
  */
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getUserFromRequest } from '@/lib/auth';
 import { sendTestEmail } from '@/lib/mailer';
 import { smtpFailureExplanation } from '@/lib/smtpSecurity';
@@ -31,14 +32,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Access denied. Super Admin only.' }, { status: 403 });
     }
 
-    if (!user.email) {
+    // OPTIONAL `to`: lets a super admin aim the test at a different inbox (e.g. a
+    // colleague who will confirm receipt). Blank/absent keeps the original
+    // behaviour — the caller's own address. It is SUPER_ADMIN-only, a single
+    // validated address, and recorded in the audit entry below.
+    const body = await req.json().catch(() => ({}));
+    const parsedTo = z.string().trim().email().max(255).safeParse(body?.to);
+    if (body?.to && !parsedTo.success) {
+      return NextResponse.json({ error: 'Enter a valid email address to send the test to.' }, { status: 400 });
+    }
+    const recipient = parsedTo.success ? parsedTo.data : user.email;
+
+    if (!recipient) {
       return NextResponse.json(
         { error: 'Your own account has no email address, so there is nowhere to send the test.' },
         { status: 400 },
       );
     }
 
-    const result = await sendTestEmail(user.email, user.name || 'there');
+    const result = await sendTestEmail(recipient, parsedTo.success ? 'there' : (user.name || 'there'));
 
     await writeAudit({
       tenantId: user.tenantId,
@@ -47,7 +59,7 @@ export async function POST(req: Request) {
       details: auditSentence('test_email', {
         kind: 'SMTP test email',
         note: result.success
-          ? `sent to ${user.email}`
+          ? `sent to ${recipient}`
           : `failed at ${result.stage}`,
       }),
       entityType: 'system_configs',
@@ -73,12 +85,15 @@ export async function POST(req: Request) {
       const error = explanation
         ? `${prefix}. ${explanation} (Technical detail: ${result.error})`
         : `${prefix}: ${result.error}`;
-      return NextResponse.json({ error }, { status: 502 });
+      // 422, not 502: the shared client error handler rewrites every 502/504 into
+      // "the server took too long", which buried the one message this endpoint
+      // exists to show. The request itself worked; the provider refused it.
+      return NextResponse.json({ error }, { status: 422 });
     }
 
     return NextResponse.json({
       success: true,
-      message: `Test email sent to ${user.email}. If it does not arrive, check the spam folder before changing anything.`,
+      message: `Test email sent to ${recipient}. If it does not arrive, check the spam folder before changing anything.`,
     });
   } catch (error) {
     return serverError(error, 'sending the SMTP test email');

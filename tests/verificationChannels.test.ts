@@ -174,3 +174,30 @@ describe('a rejected verify folds its progress back into the screen', () => {
     expect(applyChallengeUpdate(before, null)).toEqual(before);
   });
 });
+
+describe('requiredChannels — WhatsApp switched off', () => {
+  const off = { whatsappEnabled: false };
+
+  it('asks an admin for their email code only', () => {
+    expect(requiredChannels(admin(), off)).toEqual({ email: true, phone: false });
+  });
+
+  it('lets an admin through on email alone, without marking the phone verified', () => {
+    expect(isFullyVerified(admin({ emailVerified: true, phoneVerified: false }), off)).toBe(true);
+    expect(outstandingChannels(admin({ emailVerified: true }), off)).toEqual({ email: false, phone: false });
+  });
+
+  it('still owes the email code until it is entered', () => {
+    expect(outstandingChannels(admin(), off)).toEqual({ email: true, phone: false });
+    expect(isFullyVerified(admin(), off)).toBe(false);
+  });
+
+  it('leaves a member on WhatsApp — their email is never verified, so never a fallback', () => {
+    expect(requiredChannels(member(), off)).toEqual({ email: false, phone: true });
+  });
+
+  it('is unchanged when the flag is on or omitted', () => {
+    expect(requiredChannels(admin(), { whatsappEnabled: true })).toEqual({ email: true, phone: true });
+    expect(requiredChannels(admin())).toEqual({ email: true, phone: true });
+  });
+});

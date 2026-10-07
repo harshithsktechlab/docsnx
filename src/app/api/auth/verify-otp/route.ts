@@ -8,6 +8,7 @@ import { authRateLimiter } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { findUserByIdentifier } from '@/lib/authLookup';
 import { isFullyVerified, outstandingChannels } from '@/lib/otpChallenge';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { isSignInDisabled, signInDisabledResponse } from '@/lib/account/signInDisabled';
@@ -68,7 +69,10 @@ export async function POST(req: Request) {
     // rather than an error keeps the legitimate case — a double-submitted form,
     // or a resend clicked after the first code already went through — from
     // reading as a failure.
-    if (isFullyVerified(user)) {
+    // Whether a WhatsApp code is owed depends on whether one can be delivered.
+    const channelOpts = { whatsappEnabled: await isWhatsAppEnabled() };
+
+    if (isFullyVerified(user, channelOpts)) {
       return NextResponse.json({
         success: false,
         alreadyVerified: true,
@@ -76,7 +80,7 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    const outstanding = outstandingChannels(user);
+    const outstanding = outstandingChannels(user, channelOpts);
 
     // ── WHICH CODE IS WHICH ─────────────────────────────────────────────────
     // `emailOtp` / `phoneOtp` is the current shape. A bare `otp` is what a

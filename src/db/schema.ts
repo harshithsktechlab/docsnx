@@ -938,6 +938,21 @@ export const systemConfigs = pgTable("system_configs", {
   smtpSecure: boolean("smtp_secure").default(true).notNull(),
   smtpFrom: varchar("smtp_from", { length: 255 }).notNull(),
 
+  // ─── Email provider ──────────────────────────────────────────────────────
+  // WHICH transport carries platform mail. Exactly one is active at a time:
+  // `getMailer()` reads this column and builds only that provider, never
+  // falling back to another. Existing rows default to 'smtp' (unchanged).
+  // Secrets (`graph_client_secret`, `gmail_private_key`) are ENCRYPTED at rest
+  // via src/lib/encryption.ts and never returned to the browser.
+  emailProvider: varchar("email_provider", { length: 16 }).default("smtp").notNull(),
+  graphTenantId: varchar("graph_tenant_id", { length: 255 }),
+  graphClientId: varchar("graph_client_id", { length: 255 }),
+  graphClientSecret: text("graph_client_secret"),
+  graphSenderMailbox: varchar("graph_sender_mailbox", { length: 255 }),
+  gmailClientEmail: varchar("gmail_client_email", { length: 255 }),
+  gmailPrivateKey: text("gmail_private_key"),
+  gmailSenderMailbox: varchar("gmail_sender_mailbox", { length: 255 }),
+
   // ─── WhatsApp (Evolution API) ────────────────────────────────────────────
   // The platform's outbound WhatsApp sender, configured exactly like SMTP
   // above: one gateway for the whole platform, edited by a SUPER_ADMIN at

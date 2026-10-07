@@ -1,61 +1,27 @@
-import nodemailer from 'nodemailer';
 import { db } from './db';
-import { systemConfigs } from '../db/schema';
-import { decrypt } from './encryption';
 import { APP_NAME } from './brand';
+import { buildEmailTransport, type EmailTransport } from './emailProviders';
 
 /**
- * The configured SMTP transport, plus the bits every message needs to address
- * itself (the From header and the product name).
+ * The ACTIVE email transport, plus the product name every message needs.
  *
- * This block was copy-pasted into every sender in this file — decrypt the
- * password, build the transport, format the From — which meant a fourth sender
- * meant a fourth copy. Returns `null` when SMTP is not configured, which every
+ * Which transport is decided by `system_configs.email_provider` (smtp | graph |
+ * gmail) — exactly one, never a fallback to another, so a misconfigured provider
+ * fails loudly instead of silently switching sender. Every sender below goes
+ * through here and sees the same `{ send, verify, from }` whatever the provider.
+ *
+ * Returns `null` when the active provider is not (fully) configured, which every
  * caller already treats as "give up quietly rather than throw".
  */
-async function getMailer(): Promise<{
-  transporter: nodemailer.Transporter;
-  from: string;
-  platformName: string;
-} | null> {
+async function getMailer(): Promise<(EmailTransport & { platformName: string }) | null> {
   const config = await db.query.systemConfigs.findFirst();
   if (!config) return null;
 
-  // The product's name, NOT `config.platformName`. That column is the billing
-  // entity on an invoice; it used to name the sender here too, so editing an
-  // invoice footer renamed the verification and expiry mails with it. The
-  // ADDRESS still comes from the config — `smtpFrom`, just below.
+  // The product's name, NOT `config.platformName` (the billing entity on an
+  // invoice). The sender ADDRESS comes from the provider's own config.
   const platformName = APP_NAME;
-  const secure = config.smtpSecure || false;
-  const transporter = nodemailer.createTransport({
-    host: config.smtpHost || '',
-    port: config.smtpPort || 587,
-    secure,
-    // ── UNTICKED MUST NOT MEAN UNENCRYPTED ────────────────────────────────
-    // `secure: false` only says "do not start with TLS"; on its own it will
-    // happily complete a session in the clear if the server does not offer
-    // STARTTLS, which is not what a box labelled "Enforce TLS/SSL connection
-    // security" promises. `requireTLS` makes the upgrade mandatory, so the
-    // unticked state means STARTTLS rather than plaintext-permitted.
-    requireTLS: !secure,
-    // A mail server that accepts the connection and then says nothing would
-    // otherwise hold a registration request open for the OS default — minutes,
-    // during which the person is staring at a spinner. Ten seconds is far more
-    // than a working relay needs and short enough to surface as a real error.
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 20_000,
-    auth: {
-      user: config.smtpUser || '',
-      pass: config.smtpPassword ? decrypt(config.smtpPassword) : '',
-    },
-  });
-
-  return {
-    transporter,
-    from: `"${platformName}" <${config.smtpFrom || config.smtpUser || ''}>`,
-    platformName,
-  };
+  const transport = buildEmailTransport(config, platformName);
+  return transport ? { ...transport, platformName } : null;
 }
 
 /**
@@ -72,10 +38,10 @@ export async function sendPasswordResetEmail(email: string, name: string, resetL
   try {
     const mailer = await getMailer();
     if (!mailer) {
-      console.warn('No SMTP configuration found in systemConfig. Cannot send password reset email.');
-      return { success: false, message: 'SMTP not configured' };
+      console.warn('No email provider configured in systemConfig. Cannot send password reset email.');
+      return { success: false, message: 'Email provider not configured' };
     }
-    const { transporter, from } = mailer;
+    const { send, from } = mailer;
 
     const mailOptions = {
       from,
@@ -85,11 +51,11 @@ export async function sendPasswordResetEmail(email: string, name: string, resetL
       html: `<p>Hello ${name},</p><p>You requested a password reset. Please click on the link below to reset your password:</p><p><a href="${resetLink}">${resetLink}</a></p><p>This link will expire in 1 hour.</p><p>If you did not request this, please ignore this email.</p>`,
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await send(mailOptions);
     console.log('Password reset email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
-    console.error('Failed to send password reset email via SMTP:', error);
+    console.error('Failed to send password reset email via the email provider:', error);
     return { success: false, error: error.message };
   }
 }
@@ -98,10 +64,10 @@ export async function sendInvoiceEmail(email: string, name: string, invoicePdfBu
   try {
     const mailer = await getMailer();
     if (!mailer) {
-      console.warn('No SMTP configuration found in systemConfig.');
-      return { success: false, message: 'SMTP not configured' };
+      console.warn('No email provider configured in systemConfig.');
+      return { success: false, message: 'Email provider not configured' };
     }
-    const { transporter, from, platformName } = mailer;
+    const { send, from, platformName } = mailer;
 
     const mailOptions = {
       from,
@@ -118,11 +84,11 @@ export async function sendInvoiceEmail(email: string, name: string, invoicePdfBu
       ]
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await send(mailOptions);
     console.log('Invoice email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
-    console.error('Failed to send invoice email via SMTP:', error);
+    console.error('Failed to send invoice email via the email provider:', error);
     return { success: false, error: error.message };
   }
 }
@@ -137,10 +103,10 @@ export async function sendVerificationOtpEmail(email: string, name: string, otp:
   try {
     const mailer = await getMailer();
     if (!mailer) {
-      console.warn('No SMTP configuration found in systemConfig. Cannot send verification email.');
-      return { success: false, message: 'SMTP not configured' };
+      console.warn('No email provider configured in systemConfig. Cannot send verification email.');
+      return { success: false, message: 'Email provider not configured' };
     }
-    const { transporter, from, platformName } = mailer;
+    const { send, from, platformName } = mailer;
 
     const mailOptions = {
       from,
@@ -163,11 +129,11 @@ export async function sendVerificationOtpEmail(email: string, name: string, otp:
       `,
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await send(mailOptions);
     console.log('Verification OTP email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
-    console.error('Failed to send verification OTP email via SMTP:', error);
+    console.error('Failed to send verification OTP email via the email provider:', error);
     return { success: false, error: error.message };
   }
 }
@@ -193,23 +159,23 @@ export async function sendTestEmail(email: string, name: string): Promise<
 > {
   const mailer = await getMailer();
   if (!mailer) {
-    return { success: false, stage: 'config', error: 'No SMTP configuration has been saved yet.' };
+    return { success: false, stage: 'config', error: 'The selected email provider has not been fully configured yet.' };
   }
-  const { transporter, from, platformName } = mailer;
+  const { send, verify, from, platformName } = mailer;
 
   try {
     // Opens the connection, negotiates TLS and authenticates without sending
     // anything. This is where a port/secure mismatch surfaces, as ESOCKET.
-    await transporter.verify();
+    await verify();
   } catch (error: any) {
     return { success: false, stage: 'connect', error: error?.message || String(error) };
   }
 
   try {
-    const info = await transporter.sendMail({
+    const info = await send({
       from,
       to: email,
-      subject: `${platformName} SMTP test`,
+      subject: `${platformName} email test`,
       text: `Hello ${name},\n\nThis is a test message from ${platformName}. If you are reading it, the mail settings are working and verification codes will reach this inbox.\n`,
       html: `<p>Hello ${name},</p><p>This is a test message from ${platformName}. If you are reading it, the mail settings are working and verification codes will reach this inbox.</p>`,
     });
@@ -252,10 +218,10 @@ export async function sendPlanExpiryEmail(opts: {
   try {
     const mailer = await getMailer();
     if (!mailer) {
-      console.warn('No SMTP configuration found in systemConfig. Cannot send plan expiry email.');
-      return { success: false, message: 'SMTP not configured' };
+      console.warn('No email provider configured in systemConfig. Cannot send plan expiry email.');
+      return { success: false, message: 'Email provider not configured' };
     }
-    const { transporter, from, platformName } = mailer;
+    const { send, from, platformName } = mailer;
 
     const expired = opts.daysLeft < 0;
     const when = new Date(opts.expiresAt).toDateString();
@@ -309,10 +275,10 @@ export async function sendPlanExpiryEmail(opts: {
       `,
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await send(mailOptions);
     return { success: true, messageId: info.messageId };
   } catch (error: any) {
-    console.error('Failed to send plan expiry email via SMTP:', error);
+    console.error('Failed to send plan expiry email via the email provider:', error);
     return { success: false, error: error.message };
   }
 }
