@@ -391,48 +391,50 @@ export async function sendWhatsAppOtp(
       headers: {
         'Authorization': `Bearer ${process.env.WHATSAPP_API_TOKEN}`,
         'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: "individual",
-          to: phone,
-          type: 'template',
-          template: {
-            name: "otp_verification",
-            language: {
-              code: "en"
-            },
-            components: [{
-              type: "body",
-              parameters: [{
-                  type: "text",
-                  text: otp
-              },
-              {
-                  type: "text",
-                  text: "+918149111211"
-              }]
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: "individual",
+        to: `+${number}`,
+        type: 'template',
+        template: {
+          name: "otp_verification",
+          language: {
+            code: "en"
+          },
+          components: [{
+            type: "body",
+            parameters: [{
+                type: "text",
+                text: otp
             },
             {
-              "type": "button",
-              "sub_type": "url",
-              "index": "0",
-              "parameters": [{
-                  "type": "text",
-                  "text": otp
-              }]
+                type: "text",
+                text: "+918149111211"
             }]
-          }
-        }),
-      },
-    )
+          },
+          {
+            "type": "button",
+            "sub_type": "url",
+            "index": "0",
+            "parameters": [{
+                "type": "text",
+                "text": otp
+            }]
+          }]
+        }
+      }),
+    },
+  )
 
-    console.log(`[whatsapp] send to ${number} response:`, response.status, response.ok);
+    console.log(`[whatsapp] send to ${number} response:`, response.status, response.ok);  
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       console.error(`[whatsapp] send to ${number} failed (${response.status}): ${detail}`);
       return { success: false, error: `Evolution API ${response.status}` };
     }
+    const detail = await response.text().catch(() => '');
+    console.log(`[whatsapp] send to ${number} response:`, detail);
     return { success: true };
   } catch (error: unknown) {
     const message = errorMessage(error);
