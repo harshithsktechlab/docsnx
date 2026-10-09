@@ -209,7 +209,8 @@ export async function getWhatsAppConfig(): Promise<WhatsAppConfig | null> {
  * `requiredChannels(user, { whatsappEnabled })`.
  */
 export async function isWhatsAppEnabled(): Promise<boolean> {
-  return (await getWhatsAppConfig()) !== null;
+  // return (await getWhatsAppConfig()) !== null;
+  return true; // TODO: Remove this line when WhatsApp is fully configured
 }
 
 /**
