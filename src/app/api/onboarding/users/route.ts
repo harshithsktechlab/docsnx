@@ -5,8 +5,7 @@ import { users, profiles, permissions, companies, companyAccess } from '@/db/sch
 import { hashPassword } from '@/lib/auth';
 import { getUserFromRequest } from '@/lib/auth';
 import { validateUserContacts } from '@/lib/userContactValidation';
-import { toDialString } from '@/lib/phone';
-import { getWhatsAppConfig } from '@/lib/whatsapp';
+import { toDialString, isBlankPhone } from '@/lib/phone';
 import {
   isDuplicatePhone, DUPLICATE_PHONE_MESSAGE,
   isDuplicateEmail, DUPLICATE_EMAIL_MESSAGE,
@@ -79,16 +78,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: errorMsg }, { status: 400 });
     }
 
-    // Same preflight as POST /api/users: WhatsApp is a member's only
-    // verification channel, so creating one the gateway cannot reach produces an
-    // account nobody can ever sign into.
-    const gateway = await getWhatsAppConfig();
-    if (!gateway) {
-      return NextResponse.json({
-        success: false,
-        error: 'WhatsApp gateway is not connected, and a new member is verified by a WhatsApp code. Connect it under Admin → WhatsApp, then add the member.',
-      }, { status: 503 });
-    }
+    // No delivery preflight: like POST /api/users, the member is created with
+    // sign-in OFF and nothing is sent until the admin gives them access.
 
     const cleanEmail = String(email || '').trim().toLowerCase() || null;
 
@@ -235,7 +226,8 @@ export async function POST(req: Request) {
         email: cleanEmail,
         passwordHash,
         name,
-        phoneNumber,
+        // Optional for a member; an untouched PhoneInput ('+91') is stored as NULL.
+        phoneNumber: isBlankPhone(phoneNumber) ? null : phoneNumber,
         // In the same statement as phoneNumber, always — see src/db/schema.ts.
         // This is the column sign-in matches on, and its absence is why members
         // added through this wizard could not log in at all.
@@ -246,6 +238,8 @@ export async function POST(req: Request) {
         // business member under a household they had no permissions for.
         accountScope,
         requiresPasswordChange: true, // Force password change on first login
+        // Added as a record only — see POST /api/users. Access is given later.
+        signInDisabledAt: new Date(),
       }).returning();
 
       // Create default empty profile

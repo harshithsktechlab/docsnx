@@ -269,12 +269,18 @@ export async function setMemberSignIn(
   user: ActingUser,
   targetId: string,
   enabled: boolean,
+  /** On enable only: a new temporary password, already hashed. */
+  passwordHash?: string,
 ): Promise<void> {
   const now = new Date();
 
   if (enabled) {
     await tx.update(users)
-      .set({ signInDisabledAt: null, updatedAt: now })
+      .set({
+        signInDisabledAt: null,
+        updatedAt: now,
+        ...(passwordHash ? { passwordHash, requiresPasswordChange: true } : {}),
+      })
       .where(and(eq(users.id, targetId), eq(users.tenantId, user.tenantId)));
     return;
   }

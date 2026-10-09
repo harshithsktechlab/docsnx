@@ -110,7 +110,7 @@ export async function POST(req: Request) {
       if (!emailOk && !phoneOk) {
         return NextResponse.json({
           error: user.role === 'STANDARD'
-            ? 'We could not send your verification code over WhatsApp. Please ask your workspace admin to check the connection and re-send it.'
+            ? 'We could not send your verification code by WhatsApp or email. Please ask your workspace admin to check the connection and re-send it.'
             : 'We could not send your verification code on either channel. Please try again in a few minutes, or contact support if it keeps failing.',
           requireVerification: true,
           verificationUndeliverable: true,

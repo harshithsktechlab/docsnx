@@ -82,6 +82,15 @@ export function toDialString(phone: string | null | undefined): string | null {
 }
 
 /**
+ * True when no number was entered. PhoneInput always emits its country code,
+ * so an untouched field arrives as '+91' — that is "no mobile", not a typo.
+ */
+export function isBlankPhone(phone: string | null | undefined): boolean {
+  const trimmed = (phone || '').trim();
+  return trimmed === '' || /^\+\d{0,3}$/.test(trimmed);
+}
+
+/**
  * Which column a sign-in identifier is aimed at.
  *
  * Deliberately just an '@' test rather than an email regex. This does not decide

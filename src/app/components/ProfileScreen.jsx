@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   GraduationCap,
@@ -11,7 +11,10 @@ import {
   Building2,
   Landmark,
   MapPin,
-  Phone
+  Phone,
+  FileText,
+  Upload,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +28,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import PageContainer from '@/app/components/PageContainer';
 import { apiCall } from '@/lib/net/apiRequest';
 import { clientGetMe, clientCan } from '@/lib/clientAuth';
+import { postUpload, uploadErrorMessage } from '@/lib/records/uploadRequest';
+import { prepareUploadFile } from '@/lib/records/fileSnapshot';
+import { UPLOAD_ACCEPT_ATTRIBUTE } from '@/lib/records/uploadTypes';
+import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
+import { BLOOD_GROUPS, normaliseBloodGroup, parseBirthPlace } from '@/lib/profileValues';
+import PlanQuotaMeters from '@/app/components/PlanQuotaMeters';
+import { getInitials } from '@/lib/accountMenu';
 
 /** The member form's four sections. At module scope so `openTabFrom` below can
  *  validate a deep link against the very list the strip renders. */
@@ -34,6 +44,197 @@ const MY_PROFILE_TABS = [
   { value: 'shopping', label: 'Shopping', icon: ShoppingBag },
   { value: 'legal', label: 'Legal / ID', icon: Scale },
 ];
+
+/**
+ * The ID cards the Legal / ID tab links to the Document Manager. Mirrors
+ * PROFILE_ID_DOCUMENTS in lib/profileUpdater.ts — the server answers under
+ * these kinds, and the field key is the category's own.
+ */
+const ID_DOCUMENT_KINDS = {
+  pan: { documentKey: 'pan_card', fieldKey: 'pan_number', legalKey: 'panNumber', title: 'PAN Card' },
+  aadhaar: { documentKey: 'aadhaar_card', fieldKey: 'aadhaar_number', legalKey: 'aadhaarNumber', title: 'Aadhaar Card' },
+  passport: { documentKey: 'passport', fieldKey: 'passport_number', legalKey: 'passportNumber', title: 'Passport' },
+};
+
+/**
+ * The file half of one ID number: the card on file in the Document Manager, or
+ * a button to file one. There is no profile-only copy — an upload here is an
+ * ordinary `/api/documents` record, so it shows up in Document Management too.
+ */
+function IdDocumentControl({ kind, entry, busy, disabled, onPick }) {
+  if (!entry) return null;
+  const inputId = `id-doc-${kind}`;
+  const doc = entry.document;
+  const label = ID_DOCUMENT_KINDS[kind].title;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1">
+      {doc ? (
+        <>
+          <span className="flex items-center gap-1.5 text-muted-foreground min-w-0">
+            <FileText size={13} className="text-primary shrink-0" />
+            <span className="truncate max-w-[240px]" title={doc.fileName || doc.title}>
+              On file in Document Management{doc.fileName ? ` \u2014 ${doc.fileName}` : ''}
+            </span>
+          </span>
+          {doc.fileUrl && (
+            <a
+              href={doc.fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+            >
+              <Eye size={13} /> View
+            </a>
+          )}
+        </>
+      ) : (
+        <span className="text-muted-foreground">No {label} file in Document Management yet.</span>
+      )}
+      {entry.canUpload && entry.categoryId && (
+        <>
+          <input
+            id={inputId}
+            type="file"
+            accept={UPLOAD_ACCEPT_ATTRIBUTE}
+            className="hidden"
+            disabled={busy || disabled}
+            onChange={(e) => {
+              const picked = e.target.files?.[0];
+              // Synchronous, before any await: clearing `value` discards `files`.
+              e.target.value = '';
+              if (picked) onPick(kind, picked);
+            }}
+          />
+          <label
+            htmlFor={inputId}
+            className={`inline-flex items-center gap-1 font-semibold text-primary ${busy || disabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer hover:underline'}`}
+          >
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+            {busy ? 'Uploading\u2026' : doc ? 'Replace file' : `Upload ${label}`}
+          </label>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The City half of Place of Birth: type to search ~7,000 Indian cities and
+ * towns, pick one, and its state comes with it. Names repeat across states, so
+ * every row says which state it is in. With a state chosen, only that state's
+ * cities are offered.
+ */
+function CityCombobox({ places, stateName, value, onSelect, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const listRef = useRef(null);
+
+  const stateNameByCode = useMemo(
+    () => new Map((places?.states || []).map((s) => [s.code, s.name])),
+    [places],
+  );
+  const stateCode = useMemo(
+    () => (places?.states || []).find((s) => s.name === stateName)?.code ?? null,
+    [places, stateName],
+  );
+
+  const matches = useMemo(() => {
+    if (!places) return [];
+    const q = query.trim().toLowerCase();
+    const pool = stateCode ? places.cities.filter(([, code]) => code === stateCode) : places.cities;
+    if (!q) return pool.slice(0, 50);
+    const starts = [];
+    const contains = [];
+    for (const entry of pool) {
+      const name = entry[0].toLowerCase();
+      if (name.startsWith(q)) starts.push(entry);
+      else if (name.includes(q)) contains.push(entry);
+      if (starts.length >= 50) break;
+    }
+    return starts.concat(contains).slice(0, 50);
+  }, [places, query, stateCode]);
+
+  const choose = (entry) => {
+    onSelect(entry[0], stateNameByCode.get(entry[1]) || '');
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => Math.min(i + 1, matches.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      if (open && matches[active]) {
+        e.preventDefault();
+        choose(matches[active]);
+      }
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      setQuery(value || '');
+    }
+  };
+
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
+
+  return (
+    <div className="relative">
+      <Input
+        id="birthCity"
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls="birthCity-list"
+        aria-autocomplete="list"
+        autoComplete="off"
+        placeholder={places ? 'Search city or town' : 'Loading cities\u2026'}
+        value={open ? query : (value || '')}
+        disabled={disabled || !places}
+        onFocus={() => { setQuery(value || ''); setActive(0); setOpen(true); }}
+        onChange={(e) => { setQuery(e.target.value); setActive(0); setOpen(true); }}
+        onBlur={() => {
+          // Emptying the box and leaving it clears the city; anything else
+          // that was not picked from the list reverts to the saved city.
+          if (open && !query.trim() && value) onSelect('', stateName);
+          setOpen(false);
+        }}
+        onKeyDown={onKeyDown}
+      />
+      {open && places && (
+        <ul
+          id="birthCity-list"
+          ref={listRef}
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-border bg-popover p-1 text-sm shadow-lg"
+        >
+          {matches.length === 0 ? (
+            <li className="px-3 py-2 text-muted-foreground">No matching city{stateName ? ` in ${stateName}` : ''}</li>
+          ) : matches.map((entry, i) => (
+            <li
+              key={`${entry[0]}|${entry[1]}`}
+              data-index={i}
+              role="option"
+              aria-selected={i === active}
+              // mousedown, not click: the input's blur closes the list first.
+              onMouseDown={(e) => { e.preventDefault(); choose(entry); }}
+              onMouseEnter={() => setActive(i)}
+              className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 ${i === active ? 'bg-muted text-foreground' : 'text-foreground'}`}
+            >
+              <span className="truncate">{entry[0]}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{stateNameByCode.get(entry[1])}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /** The company form's four sections, for the same reason. */
 const COMPANY_SECTIONS = [
@@ -84,7 +285,12 @@ function MyProfileSection({ heading = true }) {
   const [dob, setDob] = useState('');
   const [bloodGroup, setBloodGroup] = useState('');
   const [gender, setGender] = useState('');
-  const [birthPlace, setBirthPlace] = useState('');
+  // Place of Birth: state and city from the India list. `legacyBirthPlace` is
+  // a free-text value saved before the dropdowns, kept until it is replaced.
+  const [birthState, setBirthState] = useState('');
+  const [birthCity, setBirthCity] = useState('');
+  const [legacyBirthPlace, setLegacyBirthPlace] = useState('');
+  const [indiaPlaces, setIndiaPlaces] = useState(null);
 
   // Education Fields
   const [degree, setDegree] = useState('');
@@ -103,6 +309,12 @@ function MyProfileSection({ heading = true }) {
 
   const [saving, setSaving] = useState(false);
 
+  // The Legal / ID tab's files — the Document Manager's identity records.
+  const [idDocuments, setIdDocuments] = useState(null);
+  const [uploadingKind, setUploadingKind] = useState(null);
+  // A 409 from the upload, waiting on the duplicate prompt's answer.
+  const [pendingDuplicate, setPendingDuplicate] = useState(null);
+
   useEffect(() => {
     async function loadProfile() {
       try {
@@ -112,9 +324,11 @@ function MyProfileSection({ heading = true }) {
           
           const personal = json.profile.personalDetails || {};
           setDob(personal.dob || '');
-          setBloodGroup(personal.bloodGroup || '');
+          setBloodGroup(normaliseBloodGroup(personal.bloodGroup));
           setGender(personal.gender || '');
-          setBirthPlace(personal.birthPlace || '');
+          setBirthState(personal.birthState || '');
+          setBirthCity(personal.birthCity || '');
+          setLegacyBirthPlace(personal.birthState || personal.birthCity ? '' : (personal.birthPlace || ''));
 
           const edu = json.profile.educationDetails || {};
           setDegree(edu.degree || '');
@@ -130,6 +344,7 @@ function MyProfileSection({ heading = true }) {
           setPanNumber(legal.panNumber || '');
           setAadhaarNumber(legal.aadhaarNumber || '');
           setPassportNumber(legal.passportNumber || '');
+          setIdDocuments(json.idDocuments || null);
         } else {
           toast.error(json.error || 'Failed to load profile');
         }
@@ -147,13 +362,133 @@ function MyProfileSection({ heading = true }) {
     loadProfile();
   }, []);
 
+  // ~135 KB of places, fetched only once the Personal tab is open.
+  useEffect(() => {
+    if (activeTab !== 'personal' || indiaPlaces) return;
+    let cancelled = false;
+    import('@/data/indiaPlaces.json')
+      .then((mod) => { if (!cancelled) setIndiaPlaces(mod.default || mod); })
+      .catch((err) => console.error('[profile] could not load the city list', err));
+    return () => { cancelled = true; };
+  }, [activeTab, indiaPlaces]);
+
+  // A place of birth typed before the dropdowns existed: matched onto the list
+  // where it can be, otherwise left showing as a hint.
+  useEffect(() => {
+    if (!indiaPlaces || !legacyBirthPlace) return;
+    const parsed = parseBirthPlace(legacyBirthPlace, indiaPlaces);
+    if (parsed.state) setBirthState(parsed.state);
+    if (parsed.city) {
+      setBirthCity(parsed.city);
+      setLegacyBirthPlace('');
+    }
+  }, [indiaPlaces, legacyBirthPlace]);
+
+  const birthPlace = birthCity && birthState
+    ? `${birthCity}, ${birthState}`
+    : (birthCity || birthState || legacyBirthPlace);
+
+  const idNumberState = {
+    pan: [panNumber, setPanNumber],
+    aadhaar: [aadhaarNumber, setAadhaarNumber],
+    passport: [passportNumber, setPassportNumber],
+  };
+
+  /**
+   * File an ID card from the profile. It goes through `/api/documents` — the
+   * Document Manager's own upload — so encryption, duplicate checks, the audit
+   * line and the profile sync are all that route's, and the card is listed in
+   * Document Management like any other.
+   *
+   * The number is the one typed above; when that is blank it is read off the
+   * card first, and the user is asked to type it only if that read fails.
+   *
+   * `answer` is the duplicate prompt's reply when this is a re-post of a 409.
+   */
+  const uploadIdDocument = async (kind, picked, answer = null) => {
+    const def = ID_DOCUMENT_KINDS[kind];
+    const entry = idDocuments?.[kind];
+    if (!entry?.categoryId || !profile?.userId) return;
+
+    setUploadingKind(kind);
+    try {
+      let file = picked;
+      if (!answer) {
+        const prepared = await prepareUploadFile(picked);
+        if (!prepared.ok) {
+          toast.error(prepared.error);
+          return;
+        }
+        file = prepared.file;
+      }
+
+      const [typed, setTyped] = idNumberState[kind];
+      let number = String(typed || '').trim();
+      if (!number) {
+        const body = new FormData();
+        body.append('file', file);
+        const read = await postUpload(`/api/modules/identity/${def.documentKey}/autofill`, body);
+        number = String(read.json?.success ? (read.json.fields?.[def.fieldKey] ?? '') : '').trim();
+        if (!number) {
+          toast.error(`Could not read the number off this ${def.title}. Type it in above, then upload again.`);
+          return;
+        }
+      }
+
+      const formData = new FormData();
+      formData.append('files', file);
+      formData.append('title', def.title);
+      formData.append('categoryId', entry.categoryId);
+      formData.append('holderId', profile.userId);
+      formData.append('taxonomyFields', 'true');
+      formData.append('metadata', JSON.stringify({ [def.fieldKey]: number }));
+      if (answer === 'replace' && pendingDuplicate?.match?.existingId) {
+        formData.append('replaceId', pendingDuplicate.match.existingId);
+      } else if (answer === 'keepBoth') {
+        formData.append('keepBoth', 'true');
+      } else if (entry.document?.id) {
+        // "Replace file" on a card already on file writes onto that record.
+        formData.append('replaceId', entry.document.id);
+      }
+
+      const upload = await postUpload('/api/documents', formData);
+      if (upload.status === 409 && upload.json?.requiresConfirmation) {
+        setPendingDuplicate({ kind, file, match: upload.json });
+        return;
+      }
+      if (!upload.ok || !upload.json?.success) {
+        const fieldError = upload.json?.fieldErrors?.[def.fieldKey];
+        toast.error(fieldError || upload.json?.error || uploadErrorMessage(upload, 'document'));
+        return;
+      }
+
+      setPendingDuplicate(null);
+      setTyped(number);
+      toast.success(`${def.title} saved \u2014 it is in Document Management too.`);
+
+      // Refresh only the cards and the number the upload synced, so unsaved
+      // edits elsewhere on the form are left alone.
+      const { json } = await apiCall('/api/profiles');
+      if (json?.success) {
+        setIdDocuments(json.idDocuments || null);
+        const synced = json.profile?.legalDetails?.[def.legalKey];
+        if (synced) setTyped(synced);
+      }
+    } catch (err) {
+      console.error('[profile] ID upload handler threw', err);
+      toast.error('Something went wrong uploading this document. Please try again.');
+    } finally {
+      setUploadingKind(null);
+    }
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
 
     setSaving(true);
 
     const payload = {
-      personalDetails: { dob, bloodGroup, gender, birthPlace },
+      personalDetails: { dob, bloodGroup, gender, birthPlace, birthState, birthCity },
       educationDetails: { degree, college, yearOfPassing },
       shoppingDetails: { clothingSize, shoeSize, brandPreferences },
       legalDetails: { panNumber, aadhaarNumber, passportNumber },
@@ -262,14 +597,16 @@ function MyProfileSection({ heading = true }) {
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="bloodGroup">Blood Group</Label>
-                    <Input
-                      id="bloodGroup"
-                      type="text"
-                      placeholder="e.g. O+ve"
-                      value={bloodGroup}
-                      onChange={(e) => setBloodGroup(e.target.value)}
-                      disabled={saving}
-                    />
+                    <Select value={bloodGroup} onValueChange={(val) => setBloodGroup(val)} disabled={saving}>
+                      <SelectTrigger id="bloodGroup">
+                        <SelectValue placeholder="Select Blood Group" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BLOOD_GROUPS.map((g) => (
+                          <SelectItem key={g} value={g}>{g}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="gender">Gender</Label>
@@ -285,16 +622,48 @@ function MyProfileSection({ heading = true }) {
                     </Select>
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="birthPlace">Place of Birth</Label>
-                    <Input
-                      id="birthPlace"
-                      type="text"
-                      placeholder="e.g. Mumbai, India"
-                      value={birthPlace}
-                      onChange={(e) => setBirthPlace(e.target.value)}
+                    <Label htmlFor="birthState">Place of Birth — State</Label>
+                    <Select
+                      value={birthState}
+                      onValueChange={(val) => {
+                        setBirthState(val);
+                        // A city from another state no longer fits.
+                        const code = indiaPlaces?.states.find((s) => s.name === val)?.code;
+                        if (birthCity && !indiaPlaces?.cities.some(([n, c]) => n === birthCity && c === code)) {
+                          setBirthCity('');
+                        }
+                      }}
+                      disabled={saving || !indiaPlaces}
+                    >
+                      <SelectTrigger id="birthState">
+                        <SelectValue placeholder={indiaPlaces ? 'Select State' : 'Loading states\u2026'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(indiaPlaces?.states || []).map((st) => (
+                          <SelectItem key={st.code} value={st.name}>{st.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="birthCity">Place of Birth — City</Label>
+                    <CityCombobox
+                      places={indiaPlaces}
+                      stateName={birthState}
+                      value={birthCity}
                       disabled={saving}
+                      onSelect={(city, stateName) => {
+                        setBirthCity(city);
+                        if (stateName) setBirthState(stateName);
+                        setLegacyBirthPlace('');
+                      }}
                     />
                   </div>
+                  {legacyBirthPlace && !birthCity && (
+                    <p className="text-xs text-muted-foreground md:col-span-2 -mt-2">
+                      Previously saved: <span className="font-medium text-foreground">{legacyBirthPlace}</span> — pick the state and city above to replace it.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -406,6 +775,7 @@ function MyProfileSection({ heading = true }) {
                       disabled={saving}
                       className="font-mono uppercase"
                     />
+                    <IdDocumentControl kind="pan" entry={idDocuments?.pan} busy={uploadingKind === 'pan'} disabled={saving || !!uploadingKind} onPick={uploadIdDocument} />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="aadhaarNumber">Aadhaar Card Number</Label>
@@ -418,6 +788,7 @@ function MyProfileSection({ heading = true }) {
                       disabled={saving}
                       className="font-mono"
                     />
+                    <IdDocumentControl kind="aadhaar" entry={idDocuments?.aadhaar} busy={uploadingKind === 'aadhaar'} disabled={saving || !!uploadingKind} onPick={uploadIdDocument} />
                   </div>
                   <div className="flex flex-col gap-1.5 md:col-span-2">
                     <Label htmlFor="passportNumber">Passport Number</Label>
@@ -430,6 +801,7 @@ function MyProfileSection({ heading = true }) {
                       disabled={saving}
                       className="font-mono uppercase"
                     />
+                    <IdDocumentControl kind="passport" entry={idDocuments?.passport} busy={uploadingKind === 'passport'} disabled={saving || !!uploadingKind} onPick={uploadIdDocument} />
                   </div>
                 </div>
               </div>
@@ -451,6 +823,18 @@ function MyProfileSection({ heading = true }) {
           </CardContent>
         </Card>
       </form>
+
+      {/* An ID card uploaded here matched one already in Document Management. */}
+      <DuplicateResolveDialog
+        open={!!pendingDuplicate}
+        match={pendingDuplicate?.match}
+        newFile={pendingDuplicate?.file}
+        newTitle={pendingDuplicate ? ID_DOCUMENT_KINDS[pendingDuplicate.kind].title : ''}
+        busy={!!uploadingKind}
+        onKeepExisting={() => setPendingDuplicate(null)}
+        onKeepNew={() => uploadIdDocument(pendingDuplicate.kind, pendingDuplicate.file, 'replace')}
+        onKeepBoth={() => uploadIdDocument(pendingDuplicate.kind, pendingDuplicate.file, 'keepBoth')}
+      />
     </>
   );
 }
@@ -750,9 +1134,46 @@ function CompanyProfileSection({ companyId, canEdit }) {
  * `companyId` is untrusted, exactly as everywhere else it appears: it comes
  * from the address bar, and the API re-proves it with `hasCompanyAccess`.
  */
+/**
+ * Who is signed in and what the workspace has used — the block that used to sit
+ * at the foot of the desktop sidebar, permanently taking space from the module
+ * list. Same meters `/more` shows, from the same `clientGetMe()` answer.
+ */
+function AccountUsageCard({ user, planDetails, storageData }) {
+  if (!user) return null;
+  const showMeters = user.role !== 'SUPER_ADMIN' && planDetails;
+  return (
+    <Card className="border-border/50 bg-card backdrop-blur shadow-glass animate-fade-in">
+      <CardContent className="flex flex-col gap-4 p-5 md:p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-primary to-orange-500 text-sm font-black text-white">
+            {getInitials(user.name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-bold text-foreground">{user.name || 'User'}</div>
+            <div className="mt-0.5 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {user.role?.replace(/_/g, ' ') || 'Standard'}
+            </div>
+          </div>
+        </div>
+        {showMeters && (
+          <PlanQuotaMeters
+            planDetails={planDetails}
+            storageData={storageData}
+            aiCreditsBalance={user.tenant?.aiCreditsBalance}
+            size="lg"
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ProfileScreen({ companyId = null }) {
   const [user, setUser] = useState(null);
   const [companies, setCompanies] = useState([]);
+  const [planDetails, setPlanDetails] = useState(null);
+  const [storageData, setStorageData] = useState(null);
   // `null` until /api/auth/me answers. Distinct from `false`: rendering the
   // one-tab layout while the answer is unknown makes the company tab appear a
   // moment later and shift the page under a click already in flight.
@@ -765,6 +1186,8 @@ export default function ProfileScreen({ companyId = null }) {
       if (cancelled || !data.success) return;
       setUser(data.user);
       setCompanies(Array.isArray(data.companies) ? data.companies : []);
+      setPlanDetails(data.planDetails || null);
+      setStorageData(data.storageData || null);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -790,6 +1213,7 @@ export default function ProfileScreen({ companyId = null }) {
   if (!companyId) {
     return (
       <PageContainer width="narrow">
+        <AccountUsageCard user={user} planDetails={planDetails} storageData={storageData} />
         <MyProfileSection />
       </PageContainer>
     );
@@ -806,6 +1230,8 @@ export default function ProfileScreen({ companyId = null }) {
           {companyName || 'This company'} — company details and your own
         </p>
       </div>
+
+      <AccountUsageCard user={user} planDetails={planDetails} storageData={storageData} />
 
       {showTabs && (
         <div className="flex flex-wrap gap-1 border-b border-border animate-fade-in">

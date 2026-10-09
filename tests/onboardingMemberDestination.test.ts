@@ -349,10 +349,12 @@ describe('what has not changed', () => {
     expect((await add({})).status).toBe(401);
   });
 
-  it('still demands a mobile number', async () => {
-    // The member login identity. A null `phone_dial` is an account with no way in.
+  it('adds a member with no mobile number, without access', async () => {
+    // Added as a record only; a contact is needed when access is given.
     const res = await add({ phoneNumber: '' });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(insertedUser().phoneNumber).toBeNull();
+    expect(insertedUser().signInDisabledAt).toBeInstanceOf(Date);
   });
 
   it('still writes the dial string alongside the number', async () => {

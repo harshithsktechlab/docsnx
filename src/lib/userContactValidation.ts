@@ -22,7 +22,7 @@
  * anything it would reject means writing a row whose `phone_dial` is null —
  * an account that cannot log in, created by a form that said it was fine.
  */
-import { toDialString } from './phone';
+import { toDialString, isBlankPhone } from './phone';
 
 export interface ContactValidationInput {
   role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'STANDARD';
@@ -48,16 +48,20 @@ export function validateUserContacts({
   const cleanPhone = (phoneNumber || '').trim();
   const cleanEmail = (email || '').trim();
 
-  // Mobile Number compulsory for all roles, and it must be one the platform
-  // can actually normalise into an identity — see the header.
-  if (!cleanPhone) {
-    errors.phoneNumber = 'Mobile Number is compulsory.';
+  const isAdmin = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+
+  // Compulsory for admins. Optional for a member: they are added as a record
+  // only, and a contact is only needed when the admin gives them access (see
+  // POST /api/users/[id]/sign-in). A number that IS given must be one the
+  // platform can normalise into an identity — see the header.
+  if (isBlankPhone(cleanPhone)) {
+    if (isAdmin) errors.phoneNumber = 'Mobile Number is compulsory.';
   } else if (!toDialString(cleanPhone)) {
     errors.phoneNumber = 'Please provide a valid mobile number, including the country code.';
   }
 
   // Email compulsory for Tenant Admins
-  if (role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN') {
+  if (isAdmin) {
     if (!cleanEmail || !cleanEmail.includes('@')) {
       errors.email = 'Email Address is compulsory for Tenant Admins.';
     }

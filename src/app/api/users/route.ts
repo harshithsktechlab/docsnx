@@ -9,8 +9,7 @@ import { memberQuota } from '@/lib/billingAxis';
 import { activeAddonSeats, seatPredicate } from '@/lib/account/seatCounts';
 import { parseQueryParams, buildListQueryHelper } from '@/lib/api-pagination';
 import { validateUserContacts } from '@/lib/userContactValidation';
-import { toDialString } from '@/lib/phone';
-import { getWhatsAppConfig } from '@/lib/whatsapp';
+import { toDialString, isBlankPhone } from '@/lib/phone';
 import {
   isDuplicatePhone, DUPLICATE_PHONE_MESSAGE,
   isDuplicateEmail, DUPLICATE_EMAIL_MESSAGE,
@@ -262,25 +261,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: errorMsg }, { status: 400 });
     }
 
-    // ── THE GATEWAY MUST BE ABLE TO DELIVER BEFORE WE CREATE ANYONE ─────────
-    // A member's first-login code goes out over WhatsApp ALONE — their email is
-    // optional and is never verified, so there is no fallback channel. Creating
-    // one while the bridge is unconfigured or its key is unreadable produces an
-    // account that CANNOT EVER BE SIGNED INTO, and does it silently: the admin
-    // sees a success toast and a temporary password, and only finds out when
-    // the member reports that no code arrives. Refusing up front is the kinder
-    // failure, and the message names where to go and fix it.
-    //
-    // Only for members. A TENANT_ADMIN is verified by email, which does not
-    // depend on this bridge at all.
-    if (newRole === 'STANDARD') {
-      const gateway = await getWhatsAppConfig();
-      if (!gateway) {
-        return NextResponse.json({
-          error: 'WhatsApp gateway is not connected, and a new member is verified by a WhatsApp code. Connect it under Admin → WhatsApp, then add the member.',
-        }, { status: 503 });
-      }
-    }
+    // No delivery check here any more. A member is created WITHOUT sign-in
+    // (see `signInDisabledAt` below), so nothing is sent and nothing needs to
+    // be deliverable yet. Whether a code can reach them is checked when the
+    // admin gives them access — POST /api/users/[id]/sign-in.
 
     // Optional for a member since 0040, so it may legitimately be absent. Kept
     // as null rather than '' — the partial unique index treats NULLs as
@@ -448,17 +432,20 @@ export async function POST(req: Request) {
         email: cleanEmail,
         passwordHash,
         name,
-        phoneNumber,
+        // Optional for a member; an untouched PhoneInput ('+91') is stored as NULL.
+        phoneNumber: isBlankPhone(phoneNumber) ? null : phoneNumber,
         // See src/db/schema.ts — the normalised form is what sign-in matches on,
         // and it is what lets this member log in with their mobile at all.
         phoneDial: toDialString(phoneNumber),
         // Which roster this member appears in, from here on. Set once and never
         // edited — see the column comment in src/db/schema.ts.
         accountScope,
-        // emailVerified is left to the column default, which is `false` since
-        // 0039. That is the point of this change: a member created here now
-        // meets a first-login code challenge — over WhatsApp, on the number
-        // above — instead of being born verified and never sent one.
+        // emailVerified / phoneVerified are left at their default `false`.
+        // A member is added as a record only: sign-in starts OFF, and nothing
+        // is sent. When the admin gives access (POST /api/users/[id]/sign-in)
+        // the member meets the first-login code challenge — WhatsApp, or email
+        // when WhatsApp is off.
+        signInDisabledAt: newRole === 'STANDARD' ? new Date() : null,
         role: newRole,
       }).returning();
 

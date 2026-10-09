@@ -16,14 +16,20 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { withTenant } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { getUserFromRequest, hashPassword } from '@/lib/auth';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
+import { toDialString } from '@/lib/phone';
 import { requireActivePlan } from '@/lib/planGate';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { setMemberSignIn } from '@/lib/account/memberRemoval';
 import { workspaceMemberScope } from '@/lib/account/workspaceMemberScope';
 
-const bodySchema = z.object({ enabled: z.boolean() });
+const bodySchema = z.object({
+  enabled: z.boolean(),
+  // "Give access": an optional new temporary password, set as sign-in turns on.
+  password: z.string().min(8).max(128).optional(),
+});
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -37,9 +43,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const parsed = bodySchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Say whether sign-in should be on or off.' }, { status: 400 });
+      return NextResponse.json({ error: 'Say whether sign-in should be on or off, and use a password of at least 8 characters.' }, { status: 400 });
     }
-    const { enabled } = parsed.data;
+    const { enabled, password } = parsed.data;
 
     // The admin's own sign-in is not theirs to turn off here: it would lock
     // the workspace out of the one account that can turn it back on.
@@ -72,8 +78,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ success: true, signInDisabled: !enabled });
     }
 
+    // ── GIVING ACCESS TO A MEMBER WHO HAS NEVER VERIFIED ───────────────────
+    // Members are added as records only, with sign-in off and nothing sent.
+    // Turning it on is the moment their first-login code becomes due, so this
+    // is where we check it can reach them: WhatsApp on their number, or their
+    // email (see requiredChannels in src/lib/verificationChannels.ts). Both
+    // contacts are optional when adding, so either may be missing.
+    const neverVerified = !targetUser.emailVerified && !targetUser.phoneVerified;
+    if (enabled && neverVerified && !targetUser.email) {
+      if (!toDialString(targetUser.phoneNumber)) {
+        return NextResponse.json({
+          error: 'This member has no mobile number or email, so they cannot sign in or receive a verification code. Use Edit Details to add one, then give access.',
+        }, { status: 400 });
+      }
+      if (!(await isWhatsAppEnabled())) {
+        return NextResponse.json({
+          error: 'WhatsApp is not connected and this member has no email, so their verification code cannot be sent. Connect WhatsApp under Admin → WhatsApp, or add an email for this member, then give access.',
+        }, { status: 400 });
+      }
+    }
+
+    const passwordHash = enabled && password ? await hashPassword(password) : undefined;
+
     await withTenant(currentUser.tenantId, async (tx) => {
-      await setMemberSignIn(tx, currentUser, targetUser.id, enabled);
+      await setMemberSignIn(tx, currentUser, targetUser.id, enabled, passwordHash);
       await writeAudit({
         tenantId: currentUser.tenantId,
         userId: currentUser.id,
@@ -81,7 +109,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         details: auditSentence(enabled ? 'sign_in_enable' : 'sign_in_disable', {
           kind: 'member',
           name: targetUser.name,
-          note: enabled ? undefined : 'they stay in the workspace and their records are kept',
+          note: enabled
+            ? (neverVerified ? 'access given; they verify with a code at first sign-in' : undefined)
+            : 'they stay in the workspace and their records are kept',
         }),
         req,
         entityType: 'users',

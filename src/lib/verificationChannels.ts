@@ -15,11 +15,12 @@
  * from the one place that owns the whole challenge.
  *
  * ── THE PRODUCT RULE, STATED ONCE ──────────────────────────────────────────
- *   STANDARD                    WhatsApp only. Their email is optional and is
- *                               NEVER verified, so a code must never be sent
- *                               to it — an address a tenant admin may simply
- *                               have mistyped would otherwise receive a login
- *                               code for someone else's account.
+ *   STANDARD                    ONE channel. WhatsApp while it is on and
+ *                               they have a number; otherwise the email the
+ *                               admin entered for them (if any). Proving either channel once
+ *                               is enough, so a member verified on WhatsApp is
+ *                               not challenged again by email when the bridge
+ *                               goes down.
  *   TENANT_ADMIN / SUPER_ADMIN  BOTH, each with its own code. Holding the
  *                               inbox is not evidence of holding the handset.
  */
@@ -67,7 +68,14 @@ export function requiredChannels(
   user: VerifiableUser,
   opts: ChannelOptions = {},
 ): { email: boolean; phone: boolean } {
-  if (user.role === 'STANDARD') return { email: false, phone: true };
+  if (user.role === 'STANDARD') {
+    // WhatsApp when it is on and they have a number. Otherwise their email,
+    // when they have one. With neither, phone stays required so the challenge
+    // fails as undeliverable rather than reading as "nothing to verify".
+    const canWhatsApp = opts.whatsappEnabled !== false && !!toDialString(user.phoneNumber);
+    if (!canWhatsApp && user.email) return { email: true, phone: false };
+    return { email: false, phone: true };
+  }
 
   // WhatsApp is switched off (or cannot send): a code on that channel would be
   // minted and never delivered, so an admin proves their inbox alone until it
@@ -90,6 +98,8 @@ export function isFullyVerified(
   user: VerifiableUser & VerifiedFlags,
   opts: ChannelOptions = {},
 ): boolean {
+  // A member needs one proven channel, whichever it was.
+  if (user.role === 'STANDARD' && (user.emailVerified || user.phoneVerified)) return true;
   const required = requiredChannels(user, opts);
   return (!required.email || user.emailVerified) && (!required.phone || user.phoneVerified);
 }
@@ -99,6 +109,7 @@ export function outstandingChannels(
   user: VerifiableUser & VerifiedFlags,
   opts: ChannelOptions = {},
 ): { email: boolean; phone: boolean } {
+  if (isFullyVerified(user, opts)) return { email: false, phone: false };
   const required = requiredChannels(user, opts);
   return {
     email: required.email && !user.emailVerified,

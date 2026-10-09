@@ -39,6 +39,8 @@ vi.mock('@/lib/otpChallenge', async () => ({
   ...(await vi.importActual<any>('@/lib/verificationChannels')),
 }));
 
+vi.mock('@/lib/whatsapp', () => ({ isWhatsAppEnabled: async () => true }));
+
 vi.mock('@/lib/db', () => ({
   withTenant: async (tenantId: string, fn: any) => fn({
     query: {
@@ -200,6 +202,15 @@ describe('who may press it, and for whom', () => {
     const res = await call();
 
     expect(res.status).toBe(403);
+    expect(issueOtpChallenge).not.toHaveBeenCalled();
+  });
+
+  it('refuses a member who has not been given access yet', async () => {
+    foundMember = member({ signInDisabledAt: new Date() });
+    const res = await call();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('access');
     expect(issueOtpChallenge).not.toHaveBeenCalled();
   });
 

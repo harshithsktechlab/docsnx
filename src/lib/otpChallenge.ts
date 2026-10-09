@@ -15,12 +15,12 @@
  * not an implementation detail:
  *
  *   STANDARD (a member added by a tenant admin)
- *     WhatsApp ONLY, and awaited. Their mobile number is the mandatory,
- *     verified contact; their email is optional and is NEVER verified. Posting a
- *     login code to an address nobody confirmed — one an admin may simply have
- *     mistyped — would hand the code to whoever owns that address. So the member
- *     path does not touch the mailer at all, and because WhatsApp is then the
- *     ONLY channel, a failed send is a real failure the caller must hear about.
+ *     ONE channel, awaited. WhatsApp while it is on. When WhatsApp is off, the
+ *     code goes to the email the admin entered for them, if any — a product
+ *     decision: the admin vouches for that address when giving access. Either
+ *     channel, once proven, is enough. A member is only challenged at all after
+ *     the admin gives them access (POST /api/users/[id]/sign-in). With a single
+ *     channel, a failed send is a real failure the caller must hear about.
  *
  *   TENANT_ADMIN / SUPER_ADMIN (a self-signup at /register)
  *     BOTH, each with its OWN code. Their address is mandatory and verified,

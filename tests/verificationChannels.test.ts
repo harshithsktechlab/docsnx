@@ -39,16 +39,18 @@ const member = (o: any = {}) => ({
 
 const admin = (o: any = {}) => member({ role: 'TENANT_ADMIN', ...o });
 
-describe('a member is verified over WhatsApp and nothing else', () => {
+describe('a member is verified over WhatsApp while it is on', () => {
   it('never requires the email channel, even with an address on file', () => {
     expect(requiredChannels(member())).toEqual({ email: false, phone: true });
   });
 
-  it('is fully verified on the phone flag alone', () => {
+  it('is fully verified on either proven channel', () => {
     expect(isFullyVerified(member({ phoneVerified: true }))).toBe(true);
-    // And an `email_verified` left true by the pre-0052 backfill does NOT
-    // stand in for it.
-    expect(isFullyVerified(member({ emailVerified: true }))).toBe(false);
+    // A member who verified by email while WhatsApp was off stays verified when
+    // it comes back. (0052 copied email_verified into phone_verified, so no
+    // pre-0052 row reaches this with only the email flag set.)
+    expect(isFullyVerified(member({ emailVerified: true }))).toBe(true);
+    expect(isFullyVerified(member())).toBe(false);
   });
 });
 
@@ -192,8 +194,23 @@ describe('requiredChannels — WhatsApp switched off', () => {
     expect(isFullyVerified(admin(), off)).toBe(false);
   });
 
-  it('leaves a member on WhatsApp — their email is never verified, so never a fallback', () => {
-    expect(requiredChannels(member(), off)).toEqual({ email: false, phone: true });
+  it('falls back to the member\'s email when they have one', () => {
+    expect(requiredChannels(member(), off)).toEqual({ email: true, phone: false });
+    expect(outstandingChannels(member(), off)).toEqual({ email: true, phone: false });
+  });
+
+  it('sends a member with no number to their email even while WhatsApp is on', () => {
+    expect(requiredChannels(member({ phoneNumber: null }))).toEqual({ email: true, phone: false });
+    expect(requiredChannels(member({ phoneNumber: null }), { whatsappEnabled: true })).toEqual({ email: true, phone: false });
+  });
+
+  it('keeps phone required for a member with no email, so the send fails loudly', () => {
+    expect(requiredChannels(member({ email: null }), off)).toEqual({ email: false, phone: true });
+  });
+
+  it('does not re-challenge a member already verified on WhatsApp', () => {
+    expect(isFullyVerified(member({ phoneVerified: true }), off)).toBe(true);
+    expect(outstandingChannels(member({ phoneVerified: true }), off)).toEqual({ email: false, phone: false });
   });
 
   it('is unchanged when the flag is on or omitted', () => {

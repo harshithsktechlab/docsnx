@@ -854,7 +854,7 @@ export async function POST(req: Request) {
 
       // The plaintext body, not the stored projection — the sealed values the
       // profile updater extracts from are no longer in Postgres to read back.
-      await autoUpdateProfile(targetUserId, 'document', { ...record, metadata });
+      await autoUpdateProfile(targetUserId, 'document', { ...record, companyId: writeScope.companyId, metadata });
     }
 
     // ── Nothing written, and something to ask about → the plain refusal ─────

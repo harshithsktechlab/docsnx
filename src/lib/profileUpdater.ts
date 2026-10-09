@@ -2,9 +2,73 @@ import { db } from './db';
 import { profiles } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { encryptField, decryptField } from './fieldCrypto';
+import { normaliseBloodGroup } from './profileValues';
 
 // Legal identifiers stored in profiles.legalDetails are encrypted at rest.
 const LEGAL_ENCRYPTED_KEYS = ['panNumber', 'aadhaarNumber', 'passportNumber'];
+
+/**
+ * The personal ID documents whose number the profile's Legal / ID tab mirrors.
+ *
+ * Keyed on the `identity` pair, never on `documentKey` alone: `pan_card` also
+ * exists under `biz_registration`, and a company's PAN is not the member's.
+ */
+export const PROFILE_ID_DOCUMENTS = {
+  pan: { documentKey: 'pan_card', fieldKey: 'pan_number', legalKey: 'panNumber', title: 'PAN Card' },
+  aadhaar: { documentKey: 'aadhaar_card', fieldKey: 'aadhaar_number', legalKey: 'aadhaarNumber', title: 'Aadhaar Card' },
+  passport: { documentKey: 'passport', fieldKey: 'passport_number', legalKey: 'passportNumber', title: 'Passport' },
+} as const;
+export type ProfileIdKind = keyof typeof PROFILE_ID_DOCUMENTS;
+export const PROFILE_ID_MODULE_KEY = 'identity';
+
+/** Same shapes the profile's own inputs accept: uppercase PAN/passport, digits-only Aadhaar. */
+export function normaliseIdNumber(kind: ProfileIdKind, value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return kind === 'aadhaar' ? raw.replace(/[^0-9]/g, '') : raw.replace(/\s+/g, '').toUpperCase();
+}
+
+/** Which profile ID a document is, or null when it is not one of them. */
+export function profileIdKindFor(moduleKey?: string | null, documentKey?: string | null): ProfileIdKind | null {
+  if (moduleKey !== PROFILE_ID_MODULE_KEY) return null;
+  for (const [kind, def] of Object.entries(PROFILE_ID_DOCUMENTS)) {
+    if (def.documentKey === documentKey) return kind as ProfileIdKind;
+  }
+  return null;
+}
+
+/**
+ * Write one ID number into a member's profile, creating the profile if needed.
+ * Returns true when the stored value changed.
+ */
+export async function applyIdNumberToProfile(userId: string, kind: ProfileIdKind, value: unknown): Promise<boolean> {
+  const number = normaliseIdNumber(kind, value);
+  if (!userId || !number) return false;
+  const legalKey = PROFILE_ID_DOCUMENTS[kind].legalKey;
+
+  const profile = await db.query.profiles.findFirst({
+    where: (profiles, { eq }) => eq(profiles.userId, userId),
+  });
+  const legalDetails = { ...((profile?.legalDetails as object) || {}) } as any;
+  const current = legalDetails[legalKey] ? decryptField(legalDetails[legalKey]) : '';
+  if (current === number) return false;
+  legalDetails[legalKey] = encryptField(number);
+
+  if (profile) {
+    await db.update(profiles)
+      .set({ legalDetails, updatedAt: new Date() })
+      .where(eq(profiles.userId, userId));
+  } else {
+    await db.insert(profiles).values({
+      userId,
+      personalDetails: {},
+      educationDetails: {},
+      shoppingDetails: {},
+      legalDetails,
+    });
+  }
+  return true;
+}
 
 /**
  * Automatically update user profile details based on structured inputs
@@ -18,6 +82,25 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
   if (!userId) return;
 
   try {
+    // Personal ID documents (PAN / Aadhaar / passport). Matched on the record's
+    // category pair, and the number read under the category's own field key —
+    // with the legacy `documentNumber` for bodies still in the camelCase
+    // vocabulary. The number lands on the HOLDER's profile: an Aadhaar filed for
+    // a spouse is the spouse's. A global ("all members") or company record is
+    // nobody's in particular, so it updates no profile.
+    if (category === 'document') {
+      const kind = profileIdKindFor(data?.categoryModuleKey, data?.categoryDocumentKey);
+      if (kind) {
+        if (!data.companyId && !data.isGlobal) {
+          const meta = data.metadata || {};
+          const number = meta[PROFILE_ID_DOCUMENTS[kind].fieldKey] ?? meta.documentNumber;
+          const changed = await applyIdNumberToProfile(data.holderId || userId, kind, number);
+          if (changed) console.log(`Auto-updated profile ${kind} number from a saved document.`);
+        }
+        return;
+      }
+    }
+
     // 1. Fetch current profile or create an empty one
     let profile = await db.query.profiles.findFirst({
       where: (profiles, { eq }) => eq(profiles.userId, userId)
@@ -59,20 +142,9 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
 
     // 2. Parse based on category
     if (category === 'document') {
-      const docName = (data.name || '').toLowerCase();
+      // ID numbers are handled above, by category; only the free-form custom
+      // fields are read here.
       const meta = data.metadata || {};
-
-      // If document contains details in metadata
-      if (docName.includes('pan')) {
-        setIfNew(legalDetails, 'panNumber', meta.documentNumber);
-        if (meta.dob) setIfNew(personalDetails, 'dob', meta.dob);
-      } else if (docName.includes('aadhaar')) {
-        setIfNew(legalDetails, 'aadhaarNumber', meta.documentNumber);
-        if (meta.dob) setIfNew(personalDetails, 'dob', meta.dob);
-      } else if (docName.includes('passport')) {
-        setIfNew(legalDetails, 'passportNumber', meta.documentNumber);
-        if (meta.dob) setIfNew(personalDetails, 'dob', meta.dob);
-      }
 
       // Check custom fields
       if (Array.isArray(meta.customFields)) {
@@ -80,7 +152,7 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
           const lbl = (f.label || '').toLowerCase();
           const val = f.value;
           if (lbl.includes('blood') || lbl.includes('blood group')) {
-            setIfNew(personalDetails, 'bloodGroup', val);
+            setIfNew(personalDetails, 'bloodGroup', normaliseBloodGroup(val));
           } else if (lbl.includes('gender')) {
             setIfNew(personalDetails, 'gender', val.toLowerCase());
           } else if (lbl.includes('birth place') || lbl.includes('place of birth')) {
@@ -104,7 +176,7 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
       const bloodGroupRegex = /\b(a|b|ab|o)[+-](ve)?\b/i;
       const match = details.match(bloodGroupRegex);
       if (match) {
-        setIfNew(personalDetails, 'bloodGroup', match[0].toUpperCase());
+        setIfNew(personalDetails, 'bloodGroup', normaliseBloodGroup(match[0].toUpperCase()));
       }
 
       // Parse custom fields
@@ -113,7 +185,7 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
           const lbl = (f.label || '').toLowerCase();
           const val = f.value;
           if (lbl.includes('blood') || lbl.includes('blood group')) {
-            setIfNew(personalDetails, 'bloodGroup', val);
+            setIfNew(personalDetails, 'bloodGroup', normaliseBloodGroup(val));
           } else if (lbl.includes('dob') || lbl.includes('birth')) {
             setIfNew(personalDetails, 'dob', val);
           } else if (lbl.includes('gender')) {
@@ -136,7 +208,7 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
           } else if (lbl.includes('dob') || lbl.includes('date of birth')) {
             setIfNew(personalDetails, 'dob', val);
           } else if (lbl.includes('blood')) {
-            setIfNew(personalDetails, 'bloodGroup', val);
+            setIfNew(personalDetails, 'bloodGroup', normaliseBloodGroup(val));
           } else if (lbl.includes('gender')) {
             setIfNew(personalDetails, 'gender', val.toLowerCase());
           } else if (lbl.includes('degree')) {

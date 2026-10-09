@@ -49,7 +49,12 @@ vi.mock('@/lib/mailer', () => ({ sendVerificationOtpEmail }));
 const sendVerificationOtpWhatsApp = vi.fn(
   async (_to: string | null, _name: string | null, _otp: string) => ({ success: true }),
 );
-vi.mock('@/lib/whatsapp', () => ({ sendVerificationOtpWhatsApp }));
+/** Whether WhatsApp can deliver — decides a member's channel. On by default. */
+let whatsappOn = true;
+vi.mock('@/lib/whatsapp', () => ({
+  sendVerificationOtpWhatsApp,
+  isWhatsAppEnabled: async () => whatsappOn,
+}));
 
 // Only `writeAudit` touches the database. The action vocabulary and the
 // sentence builder are pure, so the REAL ones run here — a stubbed ACTIONS

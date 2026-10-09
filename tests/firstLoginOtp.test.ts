@@ -68,7 +68,12 @@ vi.mock('@/lib/mailer', () => ({ sendVerificationOtpEmail }));
 const sendVerificationOtpWhatsApp = vi.fn(
   async (_to: string | null, _name: string | null, _otp: string) => ({ success: true }),
 );
-vi.mock('@/lib/whatsapp', () => ({ sendVerificationOtpWhatsApp }));
+/** Whether WhatsApp can deliver — decides a member's channel. On by default. */
+let whatsappOn = true;
+vi.mock('@/lib/whatsapp', () => ({
+  sendVerificationOtpWhatsApp,
+  isWhatsAppEnabled: async () => whatsappOn,
+}));
 
 /**
  * A REAL digest, not the usual `hashed:${t}` echo stub.
@@ -163,6 +168,7 @@ beforeEach(() => {
   comparePassword.mockResolvedValue(true as never);
   sendVerificationOtpEmail.mockResolvedValue({ success: true } as never);
   sendVerificationOtpWhatsApp.mockResolvedValue({ success: true } as never);
+  whatsappOn = true;
 });
 
 describe('a member is challenged over WhatsApp and nothing else', () => {
@@ -233,6 +239,33 @@ describe('a member is challenged over WhatsApp and nothing else', () => {
     expect(entry.action).toBe('auth.first_login_otp_sent');
     expect(entry.tenantId).toBe('tenant-1');
     expect(entry.details).not.toContain(otp);
+  });
+});
+
+describe('a member falls back to email when WhatsApp is off', () => {
+  it('emails the code, and sends nothing on WhatsApp', async () => {
+    whatsappOn = false;
+    foundUser = unverified();
+    const res = await login(loginRequest(CREDENTIALS));
+
+    expect(res.status).toBe(403);
+    expect(sendVerificationOtpEmail).toHaveBeenCalledTimes(1);
+    expect(sendVerificationOtpEmail.mock.calls[0][2]).toMatch(/^\d{6}$/);
+    expect(sendVerificationOtpWhatsApp).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.needsEmailCode).toBe(true);
+    expect(body.needsPhoneCode).toBe(false);
+  });
+
+  it('answers 503 when the member has no email to fall back to', async () => {
+    whatsappOn = false;
+    // With the bridge off the WhatsApp send is refused, as in production.
+    sendVerificationOtpWhatsApp.mockResolvedValue({ success: false, error: 'not configured' } as never);
+    foundUser = unverified({ email: null });
+    const res = await login(loginRequest(CREDENTIALS));
+
+    expect(res.status).toBe(503);
+    expect(sendVerificationOtpEmail).not.toHaveBeenCalled();
   });
 });
 

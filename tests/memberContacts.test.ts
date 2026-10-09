@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   POST /api/users — a member's mobile is mandatory, their email is not   ║
+ * ║   POST /api/users — a member's mobile and email are both optional        ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * The rule this file pins, in full: for a member added by a tenant admin the
@@ -123,7 +123,7 @@ vi.mock('@/lib/planGate', () => ({
   requireActivePlanFor: () => null,
 }));
 
-/** null = the bridge is not connected. The preflight's whole input. */
+/** null = the bridge is not connected. Creation must not depend on it. */
 let whatsappConfig: any = { apiUrl: 'https://wa.test', apiKey: 'k', instance: 'i' };
 vi.mock('@/lib/whatsapp', () => ({
   getWhatsAppConfig: async () => whatsappConfig,
@@ -216,23 +216,31 @@ describe('the email is optional', () => {
   });
 });
 
-describe('the mobile number is mandatory', () => {
-  it('refuses a member with no mobile number', async () => {
+describe('the mobile number is optional for a member', () => {
+  it('creates a member with no mobile number and no email', async () => {
     const { phoneNumber, ...noPhone } = MEMBER;
     const res = await createUser(createRequest(noPhone));
 
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain('Mobile Number');
-    expect(inserted).toBeNull();
+    // Added as a record only; a contact is needed when access is given.
+    expect(res.status).toBe(201);
+    expect(inserted.phoneNumber).toBeNull();
+    expect(inserted.phoneDial).toBeNull();
   });
 
-  it('refuses a member with an email but still no mobile number', async () => {
-    const { phoneNumber, ...noPhone } = MEMBER;
-    const res = await createUser(createRequest({ ...noPhone, email: 'asha@example.test' }));
+  it('stores an untouched phone field (country code only) as NULL', async () => {
+    const res = await createUser(createRequest({ ...MEMBER, phoneNumber: '+91' }));
 
-    // An address is not a substitute. It is never verified, so it cannot carry
-    // a first-login code — accepting this would create an unreachable account.
+    expect(res.status).toBe(201);
+    expect(inserted.phoneNumber).toBeNull();
+    expect(inserted.phoneDial).toBeNull();
+  });
+
+  it('still requires a mobile number from a tenant admin', async () => {
+    const { phoneNumber, ...noPhone } = MEMBER;
+    const res = await createUser(createRequest({ ...noPhone, role: 'TENANT_ADMIN', email: 'admin@example.test' }));
+
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('Mobile Number');
     expect(inserted).toBeNull();
   });
 
@@ -248,18 +256,22 @@ describe('the mobile number is mandatory', () => {
   });
 });
 
-describe('a member is not created without a way to verify them', () => {
-  it('refuses when the WhatsApp gateway is not connected', async () => {
+describe('a member is added as a record only, without access', () => {
+  it('is created even when the WhatsApp gateway is not connected', async () => {
     whatsappConfig = null;
     const res = await createUser(createRequest(MEMBER));
 
-    expect(res.status).toBe(503);
-    expect((await res.json()).error).toContain('WhatsApp');
-    // Nothing written. A member created here could never sign in.
-    expect(inserted).toBeNull();
+    // Nothing is sent at creation, so nothing needs to be deliverable yet.
+    expect(res.status).toBe(201);
+    expect(inserted).not.toBeNull();
   });
 
-  it('does not block a TENANT_ADMIN, who is verified by email', async () => {
+  it('starts with sign-in off until the admin gives access', async () => {
+    await createUser(createRequest(MEMBER));
+    expect(inserted.signInDisabledAt).toBeInstanceOf(Date);
+  });
+
+  it('does not turn off sign-in for a TENANT_ADMIN', async () => {
     whatsappConfig = null;
     const res = await createUser(createRequest({
       ...MEMBER,
@@ -268,6 +280,7 @@ describe('a member is not created without a way to verify them', () => {
     }));
 
     expect(res.status).toBe(201);
+    expect(inserted.signInDisabledAt).toBeNull();
   });
 });
 
@@ -329,10 +342,10 @@ describe('validateUserContacts — the rule, by role', () => {
     expect(result.isValid).toBe(true);
   });
 
-  it('rejects a member with no mobile', () => {
-    const result = validateUserContacts({ role: 'STANDARD', email: 'asha@example.test' });
-    expect(result.isValid).toBe(false);
-    expect(result.errors.phoneNumber).toBeTruthy();
+  it('accepts a member with no mobile', () => {
+    expect(validateUserContacts({ role: 'STANDARD', email: 'asha@example.test' }).isValid).toBe(true);
+    expect(validateUserContacts({ role: 'STANDARD' }).isValid).toBe(true);
+    expect(validateUserContacts({ role: 'STANDARD', phoneNumber: '+91' }).isValid).toBe(true);
   });
 
   it('rejects a mobile that toDialString would refuse', () => {

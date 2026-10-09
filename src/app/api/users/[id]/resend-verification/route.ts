@@ -60,6 +60,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: 'Member not found' }, { status: 404 });
     }
 
+    // No access yet (or sign-in turned off): a code is pointless — they could
+    // not sign in with it. Giving access comes first.
+    if (target.signInDisabledAt) {
+      return NextResponse.json({
+        error: 'This member does not have access yet. Give them access first; they get a code when they first sign in.',
+      }, { status: 400 });
+    }
+
     if (isFullyVerified(target, { whatsappEnabled: await isWhatsAppEnabled() })) {
       return NextResponse.json({
         error: 'This member has already completed verification.',

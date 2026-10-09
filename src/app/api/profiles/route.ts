@@ -5,6 +5,7 @@ import { eq, and } from 'drizzle-orm';
 import { getUserFromRequest, hasPermission } from '@/lib/auth';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { loadProfileIdDocuments } from '@/lib/profileIdDocuments';
 import {
   encryptJsonKeys, decryptJsonKeys, PROFILE_LEGAL_KEYS,
 } from '@/lib/records/jsonFieldCrypto';
@@ -64,7 +65,21 @@ export async function GET(req: Request) {
       profile = newProfile;
     }
 
-    return NextResponse.json({ success: true, profile: decryptProfileForClient(profile) });
+    // The Legal / ID tab's files are the Document Manager's identity records.
+    // A failure here must not take the rest of the profile down with it.
+    let idDocuments = null;
+    try {
+      const plainLegal = decryptJsonKeys(profile.legalDetails || {}, PROFILE_LEGAL_KEYS) as Record<string, any>;
+      const loaded = await loadProfileIdDocuments(user, targetUserId, plainLegal);
+      idDocuments = loaded.idDocuments;
+      if (loaded.backfilled) {
+        profile = (await db.query.profiles.findFirst({ where: eq(profiles.userId, targetUserId) })) ?? profile;
+      }
+    } catch (err) {
+      console.error('[profile] could not load ID documents:', err);
+    }
+
+    return NextResponse.json({ success: true, profile: decryptProfileForClient(profile), idDocuments });
   } catch (error) {
     return serverError(error, 'loading profile');
   }

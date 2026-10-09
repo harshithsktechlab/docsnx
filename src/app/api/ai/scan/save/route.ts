@@ -498,7 +498,9 @@ export async function POST(req: Request) {
         // must not reach it. (`category` is a `biz_*` string in a company and
         // matches nothing inside, so this is belt and braces — but the guard is
         // what says the exemption is deliberate.)
-        if (!companyId) await autoUpdateProfile(user.id, category, created as any);
+        // `created` is the projection, which never carries sealed values (the
+        // PAN / Aadhaar number), so the extracted body rides along as metadata.
+        if (!companyId) await autoUpdateProfile(user.id, category, { ...created, metadata: extracted } as any);
         await writeAudit({
           tenantId: user.tenantId,
           userId: user.id,

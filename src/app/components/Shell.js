@@ -61,11 +61,9 @@ import { usePushNotifications } from '@/lib/usePushNotifications';
 import { AnimatePresence, motion } from 'framer-motion';
 import { FontSizeToggle } from '@/components/FontSizeToggle';
 import { ThemeToggle, useAppTheme } from '@/components/ThemeToggle';
-import PlanQuotaMeters from '@/app/components/PlanQuotaMeters';
 import { NAV_MODULES, BUSINESS_NAV_MODULES, UTILITY_MODULES, TENANT_SPECIFIC_PATHS, MODULE_BASE, utilityNavPath } from '@/lib/moduleRegistry';
 import { workspaceMenu, defaultCompanyId, companyHome, activeCompanyFrom, companyFromPath, PERSONAL_HOME } from '@/lib/workspaceNav';
 import { moduleIcon } from '@/lib/moduleIcons';
-import { getInitials } from '@/lib/accountMenu';
 import ModuleFlyout from '@/app/components/ModuleFlyout';
 import WorkspaceSwitcher from '@/app/components/WorkspaceSwitcher';
 import AccountMenu from '@/app/components/AccountMenu';
@@ -298,9 +296,7 @@ export default function Shell({ children }) {
   const [user, setUser] = useState(null);
   /** The companies this member may reach. Empty for a personal-only account. */
   const [companies, setCompanies] = useState([]);
-  const [planDetails, setPlanDetails] = useState(null);
   const [planState, setPlanState] = useState(null);
-  const [storageData, setStorageData] = useState(null);
   // Owned by src/components/ThemeToggle.tsx, not by local state: the header
   // button and the Appearance card on /more both write it, and two independent
   // copies of that logic is what the 1s poll this replaced was covering for.
@@ -539,9 +535,7 @@ export default function Shell({ children }) {
       } else {
         setUser(data.user);
         setCompanies(Array.isArray(data.companies) ? data.companies : []);
-        setPlanDetails(data.planDetails || null);
         setPlanState(data.planStatus || null);
-        setStorageData(data.storageData || null);
         // Warn on the way to full, not only once uploads start failing. Deduped
         // per state inside the helper — this runs on every navigation.
         maybeToastStoragePressure(data.storageData || null);
@@ -1515,35 +1509,8 @@ export default function Shell({ children }) {
             </Button>
           </div>
 
-          {/* Footer */}
-          <div className="mt-auto p-4 border-t border-border flex flex-col gap-3 bg-card">
-            <div className={cn("flex items-center gap-3 px-1", isCollapsed ? "justify-center" : "")}>
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-orange-500 flex items-center justify-center text-xs font-black text-white shrink-0">
-                {getInitials(user?.name)}
-              </div>
-              {!isCollapsed && (
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-bold text-foreground truncate">{user?.name || 'User'}</div>
-                  <div className="text-2xs text-muted-foreground font-semibold uppercase tracking-wider mt-0.5 truncate">{user?.role?.replace(/_/g, ' ') || 'Standard'}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-2 w-full pt-1">
-              {/* Plan & Quotas Widget — the same component /more renders, so a
-                  phone and a desktop cannot disagree about the numbers. */}
-              {!isSuperAdmin && planDetails && (
-                <PlanQuotaMeters
-                  planDetails={planDetails}
-                  storageData={storageData}
-                  aiCreditsBalance={user?.tenant?.aiCreditsBalance}
-                  className={cn('mb-2', isCollapsed && 'hidden')}
-                />
-              )}
-
-              {/* Notifications removed from sidebar footer */}
-            </div>
-          </div>
+          {/* The user + Plan & Usage footer moved to /profile ("Account &
+              Usage"); name and role are in the header's AccountMenu. */}
         </aside>
       )}
 

@@ -48,6 +48,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/dateHelper';
 import { isFullyVerified } from '@/lib/verificationChannels';
+import { isBlankPhone } from '@/lib/phone';
 import { PhoneInput } from '@/components/ui/PhoneInput';
 import { DataTable } from '@/components/ui/data-table';
 import PageContainer from '@/app/components/PageContainer';
@@ -134,6 +135,11 @@ export default function MembersScreen({ companyId = null }) {
   const [pickedPwdIds, setPickedPwdIds] = useState([]);
   const [removing, setRemoving] = useState(false);
   const [togglingSignIn, setTogglingSignIn] = useState(false);
+  // "Give access" dialog: the member being given access, the temporary
+  // password they will sign in with, and the server's refusal if any.
+  const [giveAccessTarget, setGiveAccessTarget] = useState(null);
+  const [giveAccessPassword, setGiveAccessPassword] = useState('');
+  const [giveAccessError, setGiveAccessError] = useState('');
 
   /**
    * Which account a newly added member belongs to, and therefore which half of
@@ -397,11 +403,11 @@ export default function MembersScreen({ companyId = null }) {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    // Mobile, not email. The number is this member's login identity and the
-    // only channel their verification code goes to; the address is optional and
-    // is never verified. See src/lib/userContactValidation.ts.
-    if (!addName || !addPhone || !addPassword) {
-      toast.error('Please fill in Name, Mobile Number and Password.');
+    // Mobile and email are both optional: the member is added as a record only.
+    // A contact is needed when you give them access. See
+    // src/lib/userContactValidation.ts and POST /api/users/[id]/sign-in.
+    if (!addName || !addPassword) {
+      toast.error('Please fill in Name and Password.');
       return;
     }
     // Only step 2 creates. A submit from step 1 (Enter in a field, or any
@@ -422,7 +428,8 @@ export default function MembersScreen({ companyId = null }) {
         // NULLs as non-colliding, but two empty strings would be duplicates.
         email: addEmail || null,
         password: addPassword,
-        phoneNumber: addPhone,
+        // An untouched PhoneInput still holds its country code ('+91').
+        phoneNumber: isBlankPhone(addPhone) ? null : addPhone,
         // Always STANDARD: the role picker is gone, because a member
         // is never anything else. See the Add dialog for the reasoning.
         role: 'STANDARD',
@@ -517,10 +524,15 @@ export default function MembersScreen({ companyId = null }) {
 
   const handleSaveDetails = async (e) => {
     e.preventDefault();
-    // Same rule as the Add form: an admin must not be able to blank the number
-    // a member signs in with. The API enforces this too — see PUT /api/users/[id].
-    if (!editName || !editPhone) {
-      toast.error('Name and Mobile Number are required.');
+    // Mobile is optional for a member, required for an admin. The API also
+    // refuses to clear both contacts of a member who has access — see
+    // PUT /api/users/[id].
+    if (!editName) {
+      toast.error('Name is required.');
+      return;
+    }
+    if (editRole !== 'STANDARD' && isBlankPhone(editPhone)) {
+      toast.error('Mobile Number is required for an admin.');
       return;
     }
     setUpdating(true);
@@ -535,7 +547,7 @@ export default function MembersScreen({ companyId = null }) {
         // route reads '' as a deliberate removal and `undefined` as untouched.
         email: editEmail,
         password: editPassword || undefined,
-        phoneNumber: editPhone || null,
+        phoneNumber: isBlankPhone(editPhone) ? null : editPhone,
         role: editRole,
         dob: editDob || null,
         anniversaryDate: editAnniversary || null
@@ -676,6 +688,48 @@ export default function MembersScreen({ companyId = null }) {
     }
   };
 
+  const openGiveAccess = (target) => {
+    setGiveAccessTarget(target);
+    setGiveAccessPassword(generateTempPassword());
+    setGiveAccessError('');
+  };
+
+  /**
+   * Gives a member who was added as a record only the ability to sign in.
+   * Nothing is sent now: their verification code (WhatsApp, or email when
+   * WhatsApp is off) goes out when they first sign in with this password.
+   */
+  const handleGiveAccess = async () => {
+    const target = giveAccessTarget;
+    if (!target) return;
+    if (giveAccessPassword.length < 8) {
+      setGiveAccessError('Use a temporary password of at least 8 characters.');
+      return;
+    }
+    setTogglingSignIn(true);
+    setGiveAccessError('');
+    try {
+      const { json } = await apiCall(withCompany(`/api/users/${target.id}/sign-in`, companyId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true, password: giveAccessPassword }),
+      });
+      if (!json.success) {
+        setGiveAccessError(json.error || 'Could not give access');
+        return;
+      }
+      toast.success(`${target.name} now has access. They verify with a code when they first sign in.`);
+      setSelectedUser((u) => (u && u.id === target.id ? { ...u, signInDisabledAt: null } : u));
+      setGiveAccessTarget(null);
+      await fetchUsers();
+    } catch (err) {
+      console.error('[users] handler threw', err);
+      setGiveAccessError('Something went wrong giving access. Please try again.');
+    } finally {
+      setTogglingSignIn(false);
+    }
+  };
+
   const handleConfirmRemoval = async () => {
     if (!removeTarget) return;
     if (removeStep === 'choice' && removeMode === 'signin_off') {
@@ -768,8 +822,7 @@ export default function MembersScreen({ companyId = null }) {
         </div>
         <Button
           onClick={() => {
-            const tempPass = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-2).toUpperCase() + "!";
-            setAddPassword(tempPass);
+            setAddPassword(generateTempPassword());
             setShowAddModal(true);
           }}
           className="flex items-center gap-2 h-10 px-4"
@@ -874,7 +927,7 @@ export default function MembersScreen({ companyId = null }) {
               render: (u) => (
                 <div className="flex items-center gap-1.5">
                   <Badge variant={getRoleBadgeVariant(u.role)}>{u.role}</Badge>
-                  {u.signInDisabledAt && <SignInOffBadge />}
+                  {hasNoAccess(u) ? <NoAccessBadge /> : u.signInDisabledAt && <SignInOffBadge />}
                 </div>
               )
             },
@@ -910,7 +963,7 @@ export default function MembersScreen({ companyId = null }) {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={getRoleBadgeVariant(u.role)} className="text-xs">{u.role}</Badge>
-                  {u.signInDisabledAt && <SignInOffBadge />}
+                  {hasNoAccess(u) ? <NoAccessBadge /> : u.signInDisabledAt && <SignInOffBadge />}
                 </div>
               </div>
           )}
@@ -935,7 +988,7 @@ export default function MembersScreen({ companyId = null }) {
                         member was the WhatsApp flag wearing the wrong name — and
                         since 0052 that column means the address and nothing else.
                       */}
-                      {selectedUser.phoneVerified === false && (
+                      {selectedUser.phoneVerified === false && !hasNoAccess(selectedUser) && (
                         <Badge variant="outline" className="text-xs font-normal">Unverified</Badge>
                       )}
                     </span>
@@ -959,7 +1012,7 @@ export default function MembersScreen({ companyId = null }) {
                   <div className="mt-1 flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground">Role:</span>
                     <Badge variant={getRoleBadgeVariant(selectedUser.role)}>{selectedUser.role}</Badge>
-                    {selectedUser.signInDisabledAt && <SignInOffBadge />}
+                    {hasNoAccess(selectedUser) ? <NoAccessBadge /> : selectedUser.signInDisabledAt && <SignInOffBadge />}
                   </div>
                 </div>
               </div>
@@ -972,7 +1025,7 @@ export default function MembersScreen({ companyId = null }) {
                   the admin who created them to send another one. The member's
                   own Resend button needs a password they may never have used.
                 */}
-                {!isFullyVerified(selectedUser) && (
+                {!isFullyVerified(selectedUser) && !selectedUser.signInDisabledAt && (
                   <Button
                     onClick={handleResendVerification}
                     variant="outline"
@@ -994,7 +1047,16 @@ export default function MembersScreen({ companyId = null }) {
                   <Edit size={12} /> Edit Details
                 </Button>
                 
-                {selectedUser.signInDisabledAt ? (
+                {hasNoAccess(selectedUser) ? (
+                  <Button
+                    onClick={() => openGiveAccess(selectedUser)}
+                    disabled={togglingSignIn}
+                    className="flex items-center gap-1.5 text-xs h-9"
+                  >
+                    <KeyRound size={12} />
+                    Give Access
+                  </Button>
+                ) : selectedUser.signInDisabledAt ? (
                   <Button
                     onClick={() => handleSetSignIn(selectedUser, true)}
                     variant="outline"
@@ -1156,7 +1218,9 @@ export default function MembersScreen({ companyId = null }) {
               <CheckCircle2 size={48} className="text-emerald-500" />
               <h3 className="text-xl font-bold">Member Added!</h3>
               <p className="text-muted-foreground text-sm max-w-sm">
-                Share this temporary password with the new member. They will be required to change it on their first login.
+                The member has been added without access — nothing has been sent to them. When you want them to
+                sign in, open their profile and choose Give Access; they verify with a code at their first sign-in.
+                Their temporary password for now:
               </p>
               <div className="bg-muted border border-border p-4 rounded-xl flex items-center justify-center min-w-[250px] mt-2">
                 <span className="font-mono text-xl font-bold text-foreground tracking-wider">{tempPasswordView}</span>
@@ -1242,7 +1306,7 @@ export default function MembersScreen({ companyId = null }) {
                     <div className="flex flex-col gap-1.5">
                       <PhoneInput
                         id="addPhone"
-                        label="Mobile Number *"
+                        label="Mobile Number (optional)"
                         value={addPhone}
                         onChange={setAddPhone}
                         disabled={adding}
@@ -1367,8 +1431,8 @@ export default function MembersScreen({ companyId = null }) {
                     key="add-next"
                     type="button"
                     onClick={() => {
-                      if (!addName || !addPhone || !addPassword) {
-                        toast.error('Please fill in Name, Mobile Number and Password.');
+                      if (!addName || !addPassword) {
+                        toast.error('Please fill in Name and Password.');
                         return;
                       }
                       setAddStep(2);
@@ -1437,7 +1501,7 @@ export default function MembersScreen({ companyId = null }) {
             <div className="flex flex-col gap-1.5">
               <PhoneInput
                 id="editPhone"
-                label="Mobile Number *"
+                label={editRole === 'STANDARD' ? 'Mobile Number (optional)' : 'Mobile Number *'}
                 value={editPhone}
                 onChange={setEditPhone}
                 disabled={updating}
@@ -1502,6 +1566,60 @@ export default function MembersScreen({ companyId = null }) {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== GIVE ACCESS ====================
+          A member added as a record only gets sign-in here. Nothing is sent
+          now; their code goes out at their first sign-in. */}
+      <Dialog open={!!giveAccessTarget} onOpenChange={(open) => { if (!open) setGiveAccessTarget(null); }}>
+        <DialogContent className="max-w-[460px] border-border/50 bg-popover/95 backdrop-blur shadow-glass">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><KeyRound size={18} /> Give Access</DialogTitle>
+            <DialogDescription>
+              {giveAccessTarget?.name} will be able to sign in with{' '}
+              {[giveAccessTarget?.phoneNumber && 'their mobile number', giveAccessTarget?.email && 'their email']
+                .filter(Boolean).join(' or ') || 'a mobile number or email (add one with Edit Details first)'}
+              {' '}and this temporary password. At their first sign-in they get a verification code on
+              WhatsApp, or by email if WhatsApp is off or they have no number.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="give-access-password">Temporary Password</Label>
+            <div className="flex gap-2">
+              <Input
+                id="give-access-password"
+                value={giveAccessPassword}
+                onChange={(e) => setGiveAccessPassword(e.target.value)}
+                className="font-mono"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  navigator.clipboard?.writeText(giveAccessPassword).then(
+                    () => toast.success('Password copied'),
+                    () => toast.error('Could not copy'),
+                  );
+                }}
+              >
+                Copy
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Share this with them before they sign in.</p>
+            {giveAccessError && (
+              <Alert variant="destructive">
+                <AlertDescription>{giveAccessError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGiveAccessTarget(null)} disabled={togglingSignIn}>Cancel</Button>
+            <Button onClick={handleGiveAccess} disabled={togglingSignIn} className="flex items-center gap-1.5">
+              {togglingSignIn ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
+              Give Access
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1702,6 +1820,25 @@ export default function MembersScreen({ companyId = null }) {
  * Marks a member whose sign-in the admin turned off. They are still a member,
  * so this sits beside the role rather than replacing anything.
  */
+/**
+ * Added as a record only and never given access: sign-in is off and they have
+ * never verified. Turning sign-in off for a member who already signed in is a
+ * different state ("Sign-in off"), with its own button to turn it back on.
+ */
+function hasNoAccess(u) {
+  return !!u && u.role === 'STANDARD' && !!u.signInDisabledAt && !u.emailVerified && !u.phoneVerified;
+}
+
+function generateTempPassword() {
+  return Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-2).toUpperCase() + '!';
+}
+
+function NoAccessBadge() {
+  return (
+    <Badge variant="outline" className="text-xs font-normal text-muted-foreground">No access</Badge>
+  );
+}
+
 function SignInOffBadge() {
   return (
     <Badge variant="outline" className="text-xs font-normal text-muted-foreground">Sign-in off</Badge>

@@ -5,7 +5,7 @@ import { users, profiles, permissions, companies } from '@/db/schema';
 import { eq, and, count, inArray, isNull } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
-import { toDialString } from '@/lib/phone';
+import { toDialString, isBlankPhone } from '@/lib/phone';
 import { validateUserContacts } from '@/lib/userContactValidation';
 import {
   isDuplicatePhone, DUPLICATE_PHONE_MESSAGE,
@@ -127,10 +127,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: errorMsg }, { status: 400 });
     }
 
+    // A member's mobile is optional, but one who HAS access signs in with their
+    // number or their email — clearing both would lock them out silently.
+    const mergedPhone = phoneNumber !== undefined ? phoneNumber : targetUser.phoneNumber;
+    const mergedEmail = cleanEmail !== undefined ? cleanEmail : targetUser.email;
+    if (effectiveRole === 'STANDARD' && !targetUser.signInDisabledAt && isBlankPhone(mergedPhone) && !mergedEmail) {
+      return NextResponse.json({
+        error: 'This member has access, so they need a mobile number or an email to sign in.',
+      }, { status: 400 });
+    }
+
     const updateData: any = {};
     if (name) updateData.name = name;
     if (phoneNumber !== undefined) {
-      updateData.phoneNumber = phoneNumber;
+      updateData.phoneNumber = isBlankPhone(phoneNumber) ? null : phoneNumber;
       // Always in the same breath as phoneNumber. Updating one without the
       // other would leave this member signing in with their OLD number.
       updateData.phoneDial = toDialString(phoneNumber);
