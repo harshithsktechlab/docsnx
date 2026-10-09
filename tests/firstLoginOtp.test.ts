@@ -273,7 +273,7 @@ describe('a member whose only channel failed is told so', () => {
   it('answers 503 rather than claiming a code was sent', async () => {
     foundUser = unverified();
     sendVerificationOtpWhatsApp.mockResolvedValue(
-      { success: false, error: 'Evolution API 401' } as never,
+      { success: false, error: 'WhatsApp API 401' } as never,
     );
 
     const res = await login(loginRequest(CREDENTIALS));
@@ -290,7 +290,7 @@ describe('a member whose only channel failed is told so', () => {
   it('clears the cooldown so the next attempt mints a fresh code', async () => {
     foundUser = unverified();
     sendVerificationOtpWhatsApp.mockResolvedValue(
-      { success: false, error: 'Evolution API 401' } as never,
+      { success: false, error: 'WhatsApp API 401' } as never,
     );
 
     await login(loginRequest(CREDENTIALS));
@@ -392,7 +392,7 @@ describe('a tenant admin must clear BOTH channels, each with its own code', () =
 describe('a tenant admin hears which channel failed', () => {
   it('still answers 403 when only the WhatsApp code was rejected', async () => {
     foundUser = unverifiedAdmin();
-    sendVerificationOtpWhatsApp.mockRejectedValue(new Error('Evolution API 401') as never);
+    sendVerificationOtpWhatsApp.mockRejectedValue(new Error('WhatsApp API 401') as never);
 
     const res = await login(loginRequest(CREDENTIALS));
     const body = await res.json();

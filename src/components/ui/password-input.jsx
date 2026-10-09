@@ -9,13 +9,13 @@ import { cn } from "@/lib/utils"
  * This component serves two populations with opposite needs. On /login,
  * /register and /reset-password the user is typing THEIR OWN password and a
  * password manager filling it is the point. On the admin credential screens
- * (SMTP, the Evolution API key, another user's password) and on vault fields
+ * (SMTP, another user's password) and on vault fields
  * like a card CVV, the browser has no business writing anything: it fills a
  * SAVED password over a secret that is not a password at all, and the form
  * happily encrypts and stores whatever ends up in the box.
  *
- * That is not hypothetical — it is how six characters of autofill got stored as
- * the Evolution API key and turned every send into an "engine rejected the key".
+ * That is not hypothetical — it is how six characters of autofill once got
+ * stored as the WhatsApp gateway's API key and broke every send.
  *
  * So the opt-out is per-callsite: pass `autoComplete="new-password"` on fields
  * the browser must keep out of. `"off"` is not enough — Chrome has ignored it on

@@ -455,7 +455,7 @@ describe('resend-otp answers the same way for everyone', () => {
 
   it('still answers 200 when the WhatsApp bridge THROWS for a member', async () => {
     foundUser = account();
-    sendVerificationOtpWhatsApp.mockRejectedValue(new Error('Evolution API 401') as never);
+    sendVerificationOtpWhatsApp.mockRejectedValue(new Error('WhatsApp API 401') as never);
 
     const res = await resendOtp(post('/api/auth/resend-otp', { identifier: 'asha@example.test' }));
 
@@ -472,7 +472,7 @@ describe('resend-otp answers the same way for everyone', () => {
       emailVerificationOtpExpiry: new Date(Date.now() - 1000),
       phoneVerificationOtpExpiry: new Date(Date.now() - 1000),
     });
-    sendVerificationOtpWhatsApp.mockRejectedValue(new Error('Evolution API 401') as never);
+    sendVerificationOtpWhatsApp.mockRejectedValue(new Error('WhatsApp API 401') as never);
 
     const res = await resendOtp(post('/api/auth/resend-otp', { identifier: 'asha@example.test' }));
 

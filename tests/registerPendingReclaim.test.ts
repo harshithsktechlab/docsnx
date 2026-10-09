@@ -147,6 +147,13 @@ vi.mock('@/lib/otpChallenge', async () => ({
   issueOtpChallenge: (...a: any[]) => issueOtpChallenge(...(a as [])),
 }));
 
+// WhatsApp on, as in the other auth-route tests: the half-verified admin below
+// is only "half" because the phone channel is required.
+vi.mock('@/lib/whatsapp', async () => ({
+  ...(await vi.importActual<any>('@/lib/whatsapp')),
+  isWhatsAppEnabled: async () => true,
+}));
+
 /** A fresh IP per request — `authRateLimiter` is module state keyed by it. */
 let requestNo = 0;
 vi.mock('@/lib/clientIp', () => ({ getClientIp: () => `198.51.100.${++requestNo}` }));
