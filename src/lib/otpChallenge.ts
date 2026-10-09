@@ -52,7 +52,7 @@ import { db } from './db';
 import { users } from '../db/schema';
 import { hashToken } from './fieldCrypto';
 import { sendVerificationOtpEmail } from './mailer';
-import { sendVerificationOtpWhatsApp, isWhatsAppEnabled } from './whatsapp';
+import { sendWhatsAppOtp, isWhatsAppEnabled } from './whatsapp';
 import { maskEmail, maskPhone } from './dataMasking';
 import { toDialString } from './phone';
 import { requiredChannels, outstandingChannels, type ChannelOptions } from './verificationChannels';
@@ -271,7 +271,7 @@ export async function issueOtpChallenge(user: ChallengeTarget): Promise<OtpChall
   }
 
   if (phoneOtp) {
-    const sent = await sendVerificationOtpWhatsApp(user.phoneNumber, user.name, phoneOtp)
+    const sent = await sendWhatsAppOtp(user.phoneNumber, phoneOtp)
       .catch((error: unknown) => ({
         success: false as const,
         error: error instanceof Error ? error.message : String(error),

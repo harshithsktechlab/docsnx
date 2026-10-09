@@ -322,7 +322,7 @@ export async function sendWhatsAppText(
 
   const config = await getWhatsAppConfig();
 
-  console.log(`[whatsapp] send to ${phone} via instance "${config?.instance}"`);
+  console.log(`[whatsapp] send to ${phone} via URL ${process.env.WHATSAPP_BUSINESS_API_URL} ""`);
   console.log(`[whatsapp] message body: "${text}"`);
   if (!config) return { success: false, error: 'WhatsApp not configured' };
 
@@ -367,6 +367,83 @@ export async function sendWhatsAppText(
 }
 
 /**
+ * Send one text message from the configured instance.
+ *
+ * Never throws and never rejects: the result is the whole story. Callers on the
+ * auth paths ignore it entirely.
+ */
+export async function sendWhatsAppOtp(
+  phone: string | null | undefined,
+  otp: string,
+): Promise<SendResult> {
+  const number = toDialString(phone);
+  if (!number) return { success: false, error: 'No usable phone number' };
+
+  const config = await getWhatsAppConfig();
+
+  console.log(`[whatsapp] send to ${phone} via URL ${process.env.WHATSAPP_BUSINESS_API_URL}`);
+  console.log(`[whatsapp] message body: "${otp}"`);
+  if (!config) return { success: false, error: 'WhatsApp not configured' };
+
+  try {
+    const response = await fetch(`${process.env.WHATSAPP_BUSINESS_API_URL}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.WHATSAPP_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: "individual",
+        to: `+${number}`,
+        type: 'template',
+        template: {
+          name: "otp_verification",
+          language: {
+            code: "en"
+          },
+          components: [{
+            type: "body",
+            parameters: [{
+                type: "text",
+                text: otp
+            },
+            {
+                type: "text",
+                text: "+918149111211"
+            }]
+          },
+          {
+            "type": "button",
+            "sub_type": "url",
+            "index": "0",
+            "parameters": [{
+                "type": "text",
+                "text": otp
+            }]
+          }]
+        }
+      }),
+    },
+  )
+
+    console.log(`[whatsapp] send to ${number} response:`, response.status, response.ok);  
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      console.error(`[whatsapp] send to ${number} failed (${response.status}): ${detail}`);
+      return { success: false, error: `Evolution API ${response.status}` };
+    }
+    const detail = await response.text().catch(() => '');
+    console.log(`[whatsapp] send to ${number} response:`, detail);
+    return { success: true };
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    console.error(`[whatsapp] send to ${number} errored:`, message);
+    return { success: false, error: message };
+  }
+}
+
+/**
  * The name to greet someone by.
  *
  * First name only — these messages land in a chat thread that anyone holding
@@ -383,12 +460,7 @@ export async function sendVerificationOtpWhatsApp(
   name: string | null | undefined,
   otp: string,
 ): Promise<SendResult> {
-  const text =
-    `Hello ${firstName(name)},\n\n` +
-    `Your verification code is ${otp}\n\n` +
-    `It expires in 15 minutes. If you did not request it, ignore this message — ` +
-    `and never share this code with anyone.`;
-  return sendWhatsAppText(phone, text);
+  return sendWhatsAppOtp(phone, otp);
 }
 
 /** The password-reset link. Mirrors sendPasswordResetEmail. */
