@@ -143,6 +143,13 @@ export default function CategoryRecordForm({
   const [spec, setSpec] = useState(null);
   const [loadingSpec, setLoadingSpec] = useState(true);
   const [values, setValues] = useState({});
+  /**
+   * The values the form OPENED with — a stored record or `initialValues`. Others
+   * shows a field it only inherits for sealing when the record already fills it
+   * (see `formFields`); judged on live input instead, clearing that box would
+   * make it vanish mid-edit.
+   */
+  const [seeded, setSeeded] = useState(null);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   // Several members may share a record (drizzle/0066): `null` is untouched,
@@ -263,6 +270,7 @@ export default function CategoryRecordForm({
   useEffect(() => {
     if (!open) return;
     setValues({});
+    setSeeded(null);
     setErrors({});
     setTouched({});
     setCustomRows([]);
@@ -285,9 +293,11 @@ export default function CategoryRecordForm({
     setHolderIds(presetHolders(initialHolderId));
     // A new record may start pre-filled (an item added from its locker's card).
     if (!recordId && initialValues) {
-      setValues(Object.fromEntries(
+      const initial = Object.fromEntries(
         Object.entries(initialValues).map(([k, v]) => [k, asInputValue(v)]),
-      ));
+      );
+      setValues(initial);
+      setSeeded(initial);
     }
     // `initialValues` is read when the form OPENS, not tracked — a caller's
     // fresh object literal on every render must not wipe what the user typed.
@@ -341,6 +351,7 @@ export default function CategoryRecordForm({
         // still gets it from there, because that is what every list shows.
         if (json.record?.title) next[TITLE_KEY] = String(json.record.title);
         setValues(next);
+        setSeeded(next);
         setHolderIds(holderValues(json.record));
         setLabel(json.record?.customSubcategory || '');
         setExistingPhotos(Array.isArray(json.record?.attachments) ? json.record.attachments : []);
@@ -385,8 +396,8 @@ export default function CategoryRecordForm({
    * would make the form unsubmittable with no visible cause anywhere on screen.
    */
   const fields = useMemo(
-    () => visibleFields(spec?.fields),
-    [spec],
+    () => visibleFields(spec?.fields, seeded),
+    [spec, seeded],
   );
 
   /**

@@ -121,6 +121,13 @@ const SUB_CATEGORY_ACTIONS: Record<string, RenewalAction> = {
     cta: 'Renew Subscription',
     how: 'Renew or cancel the subscription before it auto-charges.',
   },
+  // A bill is not renewed: its dates are the last day to exchange or return
+  // the goods, and the warranty end — both are "check before it lapses".
+  'warranty_amc/purchase_bills': {
+    cta: 'Check Purchase',
+    overdueCta: 'Review Purchase',
+    how: 'Exchange or return the item, or claim the warranty, before the window closes.',
+  },
   'bank_investments/loan_agreements': {
     cta: 'Review Loan',
     how: 'Check the instalment or reset date with your lender.',

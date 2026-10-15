@@ -636,6 +636,7 @@ RULES
 1. Return a key ONLY when the document actually shows that value. Omit anything you cannot read. Never guess, never infer a plausible-looking number, and never copy an example value from the list above.
 2. Dates must be "YYYY-MM-DD". If only a month and year are printed, use the first day of that month.
 3. Numbers and amounts: digits only, with at most one decimal point. No currency symbols, no thousands separators, no words.
+   A period stated anywhere on the document — including the terms & conditions or the fine print ("warranty period is 12 months", "exchange within 15 days", "1 year warranty") — IS printed: read it into a matching months or days field, converting years to months. Do not compute an end date from it yourself.
 4. Booleans: true or false.
 5. Where a field lists permitted values, answer with one of those values COPIED EXACTLY — not the wording printed on the document, and not a value of your own. If the document says something the list does not cover, omit the field.
 6. Identifiers (card numbers, policy numbers, registration numbers) must be copied EXACTLY as printed, with spaces removed.

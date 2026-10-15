@@ -24,6 +24,7 @@ import {
   isBusinessModule,
 } from '../src/lib/documentCategories';
 import { prepareAiPayload, maskSensitiveText } from '../src/lib/aiPrivacyMasker';
+import { formFields } from '../src/lib/records/fieldValidation';
 import { splitRecordFields } from '../src/lib/vault/fieldSplitter';
 
 /**
@@ -506,6 +507,14 @@ describe('Document category field dictionary', () => {
       ).flatMap((m) => Array.from(m[1].matchAll(/'([a-z_]+)'/g)).map((k) => k[1])),
     );
 
+    /**
+     * The keys a catch-all carries ONLY to keep them sealed (FieldSpec.isInherited).
+     * An unclassified scan does not ask for them — that is the point of the
+     * short Others form — so the rules below are about every OTHER field.
+     */
+    const inheritedKeys = (key: { moduleKey: string; documentKey: string }) =>
+      new Set(fieldsFor(key).filter((f) => f.isInherited).map((f) => f.fieldKey));
+
     it('reads the reminder keys out of fieldMap.ts', () => {
       // Guards the regex above: a silent zero would make the alert test below
       // assert nothing at all.
@@ -516,7 +525,9 @@ describe('Document category field dictionary', () => {
 
     it('is all_fields minus exactly the keys no document states', () => {
       for (const lists of DOCUMENT_CATEGORY_FIELD_LISTS) {
-        const expected = lists.allFields.filter((k) => !NEVER_PRINTED_KEYS.includes(k));
+        const inherited = inheritedKeys(lists);
+        const expected = lists.allFields
+          .filter((k) => !NEVER_PRINTED_KEYS.includes(k) && !inherited.has(k));
         expect(lists.ocrFields, label(lists)).toEqual(expected);
       }
     });
@@ -601,8 +612,9 @@ describe('Document category field dictionary', () => {
       // A renewal date nobody extracts is a reminder that never fires.
       for (const lists of DOCUMENT_CATEGORY_FIELD_LISTS) {
         const asked = new Set(lists.ocrFields);
+        const inherited = inheritedKeys(lists);
         for (const key of lists.allFields) {
-          if (!REMINDER_KEYS.has(key)) continue;
+          if (!REMINDER_KEYS.has(key) || inherited.has(key)) continue;
           expect(asked.has(key), `${label(lists)}: alert date ${key} is never read`).toBe(true);
         }
       }
@@ -626,8 +638,10 @@ describe('Document category field dictionary', () => {
         const legacy = fieldsFor(lists)
           .filter((f) => f.fieldKey && f.fieldKey !== 'custom_fields' && f.fieldKey !== 'holder_name')
           .map((f) => f.fieldKey);
+        const inherited = inheritedKeys(lists);
         const dropped = legacy.filter((k) => !lists.ocrFields.includes(k));
-        expect(dropped.every((k) => NEVER_PRINTED_KEYS.includes(k)), label(lists)).toBe(true);
+        expect(dropped.every((k) => NEVER_PRINTED_KEYS.includes(k) || inherited.has(k)), label(lists))
+          .toBe(true);
         // Nothing was ADDED to the ask-list by the rewrite.
         expect(lists.ocrFields.every((k) => legacy.includes(k)), label(lists)).toBe(true);
       }
@@ -759,7 +773,9 @@ describe('Document category field dictionary', () => {
       const expected = DOCUMENT_CATEGORY_ENCRYPTED_FIELDS.filter(
         (p) => !isBusinessModule(p.moduleKey) && p.moduleKey !== 'travel'
           // 0070's locker items postdate 0015 too.
-          && !(p.moduleKey === 'bank_investments' && p.documentKey === 'locker_items'),
+          && !(p.moduleKey === 'bank_investments' && p.documentKey === 'locker_items')
+          // …and so do 0073's purchase bills.
+          && !(p.moduleKey === 'warranty_amc' && p.documentKey === 'purchase_bills'),
       );
       expect(stated).toHaveLength(expected.length);
       expect([...stated].sort()).toEqual(
@@ -812,6 +828,70 @@ describe('Document category field dictionary', () => {
     it('removes holder_name from every stored policy', () => {
       for (const row of migrationRows) {
         expect(row.encryptedFieldsCsv.split(','), row.categoryCode).not.toContain('holder_name');
+      }
+    });
+  });
+
+  describe('The catch-all form (Others)', () => {
+    const CATCH_ALLS = [UNCATEGORIZED, { moduleKey: 'biz_other', documentKey: 'uncategorized' }];
+
+    it('shows a short form, not every field of every category', () => {
+      for (const key of CATCH_ALLS) {
+        const shown = formFields(fieldsFor(key)).map((f) => f.fieldKey);
+        expect(shown, label(key)).toEqual([
+          'document_title', 'issuer_name', 'reference_number', 'amount', 'expiry_date',
+          'issue_date', 'alert_days_before', 'notes',
+        ]);
+      }
+    });
+
+    it('still SEALS the whole union — hiding a field is not unsealing it', () => {
+      for (const key of CATCH_ALLS) {
+        const sealed = encryptedFieldsFor(key);
+        for (const f of fieldsFor(key).filter((s) => s.isInherited && s.isPii)) {
+          expect(sealed, `${label(key)}: ${f.fieldKey}`).toContain(f.fieldKey);
+        }
+        expect(sealed).toContain('account_number');
+      }
+    });
+
+    it('keeps an inherited field on the form when the record already fills it', () => {
+      // A save REPLACES the body with what the form posts, so hiding a filled
+      // field would delete its value on the next save.
+      const spec = fieldsFor(UNCATEGORIZED);
+      const shown = formFields(spec, { account_number: '1234567890', ifsc_code: '' });
+      expect(shown.map((f) => f.fieldKey)).toContain('account_number');
+      expect(shown.map((f) => f.fieldKey)).not.toContain('ifsc_code');
+      // Idempotent: run again without the record, it is not dropped.
+      expect(formFields(shown).map((f) => f.fieldKey)).toContain('account_number');
+    });
+
+    it('marks inherited fields only on the catch-alls', () => {
+      for (const row of DOCUMENT_CATEGORY_FIELD_SEED) {
+        if (!row.isInherited) continue;
+        expect(CATCH_ALLS.map(label)).toContain(label(row));
+      }
+    });
+  });
+
+  describe('Purchase bills (0073)', () => {
+    const BILLS = { moduleKey: 'warranty_amc', documentKey: 'purchase_bills' };
+
+    it('reads what a shop bill prints, and seals its numbers and amount', () => {
+      const ocr = ocrFieldsFor(BILLS);
+      for (const key of ['dealer_name', 'invoice_number', 'issue_date', 'total_amount', 'gstin']) {
+        expect(ocr, key).toContain(key);
+      }
+      const sealed = encryptedFieldsFor(BILLS);
+      expect(sealed).toEqual(expect.arrayContaining(['invoice_number', 'total_amount', 'gstin']));
+      expect(sealed).not.toContain('dealer_name');
+    });
+
+    it('identifies no record by the seller GSTIN or bill number', () => {
+      // A GSTIN repeats on every bill from one store; as an identifier it would
+      // make each new bill overwrite the last.
+      for (const f of fieldsFor(BILLS)) {
+        expect(f.isIdentifier ?? false, f.fieldKey).toBe(false);
       }
     });
   });

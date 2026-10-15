@@ -512,6 +512,13 @@
       "when": 1786061459000,
       "tag": "0072_discount_multi_restrict",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1786061460000,
+      "tag": "0073_purchase_bills_category",
+      "breakpoints": true
     }
   ]
 }

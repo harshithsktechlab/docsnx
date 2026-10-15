@@ -39,15 +39,16 @@ import { maskSensitiveText } from '../src/lib/aiPrivacyMasker';
  * Personal modules 1..14 then the catch-all. `business` (16) left in 0050;
  * `travel` (14) arrived in 0065. Bank & Investments gained `locker_items` in
  * 0070, which also removed the one-day `wealth` module 0069 had added.
+ * Warranty & AMC gained `purchase_bills` in 0073.
  */
-const EXPECTED_PERSONAL_COUNTS = [8, 11, 6, 8, 4, 6, 4, 4, 5, 2, 2, 3, 4, 6, 1];
+const EXPECTED_PERSONAL_COUNTS = [8, 11, 6, 8, 4, 6, 4, 4, 5, 3, 2, 3, 4, 6, 1];
 /**
  * Business modules 101..114, added by 0050, 115 `biz_travel` by 0065, and the
  * company catch-all 116 `biz_other` by 0067.
  */
 const EXPECTED_BUSINESS_COUNTS = [8, 7, 8, 7, 7, 6, 7, 7, 5, 5, 5, 4, 4, 4, 6, 1];
 const EXPECTED_MODULE_COUNTS = [...EXPECTED_PERSONAL_COUNTS, ...EXPECTED_BUSINESS_COUNTS];
-const TOTAL_PERSONAL = 74;
+const TOTAL_PERSONAL = 75;
 const TOTAL_BUSINESS = 91;
 const TOTAL_SUBCATEGORIES = TOTAL_PERSONAL + TOTAL_BUSINESS;
 
@@ -57,6 +58,7 @@ const TRAVEL_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0065_travel_tick
 const BIZ_OTHER_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0067_business_others_catch_all.sql');
 const WEALTH_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0069_wealth_module.sql');
 const FOLD_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0070_fold_wealth_into_bank.sql');
+const PURCHASE_BILLS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0073_purchase_bills_category.sql');
 
 /**
  * 0036 reaped the 15 tombstones 0023 left behind, once 0035 had removed their
@@ -89,7 +91,7 @@ describe('Document category taxonomy', () => {
       );
     });
 
-    it('has 165 sub-categories in total', () => {
+    it('has 166 sub-categories in total', () => {
       const total = DOCUMENT_CATEGORY_MODULES.reduce((n, m) => n + m.subCategories.length, 0);
       expect(total).toBe(TOTAL_SUBCATEGORIES);
       expect(EXPECTED_MODULE_COUNTS.reduce((a, b) => a + b, 0)).toBe(TOTAL_SUBCATEGORIES);
@@ -174,7 +176,7 @@ describe('Document category taxonomy', () => {
     });
   });
 
-  describe('Migration parity (drizzle/0023, 0050, then 0065)', () => {
+  describe('Migration parity (drizzle/0023, 0050, 0065, then 0073)', () => {
     // 0023 carries one row per category: the OLD (module_key, document_key) it is
     // matched on, and the NEW module_no / module_key / module_name /
     // document_key / sort_order it is rewritten to. Those new values ARE the
@@ -300,6 +302,25 @@ describe('Document category taxonomy', () => {
       expect(wealthSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
     });
 
+    /** 0073 adds the purchase bills category under Warranty & AMC, same row shape. */
+    const purchaseSql = readFileSync(PURCHASE_BILLS_MIGRATION_PATH, 'utf8');
+    const purchaseRows = Array.from(purchaseSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
+    it('adds purchase bills additively in 0073', () => {
+      expect(purchaseRows).toEqual([{
+        moduleNo: 10, moduleKey: 'warranty_amc', moduleName: 'Warranty & AMC',
+        documentKey: 'purchase_bills', sortOrder: 10003,
+      }]);
+      expect(purchaseSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(purchaseSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
+    });
+
     it('adds the two travel modules additively in 0065', () => {
       expect(travelRows).toHaveLength(12);
       expect([...new Set(travelRows.map((r) => r.moduleKey))]).toEqual(['travel', 'biz_travel']);
@@ -317,6 +338,7 @@ describe('Document category taxonomy', () => {
         ...bizOtherRows,
         // 0069's rows were deleted by 0070, which adds its own.
         ...foldRows,
+        ...purchaseRows,
       ]
         .map((r) => ({
           moduleNo: r.moduleNo,

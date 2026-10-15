@@ -286,6 +286,18 @@ export interface FieldSpec {
    */
   readonly isCustom?: boolean;
   /**
+   * The catch-all carries this field ONLY so it stays sealed — it came from
+   * `unionOfEveryCategory`, not from anything the catch-all declares itself.
+   *
+   * Stamped by `specificFieldsFor` on the Others categories alone. It changes
+   * nothing about storage or sealing: the key stays in the spec allowlist and
+   * in the encryption policy. It only keeps the field OFF the form (`formFields`
+   * drops it unless the record already holds a value for it) and out of a
+   * scan's ask-list (`ocrFieldKeys`), so an unclassified document gets a short
+   * form instead of every field of every category.
+   */
+  readonly isInherited?: boolean;
+  /**
    * Where a `record_link` field points. Meaningless on any other type.
    *
    * Declared by the dictionary only — an operator cannot aim a link at a new
@@ -905,10 +917,12 @@ function withAlertDays(spec: FieldSpec): FieldSpec {
  * hold either the compiled dictionary entry or a stored `fields` row.
  */
 export function ocrFieldKeys(
-  specs: readonly { fieldKey: string; isPrinted?: boolean; dataType?: string }[],
+  specs: readonly { fieldKey: string; isPrinted?: boolean; dataType?: string; isInherited?: boolean }[],
 ): readonly string[] {
   return specs
-    .filter((spec) => spec.fieldKey && printed(spec))
+    // A field the catch-all only inherits for sealing is not one an
+    // unclassified scan should ask for — see FieldSpec.isInherited.
+    .filter((spec) => spec.fieldKey && printed(spec) && !spec.isInherited)
     .map((spec) => spec.fieldKey);
 }
 
@@ -1110,6 +1124,21 @@ const CAB_RENTAL_FIELDS: readonly FieldSpec[] = [
   { fieldKey: 'return_date', fieldLabel: 'Return Date', dataType: 'date', isPii: false },
   { fieldKey: 'booked_via', fieldLabel: 'Booked Via', dataType: 'text', isPii: false },
   { fieldKey: 'amount_paid', fieldLabel: 'Amount Paid', dataType: 'currency', isPii: true },
+];
+
+/**
+ * The catch-all's OWN fields — personal `other` and business `biz_other` alike.
+ *
+ * Generic enough to fit anything that could not be placed: the baseline adds
+ * the title, issue date and notes around them. None identifies the record: two
+ * unrelated unclassified documents sharing a reference number must not
+ * overwrite each other (see `dedupeIdentifierFields`).
+ */
+const CATCH_ALL_FIELDS: readonly FieldSpec[] = [
+  { fieldKey: 'issuer_name', fieldLabel: 'Issued By / Vendor', dataType: 'text', isPii: false },
+  { fieldKey: 'reference_number', fieldLabel: 'Reference / Bill No.', dataType: 'text', isPii: true, isIdentifier: false },
+  { fieldKey: 'amount', fieldLabel: 'Amount', dataType: 'currency', isPii: true },
+  { fieldKey: 'expiry_date', fieldLabel: 'Expiry / Due Date', dataType: 'date', isPii: false },
 ];
 
 const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly FieldSpec[]>>>> = {
@@ -1819,6 +1848,35 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'valid_to', fieldLabel: 'Valid To', dataType: 'date', isPii: false, isRequired: true },
       { fieldKey: 'support_contact', fieldLabel: 'Support Contact', dataType: 'text', isPii: true },
     ],
+
+    /**
+     * A shop's bill or tax invoice for something bought (0073) — until then a
+     * retail invoice had no home and landed in Others.
+     *
+     * Nothing identifies the record: a GSTIN is the SELLER's and repeats on
+     * every bill from that store, and bill numbers repeat across stores, so
+     * either as an identifier would make one bill overwrite another. The bill
+     * date is the one field it cannot be saved without — every bill prints it.
+     * Two dates raise a follow-up — the exchange window closes in days, the
+     * warranty in a year or more.
+     */
+    purchase_bills: [
+      { fieldKey: 'dealer_name', fieldLabel: 'Store / Seller', dataType: 'text', isPii: false },
+      { fieldKey: 'invoice_number', fieldLabel: 'Bill / Invoice Number', dataType: 'text', isPii: true, isIdentifier: false },
+      { fieldKey: 'issue_date', fieldLabel: 'Bill Date', dataType: 'date', isPii: false, isRequired: true },
+      { fieldKey: 'product_name', fieldLabel: 'Items Purchased', dataType: 'text', isPii: false },
+      { fieldKey: 'total_amount', fieldLabel: 'Bill Amount', dataType: 'currency', isPii: true },
+      { fieldKey: 'payment_mode', fieldLabel: 'Payment Mode', dataType: 'text', isPii: false },
+      { fieldKey: 'gstin', fieldLabel: 'Seller GSTIN', dataType: 'text', isPii: true, isIdentifier: false },
+      { fieldKey: 'exchange_until', fieldLabel: 'Exchange / Return By', dataType: 'date', isPii: false, isReminder: true, alertDaysBefore: 3 },
+      { fieldKey: 'warranty_expiry', fieldLabel: 'Warranty Valid Till', dataType: 'date', isPii: false },
+      // The PERIODS a bill's terms print ("exchange within 15 days", "warranty
+      // period is 12 months"). A bill rarely prints the end dates themselves,
+      // so autofill computes the two dates above from these and the bill date
+      // — see src/lib/records/derivedDates.ts.
+      { fieldKey: 'exchange_days', fieldLabel: 'Exchange Window (Days)', dataType: 'number', isPii: false },
+      { fieldKey: 'warranty_months', fieldLabel: 'Warranty (Months)', dataType: 'number', isPii: false },
+    ],
   },
 
   // ── Rentals & Subscriptions ──
@@ -1944,13 +2002,16 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
   },
 
   // ── Others ──
+  // A SHORT form for whatever could not be placed: who issued it, its number,
+  // an amount and a date worth a reminder. Anything else goes in Notes or a
+  // custom field. `specificFieldsFor` still adds the sealed union of every
+  // category's fields behind these, marked `isInherited` so the form hides them.
   other: {
-    uncategorized: [],
+    uncategorized: CATCH_ALL_FIELDS,
   },
-  // The company's catch-all (0067). Same shape as `other`: no fields of its
-  // own, and `specificFieldsFor` gives it the sealed union of every category's.
+  // The company's catch-all (0067). Same shape as `other`.
   biz_other: {
-    uncategorized: [],
+    uncategorized: CATCH_ALL_FIELDS,
   },
 
 };
@@ -2651,9 +2712,18 @@ function specificFieldsFor(moduleKey: string, documentKey: string): readonly Fie
     return own;
   }
   // The catch-all keeps its own fields FIRST — they are the ones a bulk scan
-  // actually extracts — then inherits everything else, sealed.
+  // actually extracts and the only ones its form shows — then inherits
+  // everything else, sealed but marked `isInherited` so the form leaves them off.
+  // Baseline keys are never marked: `mergeFields` adds them around this list,
+  // and they must stay on the form like they do for every other category.
   const ownKeys = new Set(own.map((f) => f.fieldKey));
-  return [...own, ...unionOfEveryCategory().filter((f) => !ownKeys.has(f.fieldKey))];
+  const baselineKeys = new Set([...BASELINE_LEADING, ...BASELINE_TRAILING].map((f) => f.fieldKey));
+  return [
+    ...own,
+    ...unionOfEveryCategory()
+      .filter((f) => !ownKeys.has(f.fieldKey) && !baselineKeys.has(f.fieldKey))
+      .map((f) => ({ ...f, isInherited: true })),
+  ];
 }
 
 export const DOCUMENT_CATEGORY_FIELD_SEED: readonly SeedFieldRow[] =

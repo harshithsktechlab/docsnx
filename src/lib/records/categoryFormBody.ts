@@ -148,7 +148,9 @@ export function buildTaxonomyRecord(
    * the browser passed the record and the route answered 400 on a field that
    * was nowhere on screen. One list now, in fieldValidation.ts, read by both.
    */
-  return { record, fieldErrors: validateRecord(formFields(specs), record) };
+  // `record` as the existing values: a catch-all field it carries is one the
+  // form rendered (see `formFields`), so it is judged like any other.
+  return { record, fieldErrors: validateRecord(formFields(specs, record), record) };
 }
 
 export async function readCategoryFormBody(

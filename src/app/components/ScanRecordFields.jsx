@@ -227,7 +227,8 @@ export function scanRecordPayload(spec, values) {
  */
 export function scanRecordErrors(spec, values) {
   if (!spec || spec.length === 0) return {};
-  return validateRecord(formFields(spec), scanRecordPayload(spec, values));
+  const payload = scanRecordPayload(spec, values);
+  return validateRecord(formFields(spec, payload), payload);
 }
 
 export default function ScanRecordFields({
@@ -268,7 +269,9 @@ export default function ScanRecordFields({
   return (
     <div className="flex flex-col gap-4">
       <CategoryFieldInputs
-        fields={visibleFields(spec)}
+        // `values` keeps a catch-all field the scan DID fill on screen — see
+        // `formFields`; the rest of what Others inherits stays off the grid.
+        fields={visibleFields(spec, values)}
         values={values || {}}
         errors={errors || {}}
         // Every field is treated as looked-at, so an error shown by Save is

@@ -218,7 +218,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'warranty_amc',
     legacyEnvelope: 'warranties',
     defaultIsGlobal: true,
-    categories: k('warranty_amc', 'appliance_warranties', 'amc_contracts'),
+    categories: k('warranty_amc', 'appliance_warranties', 'amc_contracts', 'purchase_bills'),
   },
   rentals: {
     ...DEFAULTS,

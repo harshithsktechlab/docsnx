@@ -249,6 +249,9 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
     subCategories: [
       { documentKey: 'appliance_warranties', documentName: 'Appliance warranties' },
       { documentKey: 'amc_contracts', documentName: 'AMC contracts' },
+      // 0073. A shop's bill for goods bought — before it, a retail tax invoice
+      // had nowhere to go and fell to Others.
+      { documentKey: 'purchase_bills', documentName: 'Purchase bills / shopping invoices & receipts' },
     ],
   },
   {
@@ -841,7 +844,7 @@ const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   employment: 'The employer-employee relationship: hiring, pay, leaving, provident fund.',
   vehicle: 'Papers that follow the VEHICLE itself — registration, emissions, purchase. A motor insurance policy is Insurance, and is listed under Vehicle from there.',
   civil_government: 'Civil status and entitlement certificates issued by a government body.',
-  warranty_amc: 'Cover for an appliance or equipment: warranty cards, annual maintenance contracts.',
+  warranty_amc: 'Cover for an appliance or equipment: warranty cards, annual maintenance contracts. Also a shop or online store\'s bill, tax invoice or purchase receipt for goods a person BOUGHT (clothes, bags, electronics, furniture, groceries) — whether or not a warranty is printed. Not a utility bill, a subscription or a ticket.',
   rentals_subscriptions: 'Ongoing agreements that renew or recur: a rental or lease, or a periodic service plan (OTT, SaaS, gym). Not a one-off booking or ticket.',
   utility_bills: 'A periodic consumption bill for electricity, gas or water at a premises.',
   tax_compliance: 'Tax deducted, tax paid in advance, declared wealth, pension orders.',

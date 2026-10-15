@@ -67,8 +67,9 @@ describe('matchHolder', () => {
     expect(matchHolder(doc({ idHolderName: 'Rajesh Kumari' }), byName)).toBe('u-rajesh');
   });
 
-  it('does NOT match a lone first name or a first initial', () => {
-    expect(matchHolder(doc({ idHolderName: 'Rajesh' }), byName)).toBeNull();
+  it('matches a lone first name only one member has, never a first initial', () => {
+    // Bills print "Ms. Supriya" — see `soleFirstName`.
+    expect(matchHolder(doc({ idHolderName: 'Rajesh' }), byName)).toBe('u-rajesh');
     expect(matchHolder(doc({ idHolderName: 'R Kumar' }), byName)).toBeNull();
   });
 
@@ -174,9 +175,14 @@ describe('matchHolder — the universal holderName', () => {
     )).toBe('u-priya');
   });
 
-  it('takes the closest member, but never on a lone first name', () => {
+  it('takes the closest member, and a lone first name only when it is unique', () => {
     expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh Kumari' }, byName)).toBe('u-rajesh');
-    expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh' }, byName)).toBeNull();
+    expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh' }, byName)).toBe('u-rajesh');
+    const twoRajesh = indexMembers([
+      { id: 'u-rajesh', name: 'Rajesh Kumar' },
+      { id: 'u-rajesh-2', name: 'Rajesh Mehta' },
+    ]);
+    expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh' }, twoRajesh)).toBeNull();
   });
 
   it('matches through case, spacing and the HUF suffix', () => {
@@ -260,6 +266,20 @@ describe('findMember — the closest member', () => {
     const registered = indexMembers([{ id: 'u-s', name: 'Supriya Aditya Rai' }, RAJESH]);
     expect(findMember('Supriya Rai', registered)).toBe('u-s');
     expect(findMember('Supriya Suresh Rai', registered)).toBe('u-s');
+  });
+
+  it.each(['Ms. Supriya', 'SUPRIYA', 'Smt Supriya'])(
+    'matches a lone first name, %s, when only one member has it', (name) => {
+      expect(findMember(name, index)).toBe('u-supriya');
+    },
+  );
+
+  it('does not match a lone first name two members share, or a surname alone', () => {
+    const twins = indexMembers([SUPRIYA, { id: 'u-rao', name: 'Supriya Rao' }]);
+    expect(findMember('Ms. Supriya', twins)).toBeNull();
+    expect(findMember('Rai', index)).toBeNull();
+    // One word gets no fuzzy match: no surname to back up a misspelling.
+    expect(findMember('Supirya', index)).toBeNull();
   });
 
   it('picks nobody when two members are equally close', () => {

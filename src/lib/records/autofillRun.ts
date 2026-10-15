@@ -35,6 +35,7 @@ import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
 import { PdfPasswordError, processUpload } from '@/lib/documentProcessor';
 import { PDF_PASSWORD_INCORRECT, PDF_PASSWORD_REQUIRED } from '@/lib/records/autofillOutcome';
 import { extractCategoryFields } from '@/lib/ai';
+import { deriveDates } from '@/lib/records/derivedDates';
 import { findMember, indexMembers, normalizeName } from '@/lib/records/holderMatch';
 import { workspaceMembers } from './workspaceMembers';
 
@@ -282,8 +283,13 @@ export async function runAutofill(input: {
     fields,
   }, input.tenantId, input.userId, input.companyId ?? null);
 
+  // "Warranty 12 months from purchase" names no date; compute the ones the
+  // document only states as a period, never over one it printed.
+  const read = result?.fields ?? {};
+  const derived = deriveDates(read, new Set(fields.map((f) => f.fieldKey)));
+
   return {
-    fields: result?.fields ?? {},
+    fields: { ...read, ...derived },
     holderName: typeof result?.holderName === 'string' ? result.holderName.trim() : '',
     fieldCount: fields.length,
     searchText: Array.isArray(result?.searchKeywords) ? result.searchKeywords.join('\n') : '',

@@ -78,11 +78,18 @@ export default function useCategoryFields(categoryRef) {
   /** `{ cards, text }` — see src/lib/records/linkedCards.ts. */
   const [cardsValue, setCardsValue] = useState(NO_CARDS);
   const [aiFilled, setAiFilled] = useState(() => new Set());
+  /**
+   * The values `seed` loaded — the record as STORED, not as typed. Others hides
+   * the fields it only inherits for sealing unless the record already fills
+   * them (see `formFields`), and that has to be judged on the stored record:
+   * judged on live input, clearing such a box would make it vanish mid-edit.
+   */
+  const [seeded, setSeeded] = useState(null);
 
   /** fieldKey → input element, so an error can be scrolled to and focused. */
   const inputRefs = useRef(new Map());
 
-  const fields = useMemo(() => visibleFields(spec?.fields), [spec]);
+  const fields = useMemo(() => visibleFields(spec?.fields, seeded), [spec, seeded]);
 
   /**
    * Does the CURRENT category collect linked cards?
@@ -181,6 +188,7 @@ export default function useCategoryFields(categoryRef) {
 
   const reset = useCallback(() => {
     setValues({});
+    setSeeded(null);
     setErrors({});
     setTouched({});
     setCustomRows([]);
@@ -203,6 +211,7 @@ export default function useCategoryFields(categoryRef) {
       next[key] = asInputValue(value);
     }
     setValues(next);
+    setSeeded(next);
     setCardsValue(parseLinkedCards(record?.[LINKED_CARDS_KEY]));
     // A record written before the forms were spec-driven keeps its custom rows
     // under the unmapped legacy `customFields` key, in the open tier. The

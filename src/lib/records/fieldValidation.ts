@@ -107,17 +107,44 @@ export const FORM_HIDDEN_KEYS: ReadonlySet<string> = new Set([
  * operator PROMOTES on /admin/document-fields brings the input with it.
  */
 export function formFields<
-  T extends { fieldKey: string; dataType?: string; isReminder?: boolean },
+  T extends { fieldKey: string; dataType?: string; isReminder?: boolean; isInherited?: boolean },
 >(
   specs: readonly T[] | null | undefined,
+  /**
+   * The values the record ALREADY holds — a stored record being edited, never
+   * the live input state. See "THE CATCH-ALL'S INHERITED FIELDS" below.
+   */
+  existing?: Readonly<Record<string, unknown>> | null,
 ): readonly T[] {
   const list = specs ?? [];
-  const wantsAlertDays = categoryRaisesReminder(list);
-  return list.filter((spec) => {
-    if (FORM_HIDDEN_KEYS.has(spec.fieldKey)) return false;
-    if (spec.fieldKey === ALERT_DAYS_FIELD_KEY) return wantsAlertDays;
-    return true;
-  });
+  // Judged on the fields a form would show: an inherited reminder date the
+  // catch-all only carries for sealing must not grow the alert box on Others.
+  const wantsAlertDays = categoryRaisesReminder(list.filter((spec) => !spec.isInherited));
+  const out: T[] = [];
+  for (const spec of list) {
+    if (FORM_HIDDEN_KEYS.has(spec.fieldKey)) continue;
+    if (spec.fieldKey === ALERT_DAYS_FIELD_KEY && !wantsAlertDays) continue;
+    /**
+     * ── THE CATCH-ALL'S INHERITED FIELDS ─────────────────────────────────────
+     * Others carries every category's fields so a stray account number stays
+     * sealed (FieldSpec.isInherited), and rendering them all was a form
+     * hundreds of boxes long. They are left off — UNLESS the record already
+     * holds a value for one. The forms post only the fields they render and a
+     * save REPLACES the body, so hiding a filled field would silently delete
+     * its value on the next save.
+     *
+     * A kept field comes back with the flag cleared, which makes this function
+     * idempotent: <CategoryFieldInputs> runs it again over the list a form
+     * already filtered, without the record, and must not drop what was kept.
+     */
+    if (spec.isInherited) {
+      if (isBlank(existing?.[spec.fieldKey])) continue;
+      out.push({ ...spec, isInherited: false });
+      continue;
+    }
+    out.push(spec);
+  }
+  return out;
 }
 
 /** Blank is blank: '' , null, undefined and a whitespace-only string. */

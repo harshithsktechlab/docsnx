@@ -116,8 +116,8 @@ export const MATCH_MARGIN = 0.03;
  *
  * The first name must agree as a WORD: "S Rai" would otherwise fit every Rai
  * in the family. A one-word name on either side has no surname to confirm
- * anything with, so it only ever matches exactly (via `findMember`'s first
- * step), and scores 0 here.
+ * anything with, so it scores 0 here — `findMember` matches it exactly or, for
+ * a lone first name, only when one member alone has it (`soleFirstName`).
  */
 export function nameScore(scan: readonly string[], member: readonly string[]): number {
   if (scan.length < 2 || member.length < 2) return 0;
@@ -166,6 +166,21 @@ export function indexMembers(
 }
 
 /**
+ * ── A FIRST NAME ALONE ─────────────────────────────────────────────────────
+ * Shop bills and receipts print "Ms. Supriya" — a first name and no surname.
+ * With no surname there is nothing to score, so a lone first name is taken
+ * only when it is EXACTLY the first name of exactly ONE member. Two members
+ * named Supriya is a tie, and a tie picks nobody. No fuzzy match on one word:
+ * a typo with no surname to back it up is too little to go on.
+ */
+function soleFirstName(word: string, index: MemberIndex): string | null {
+  const hits = new Set(
+    index.people.filter((p) => p.tokens[0] === word).map((p) => p.id),
+  );
+  return hits.size === 1 ? [...hits][0] : null;
+}
+
+/**
  * The member a name belongs to, or null.
  *
  * An exact normalised match wins outright — and an exact name two members
@@ -179,6 +194,10 @@ export function findMember(name: unknown, index: MemberIndex): string | null {
   if (index.exact.has(key)) return index.exact.get(key) ?? null;
 
   const scan = nameTokens(name);
+  // The same exact test with the title gone: "Ms. Supriya Rai" is Supriya Rai.
+  const bare = scan.join(' ');
+  if (bare !== key && index.exact.has(bare)) return index.exact.get(bare) ?? null;
+  if (scan.length === 1) return soleFirstName(scan[0], index);
   let best: string | null = null;
   let bestScore = 0;
   let runnerUp = 0;
