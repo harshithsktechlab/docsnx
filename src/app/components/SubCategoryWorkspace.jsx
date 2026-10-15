@@ -44,7 +44,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   AlertCircle, AlertTriangle, ArrowLeft, CalendarClock, ChevronRight, Clock,
   Download, Eye, FileText, FolderOpen, HardDrive, Loader2, Lock,
-  Pencil, Plus, Printer, Share2, ShieldAlert, Trash2, Users,
+  Pencil, Plus, Printer, Share2, ShieldAlert, Tag, Trash2, Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -67,10 +67,17 @@ import { toastApiError } from '@/lib/net/toastApiError';
 import FilePreviewPane from '@/components/records/FilePreviewPane';
 import { CUSTOM_FIELDS_KEY } from '@/lib/records/fieldValidation';
 import { LINKED_CARDS_KEY } from '@/lib/records/linkedCards';
-import { MODULE_COLORS, DEFAULT_MODULE_COLOR } from '@/lib/documentCategories';
+import { MODULE_COLORS, DEFAULT_MODULE_COLOR, isCatchAll } from '@/lib/documentCategories';
+import { UNLABELLED } from '@/lib/records/customSubcategory';
 import { scopeForCategory } from '@/lib/records/registry';
 import { MODULE_BASE, ALL_NAV_MODULES } from '@/lib/moduleRegistry';
 import CategoryRecordForm from '@/app/components/CategoryRecordForm';
+import { AttachmentThumb, attachmentUrl } from '@/app/components/RecordPhotos';
+import { invalidateLinkedRecords, linkedRecordLabel, useLinkedRecords } from '@/app/components/useLinkedRecords';
+import {
+  LOCKERS, LOCKER_ITEMS, LockerInventoryPanel, itemsInLocker, useLockerColumns,
+} from '@/app/components/LockerWorkspace';
+import { formatFieldValue } from '@/lib/records/fieldRefs';
 import PageContainer from '@/app/components/PageContainer';
 import MobileActionFab from '@/app/components/MobileActionFab';
 
@@ -151,6 +158,12 @@ export default function SubCategoryWorkspace() {
   const [fieldSpecs, setFieldSpecs] = useState([]);
   /** The record open in the preview modal. The bytes are FilePreviewPane's. */
   const [previewRecord, setPreviewRecord] = useState(null);
+  /** Which photo of `previewRecord` is shown; null is its own document (0069). */
+  const [previewAttachment, setPreviewAttachment] = useState(null);
+  /** "Add item to this locker" — the item form, opened from the lockers page. */
+  const [itemFormLocker, setItemFormLocker] = useState(null);
+  /** Bumped after an item is added from here, so the inventory re-reads. */
+  const [inventoryRefresh, setInventoryRefresh] = useState(0);
 
   const tab = searchParams.get('tab') === 'files' ? 'files' : 'summary';
   const colors = MODULE_COLORS[moduleKey] || DEFAULT_MODULE_COLOR;
@@ -295,10 +308,40 @@ export default function SubCategoryWorkspace() {
    * "Number" for a category that declares none, and while the spec is still
    * loading — a heading that appears late is better than one that changes.
    */
+  /**
+   * The records a `record_link` field here points at, so a print-out or a
+   * share sheet names the locker rather than printing its id. Null target —
+   * nothing loaded — for the categories with no link field.
+   */
+  const linkSpec = useMemo(
+    () => fieldSpecs.find((f) => f.dataType === 'record_link' && f.linkTarget) || null,
+    [fieldSpecs],
+  );
+  const linkedTargets = useLinkedRecords(linkSpec?.linkTarget || null);
+  const linkTitles = useMemo(
+    () => new Map(linkedTargets.records.map((r) => [r.id, linkedRecordLabel(r)])),
+    [linkedTargets.records],
+  );
+
+  const isLockers = moduleKey === LOCKERS.moduleKey && documentKey === LOCKERS.documentKey;
+  const canAddItems = clientCan(user, LOCKER_ITEMS.moduleKey, LOCKER_ITEMS.documentKey, 'add');
+
   const numberLabel = useMemo(() => {
     const identifier = fieldSpecs.find((f) => f.isIdentifier);
     return identifier?.fieldLabel || 'Number';
   }, [fieldSpecs]);
+
+  /** Others (0068): records carry the member's own labels, grouped and filtered by. */
+  const catchAll = isCatchAll({ moduleKey, documentKey });
+
+  /** Open the Files tab filtered to one label — `'none'` is "no label". */
+  const openLabel = (label) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', 'files');
+    params.set('label', label ?? 'none');
+    params.delete('page');
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
 
   const setTab = (next) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -343,7 +386,14 @@ export default function SubCategoryWorkspace() {
   };
 
   const remove = async (record) => {
-    if (!window.confirm(`Delete "${record.title}"? It moves to deleted records.`)) return;
+    // A locker that still holds items is asked about twice: the items stay,
+    // but they will say "Locker removed" until moved.
+    let warning = '';
+    if (isLockers) {
+      const held = itemsInLocker(lockerItems.records, record.id);
+      if (held > 0) warning = `\n\n${held} item${held === 1 ? '' : 's'} in the inventory still point at this locker and will show "Locker removed".`;
+    }
+    if (!window.confirm(`Delete "${record.title}"? It moves to deleted records.${warning}`)) return;
     setBusyId(record.id);
     try {
       const outcome = await apiRequest(
@@ -358,6 +408,7 @@ export default function SubCategoryWorkspace() {
         return;
       }
       toast.success('Record deleted');
+      invalidateLinkedRecords({ moduleKey, documentKey });
       loadList();
       loadSummary();
     } finally {
@@ -433,7 +484,8 @@ export default function SubCategoryWorkspace() {
       seen.add(key);
       const value = masked[key] ?? open[key];
       if (value === undefined || value === null || value === '') continue;
-      out.push({ label: spec.fieldLabel || key, value: String(value) });
+      // A pointer (0069) prints what it points at, never an id.
+      out.push({ label: spec.fieldLabel || key, value: formatFieldValue(spec, value, { linkTitles }) });
     }
     // Anything the spec no longer declares but the record still holds. Masked
     // spread LAST, so it wins here for the same reason.
@@ -448,7 +500,7 @@ export default function SubCategoryWorkspace() {
     // as 'All members'. See holderDisplayName.
     out.push({ label: 'Belongs to', value: record.display?.holderName || '' });
     return out.filter((f) => f.value !== '');
-  }, [fieldSpecs]);
+  }, [fieldSpecs, linkTitles]);
 
   /** The shape `shareRecords`/`printRecords` read a record as. */
   const shareItem = useCallback((record) => ({
@@ -476,7 +528,22 @@ export default function SubCategoryWorkspace() {
 
   // The pane resets itself when the record changes — there is no local blob or
   // error to clear here any more.
-  const openPreview = (record) => setPreviewRecord(record);
+  const openPreview = (record) => {
+    setPreviewRecord(record);
+    // No document but photos: open on the first photo rather than an empty pane.
+    setPreviewAttachment(!record.filePath && record.attachments?.length ? record.attachments[0].id : null);
+  };
+  /** Something to look at: the document, or at least one photo. */
+  const hasPreview = (record) => Boolean(record.filePath || record.attachments?.length);
+  /** A record's own scope — a locker item opened from the lockers page is not this page's. */
+  const scopeOf = (record) => scopeForCategory({
+    moduleKey: record.categoryModuleKey || moduleKey,
+    documentKey: record.categoryDocumentKey || documentKey,
+  }) || scope;
+
+  const lockerColumns = useLockerColumns({ moduleKey, documentKey }, { onPreview: openPreview });
+  // Read for the locker delete warning; a null target on every other page.
+  const lockerItems = useLinkedRecords(isLockers ? LOCKER_ITEMS : null);
 
   const download = async (record) => {
     if (!record.filePath) {
@@ -612,6 +679,16 @@ export default function SubCategoryWorkspace() {
                 />
               </div>
 
+              {/* Bank lockers (0069/0070): what each locker holds, and its weight. */}
+              {isLockers && (
+                <LockerInventoryPanel
+                  canAddItems={canAddItems}
+                  onAddItem={(lockerId) => setItemFormLocker(lockerId)}
+                  onPreviewItem={openPreview}
+                  refreshKey={inventoryRefresh}
+                />
+              )}
+
               {/*
                 * Equal-height cards in a two-column grid.
                 *
@@ -622,6 +699,41 @@ export default function SubCategoryWorkspace() {
                 * deliberate layout rather than a broken one.
                 */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 auto-rows-fr">
+                {/* Others only: what the member has called what landed here. */}
+                {catchAll && summary.labels && (
+                  <Card className="border-border/50 bg-card flex flex-col">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold flex items-center gap-2">
+                        <Tag size={15} className="text-primary" />
+                        By label
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex-1">
+                      {summary.labels.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          Nothing here yet. Documents the AI cannot place land in Others — give them a label to group them.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          {summary.labels.map((l) => (
+                            <button
+                              key={l.label ?? '__none'}
+                              type="button"
+                              onClick={() => openLabel(l.label)}
+                              className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted/40"
+                            >
+                              <span className={cn('truncate', l.label ? 'font-medium text-foreground' : 'text-muted-foreground')}>
+                                {l.label ?? `${UNLABELLED} (no label)`}
+                              </span>
+                              <span className="tabular-nums text-muted-foreground">{l.count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Renewals & expiry */}
                 <Card className="border-border/50 bg-card flex flex-col">
                   <CardHeader className="pb-2">
@@ -894,6 +1006,16 @@ export default function SubCategoryWorkspace() {
                   ? [{ value: 'none', label: 'All members' }]
                   : []),
               },
+              {
+                key: 'label',
+                label: 'Label',
+                options: catchAll && summary?.labels
+                  ? summary.labels.map((l) => ({
+                    value: l.label ?? 'none',
+                    label: l.label ?? `${UNLABELLED} (no label)`,
+                  }))
+                  : [],
+              },
             ].filter((f) => f.options.length > 0)}
             columns={[
               {
@@ -902,12 +1024,19 @@ export default function SubCategoryWorkspace() {
                 render: (r) => (
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="text-xs font-bold text-foreground truncate">{r.title}</span>
+                    {catchAll && (
+                      <Badge variant="outline" className="text-2xs w-fit max-w-full truncate">
+                        {r.customSubcategory || UNLABELLED}
+                      </Badge>
+                    )}
                     <span className="text-xs text-muted-foreground truncate">
                       {r.fileName || 'No document attached'}
                     </span>
                   </div>
                 ),
               },
+              // Per-category extras — empty for everything but the locker pair (0069/0070).
+              ...lockerColumns,
               {
                 /**
                  * The category's OWN word for its number — "PAN", "ARN", "GSTIN".
@@ -969,7 +1098,7 @@ export default function SubCategoryWorkspace() {
                     </Button>
                     {/* Gated on the file the same way the mobile card's Open is:
                         a record with no scan has nothing to preview. */}
-                    {r.filePath && (
+                    {hasPreview(r) && (
                       <Button
                         variant="outline"
                         size="icon"
@@ -1023,6 +1152,11 @@ export default function SubCategoryWorkspace() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-col min-w-0">
                     <span className="text-sm font-bold text-foreground truncate">{r.title}</span>
+                    {catchAll && (
+                      <Badge variant="outline" className="text-2xs w-fit max-w-full truncate">
+                        {r.customSubcategory || UNLABELLED}
+                      </Badge>
+                    )}
                     {/* The number gets its own line rather than joining the
                         dotted list below: it is the thing someone scanning a
                         phone screen is looking FOR, and it is the one line that
@@ -1045,7 +1179,7 @@ export default function SubCategoryWorkspace() {
                 {/* Touch targets, not a kebab menu: on a phone the actions ARE
                     the card, and a 36px row of them beats a popover. */}
                 <div className="flex flex-wrap items-center gap-2">
-                  {r.filePath && (
+                  {hasPreview(r) && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -1132,7 +1266,7 @@ export default function SubCategoryWorkspace() {
           record reached through the sidebar is the record reached through
           /documents — opening a raw file tab for one and a preview for the
           other made them look like two different things. */}
-      <Dialog open={!!previewRecord} onOpenChange={(open) => { if (!open) setPreviewRecord(null); }}>
+      <Dialog open={!!previewRecord} onOpenChange={(open) => { if (!open) { setPreviewRecord(null); setPreviewAttachment(null); } }}>
         {previewRecord && (
           <DialogContent aria-describedby={undefined} className="max-w-[800px] border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
             <DialogHeader className="border-b border-border pb-3">
@@ -1140,9 +1274,40 @@ export default function SubCategoryWorkspace() {
                 Preview: {previewRecord.title}
               </DialogTitle>
             </DialogHeader>
+            {/* The record's document and its photos (0069), one tap apart. */}
+            {previewRecord.attachments?.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {previewRecord.filePath && (
+                  <Button
+                    size="sm"
+                    variant={previewAttachment ? 'outline' : 'secondary'}
+                    className="h-10 gap-1.5 text-xs"
+                    onClick={() => setPreviewAttachment(null)}
+                  >
+                    <FileText size={13} /> Invoice / document
+                  </Button>
+                )}
+                {previewRecord.attachments.map((a) => (
+                  <AttachmentThumb
+                    key={a.id}
+                    scope={scopeOf(previewRecord)}
+                    recordId={previewRecord.id}
+                    attachment={a}
+                    className={cn('h-10 w-10', previewAttachment === a.id && 'ring-2 ring-primary')}
+                    onClick={() => setPreviewAttachment(a.id)}
+                  />
+                ))}
+              </div>
+            )}
             <FilePreviewPane
               className="min-h-[350px] max-h-[70vh] flex-1"
-              source={{
+              source={previewAttachment ? {
+                kind: 'record',
+                filePath: attachmentUrl(scopeOf(previewRecord), previewRecord.id, previewAttachment),
+                mimeType: previewRecord.attachments?.find((a) => a.id === previewAttachment)?.mimeType || 'image/jpeg',
+                name: previewRecord.attachments?.find((a) => a.id === previewAttachment)?.name || previewRecord.title,
+                pageCount: 1,
+              } : {
                 kind: 'record',
                 filePath: previewRecord.filePath,
                 mimeType: previewRecord.mimeType,
@@ -1168,8 +1333,28 @@ export default function SubCategoryWorkspace() {
         documentKey={documentKey}
         initialHolderId={formHolder}
         recordId={editingId}
-        onCreated={() => { loadList(); loadSummary(); }}
+        onCreated={() => {
+          invalidateLinkedRecords({ moduleKey, documentKey });
+          loadList();
+          loadSummary();
+          setInventoryRefresh((n) => n + 1);
+        }}
       />
+
+      {/* "Add item to this locker" — the item form, starting in that locker. */}
+      {isLockers && (
+        <CategoryRecordForm
+          open={Boolean(itemFormLocker)}
+          onClose={() => setItemFormLocker(null)}
+          moduleKey={LOCKER_ITEMS.moduleKey}
+          documentKey={LOCKER_ITEMS.documentKey}
+          initialValues={itemFormLocker ? { locker_ref: itemFormLocker } : null}
+          onCreated={() => {
+            invalidateLinkedRecords(LOCKER_ITEMS);
+            setInventoryRefresh((n) => n + 1);
+          }}
+        />
+      )}
     </PageContainer>
   );
 }

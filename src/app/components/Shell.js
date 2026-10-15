@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams, useSelectedLayoutSegment } from 'next/navigation';
 import { 
@@ -20,7 +20,6 @@ import {
   Bell,
   Search,
   X,
-  Loader2,
   Shield,
   Flame,
   CheckCircle2,
@@ -36,7 +35,8 @@ import {
   AlertTriangle,
   MessageCircle,
   SlidersHorizontal,
-  Building2
+  Building2,
+  Plus
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -46,6 +46,7 @@ import { useFlashToast } from '@/hooks/useFlashToast';
 import { clientGetMe, clientCan } from '@/lib/clientAuth';
 import { APP_NAME, APP_MARK } from '@/lib/brand';
 import BrandWordmark from '@/app/components/BrandWordmark';
+import GlobalSearch from '@/app/components/GlobalSearch';
 import { maybeToastStoragePressure } from '@/lib/storageToast';
 import { daysUntil } from '@/lib/planGate';
 import { ONBOARDING_PATH } from '@/lib/onboardingGate';
@@ -58,15 +59,15 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PWABanner } from '@/components/PWABanner';
 import { usePushNotifications } from '@/lib/usePushNotifications';
-import { AnimatePresence, motion } from 'framer-motion';
 import { FontSizeToggle } from '@/components/FontSizeToggle';
 import { ThemeToggle, useAppTheme } from '@/components/ThemeToggle';
-import { NAV_MODULES, BUSINESS_NAV_MODULES, UTILITY_MODULES, TENANT_SPECIFIC_PATHS, MODULE_BASE, utilityNavPath } from '@/lib/moduleRegistry';
+import { NAV_MODULES, BUSINESS_NAV_MODULES, UTILITY_MODULES, TENANT_SPECIFIC_PATHS, utilityNavPath } from '@/lib/moduleRegistry';
 import { workspaceMenu, defaultCompanyId, companyHome, activeCompanyFrom, companyFromPath, PERSONAL_HOME } from '@/lib/workspaceNav';
 import { moduleIcon } from '@/lib/moduleIcons';
 import ModuleFlyout from '@/app/components/ModuleFlyout';
 import WorkspaceSwitcher from '@/app/components/WorkspaceSwitcher';
 import AccountMenu from '@/app/components/AccountMenu';
+import useUploadPicker from '@/app/components/useUploadPicker';
 import useBackNavigation, { brandHomePath } from '@/app/components/useBackNavigation';
 import { usePermittedCategories, navModulesFrom } from '@/lib/usePermittedCategories';
 import { apiCall } from '@/lib/net/apiRequest';
@@ -88,6 +89,8 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/verify-email',
+  // An invited member setting up their account (0071) — signed out by definition.
+  '/activate',
   // The legal pages. /register asks a visitor to consent to both before they
   // have an account, so they must be readable without one — left off this list
   // they redirected straight to /login.
@@ -100,7 +103,7 @@ const PUBLIC_PATHS = [
 
 // Public routes a *signed-in* user must still be able to complete, so the
 // billing / AMC-lock / onboarding gates below must not redirect away from them.
-const AUTH_FLOW_PATHS = ['/forgot-password', '/reset-password', '/verify-email'];
+const AUTH_FLOW_PATHS = ['/forgot-password', '/reset-password', '/verify-email', '/activate'];
 
 // ─── What survives an expired plan ──────────────────────────────────────────
 // Two things, and they differ by role. The admin gets Billing, because they are
@@ -123,63 +126,6 @@ const LOCK_SCREEN_PATHS = [PLAN_LOCK_PATH, '/billing/amc-lock'];
 
 /** Days before expiry at which the amber warning bar appears. */
 const EXPIRY_WARNING_DAYS = 7;
-
-/**
- * ── QUICK ACTIONS FOLLOW THE WORKSPACE ──────────────────────────────────────
- *
- * The Spotlight's five tiles. They were one hardcoded personal list, so from
- * inside a company every one of them walked the user back into the household —
- * the same silent workspace leak the bottom nav and the More screen were fixed
- * for, left behind in the one surface reached by keyboard rather than by tap.
- *
- * TWO SETS, not one set with a prefix — the same shape `cardsFor` uses in
- * WorkspaceDashboard.jsx, and for the same reason. The utility three (documents,
- * passwords, to-dos) exist in BOTH accounts and only need `utilityNavPath`. The
- * other two cannot be prefixed at all: Medical and Vehicle are PERSONAL taxonomy
- * keys and a company files into the `biz_*` fourteen, so
- * `/business/<id>/modules/vehicle` names a module that workspace does not have.
- * A company is offered two of its own dated obligations instead.
- *
- * Icons come from `moduleIcon`, keyed exactly as the sidebar keys them — module
- * key for a record module, path for a utility one — so a tile and the row it
- * opens can never show two different glyphs for one module.
- *
- * Courtesy, not permission, like every other link in this file: these are not
- * filtered by `clientCan`, and each page re-checks on arrival.
- */
-function quickActionsFor(companyId) {
-  // The same path shape `navModulesFrom` builds, from the same constant, so a
-  // tile and its sidebar row cannot drift to two URLs for one module.
-  const modulePath = (key) => `${companyId ? `/business/${companyId}` : ''}${MODULE_BASE}/${key}`;
-  // Present in both accounts, so these three differ only by the prefix.
-  const shared = {
-    doc:  { name: 'Add Document',  icon: FileText,               path: utilityNavPath('/documents', companyId), color: 'text-blue-500',   bg: 'bg-blue-500/10'   },
-    pwd:  { name: 'Save Password', icon: moduleIcon('/passwords'), path: utilityNavPath('/passwords', companyId), color: 'text-purple-500', bg: 'bg-purple-500/10' },
-    task: { name: 'New Task',      icon: moduleIcon('/todos'),     path: utilityNavPath('/todos', companyId),     color: 'text-rose-500',   bg: 'bg-rose-500/10'   },
-  };
-  if (!companyId) {
-    // Medical and Vehicle go to their MODULE pages, not to /medical and
-    // /vehicles — those are phase-1 pages 0023 took out of the nav, so these
-    // two tiles are the only remaining way in.
-    return [
-      shared.doc,
-      { name: 'Add Medical', icon: moduleIcon('health_medical'), path: modulePath('health_medical'), color: 'text-cyan-500',  bg: 'bg-cyan-500/10'  },
-      shared.pwd,
-      shared.task,
-      { name: 'Add Vehicle', icon: moduleIcon('vehicle'),        path: modulePath('vehicle'),        color: 'text-amber-500', bg: 'bg-amber-500/10' },
-    ];
-  }
-  // Tax filings and licences rather than the household's two: both are dated
-  // obligations with a cost attached to missing them, which is the same reason
-  // Follow Up earns a dashboard card on the business side and not the personal.
-  return [
-    shared.doc,
-    { name: 'Add Tax Filing', icon: moduleIcon('biz_tax'),      path: modulePath('biz_tax'),      color: 'text-cyan-500',  bg: 'bg-cyan-500/10'  },
-    shared.pwd,
-    shared.task,
-    { name: 'Add License',    icon: moduleIcon('biz_licenses'), path: modulePath('biz_licenses'), color: 'text-amber-500', bg: 'bg-amber-500/10' },
-  ];
-}
 
 /**
  * Say the lapse once per session, keyed on the expiry so a renewal re-arms it.
@@ -374,11 +320,16 @@ export default function Shell({ children }) {
     ?? defaultCompanyId(switcherMenu);
   const inBusiness = Boolean(activeCompanyId);
   const activeCompany = companies.find((c) => c.id === activeCompanyId) || null;
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  // The bottom nav's `+`: one Upload button reachable from every tab, offered
+  // only to a member who may add somewhere — the same rule the Document
+  // Manager applies to its own Upload button (fails open while loading).
+  const { permitted: addableCategories } = usePermittedCategories('add');
+  const canAddAnywhere = addableCategories === null || addableCategories.size > 0;
+  const uploadPicker = useUploadPicker(activeCompanyId);
+  // Search is typed into in place (GlobalSearch) — the sidebar box on desktop,
+  // a bar under the header on a phone.
+  const sidebarSearchRef = useRef(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   
   // Badges & alerts states
   const [notifications, setNotifications] = useState([]);
@@ -726,39 +677,22 @@ export default function Shell({ children }) {
 
   // Removed manual service worker registration here because PWABanner/usePWA handles it.
 
-  // Spotlight search debounce
-  useEffect(() => {
-    if (!searchQuery) { setSearchResults([]); return; }
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const { json } = await apiCall(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-        if (json.success) { setSearchResults(json.results || []); setActiveIndex(0); }
-      } catch (err) { console.error('Search failed:', err); }
-      finally { setSearching(false); }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  // Keyboard navigation
+  // ⌘/Ctrl+K puts the cursor in the search box: the sidebar's on desktop
+  // (expanding a collapsed sidebar first), the header bar's on a phone.
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(prev => !prev); }
-      if (!searchOpen) return;
-      if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); setSearchResults([]); }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex(prev => prev < searchResults.length - 1 ? prev + 1 : prev); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex(prev => prev > 0 ? prev - 1 : prev); }
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (activeIndex >= 0 && activeIndex < searchResults.length) {
-          router.push(searchResults[activeIndex].link);
-          setSearchOpen(false); setSearchQuery(''); setSearchResults([]);
-        }
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (window.matchMedia('(min-width: 1024px)').matches) {
+        setIsCollapsed(false);
+        requestAnimationFrame(() => sidebarSearchRef.current?.focus());
+      } else {
+        setMobileSearchOpen(true);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [searchOpen, searchResults, activeIndex, router]);
+  }, []);
 
   const toggleSidebar = () => {
     const nextState = !isCollapsed;
@@ -932,7 +866,11 @@ export default function Shell({ children }) {
       // company gained a profile of its own and a roster of its own. The icon
       // still keys off the UNPREFIXED path, since it names the module, not the
       // workspace.
-      items: UTILITY_MODULES.map((m) => ({
+      //
+      // Members (the null-keyed `/users`) is TENANT_ADMIN-only: /api/users
+      // refuses everyone else, so offering it to a member was a link to a 403.
+      // MoreScreen applies the same filter, so the two lists stay identical.
+      items: UTILITY_MODULES.filter((m) => m.key !== null || user?.role === 'TENANT_ADMIN').map((m) => ({
         name: m.name,
         path: utilityNavPath(m.path, activeCompanyId),
         icon: moduleIcon(m.path),
@@ -1083,6 +1021,9 @@ export default function Shell({ children }) {
         { name: 'More', path: '/more', icon: Menu }
       ];
 
+  // The centre `+` belongs to the everyday four-tab rows only.
+  const showUploadAction = !!user && !planLocked && user.role !== 'SUPER_ADMIN' && canAddAnywhere;
+
   // '/billing' joins the exact-match list now that '/billing/credits' is its own
   // nav entry: the prefix rule would light up BOTH rows on the sub-page.
   const isActivePath = (path) => {
@@ -1095,8 +1036,8 @@ export default function Shell({ children }) {
   // cannot drift apart the way two copies of the same markup would.
   //
   // Gated on clientCan rather than just on `isSuperAdmin`, unlike the Bell
-  // beside it: the sidebar's Workspace group maps UTILITY_MODULES unfiltered,
-  // so a member without `todos.view` is already offered a To-Dos link that
+  // beside it: the sidebar's Workspace group filters UTILITY_MODULES only by
+  // role, so a member without `todos.view` is still offered a To-Dos link that
   // lands them on a 403. This button does not repeat that.
   const showTodoButton = !isSuperAdmin && !planLocked && clientCan(user, 'todos', null, 'view');
 
@@ -1200,8 +1141,9 @@ export default function Shell({ children }) {
    * The flyout is the FAST path — one click from anywhere to any sub-category.
    * The module page lists the same sub-categories with their record and renewal
    * counts, for when the question is "where should I look?" rather than "take me
-   * to X". Both are reachable: the row opens the menu, and the menu's header
-   * opens the module page.
+   * to X". Both are reachable: the module name opens the module page, and the
+   * chevron beside it opens the menu (on the collapsed rail, where there is no
+   * chevron, the icon opens the menu and its header opens the module page).
    */
   const SidebarModules = ({ items }) => (
     <>
@@ -1209,50 +1151,78 @@ export default function Shell({ children }) {
         const Icon = item.icon;
         const active = isActivePath(item.path);
         const isOpen = openModule?.moduleKey === item.moduleKey;
+        // Anchored to the whole row, not the chevron, so the flyout sits where
+        // it always has.
+        const toggleFlyout = (e) => setOpenModule(
+          isOpen
+            ? null
+            : {
+                moduleKey: item.moduleKey,
+                name: item.name,
+                icon: item.icon,
+                // The module's own page, carrying the workspace. The flyout
+                // builds no path of its own — it used to, and dropped the
+                // company doing it.
+                path: item.path,
+                subCategories: item.subCategories,
+                rect: e.currentTarget.closest('[data-module-row]').getBoundingClientRect(),
+              },
+        );
+        const iconEl = (
+          <span className={cn('flex items-center shrink-0', active || isOpen ? 'text-primary' : 'text-faint')}>
+            <Icon size={16} strokeWidth={active ? 2.5 : 1.8} />
+          </span>
+        );
         return (
-          <button
+          <div
             key={item.moduleKey}
-            onClick={(e) => setOpenModule(
-              isOpen
-                ? null
-                : {
-                    moduleKey: item.moduleKey,
-                    name: item.name,
-                    icon: item.icon,
-                    // The module's own page, carrying the workspace. The flyout
-                    // builds no path of its own — it used to, and dropped the
-                    // company doing it.
-                    path: item.path,
-                    subCategories: item.subCategories,
-                    rect: e.currentTarget.getBoundingClientRect(),
-                  },
-            )}
-            title={isCollapsed ? item.name : undefined}
-            aria-expanded={isOpen}
+            data-module-row
             className={cn(
-              'flex items-center gap-3 w-full py-2.5 text-xs font-semibold transition-all border-l-2 relative',
-              isCollapsed ? 'justify-center px-0' : 'px-5',
+              'flex items-center w-full text-xs font-semibold transition-all border-l-2 relative',
+              isCollapsed ? 'justify-center px-0' : 'pl-5 pr-4',
               active || isOpen
                 ? 'text-primary bg-primary/10 border-l-primary font-bold'
                 : 'text-muted-foreground border-l-transparent hover:text-foreground hover:bg-muted/40',
             )}
           >
-            <span className={cn('flex items-center shrink-0', active || isOpen ? 'text-primary' : 'text-faint')}>
-              <Icon size={16} strokeWidth={active ? 2.5 : 1.8} />
-            </span>
-            {!isCollapsed && (
+            {isCollapsed ? (
+              // The rail has no room for a chevron, so the icon opens the menu;
+              // the module page is one click further, via the flyout header.
+              <button
+                onClick={toggleFlyout}
+                title={item.name}
+                aria-expanded={isOpen}
+                className="flex items-center justify-center w-full py-2.5"
+              >
+                {iconEl}
+              </button>
+            ) : (
               <>
-                <span className="truncate">{item.name}</span>
-                <ChevronRight
-                  size={13}
-                  className={cn(
-                    'ml-auto shrink-0 transition-transform',
-                    isOpen ? 'translate-x-0.5 text-primary' : 'text-faint',
-                  )}
-                />
+                <button
+                  onClick={() => { setOpenModule(null); router.push(item.path); }}
+                  className="flex items-center gap-3 flex-1 min-w-0 py-2.5 text-left"
+                >
+                  {iconEl}
+                  <span className="truncate">{item.name}</span>
+                </button>
+                <button
+                  onClick={toggleFlyout}
+                  aria-expanded={isOpen}
+                  aria-label={`Show ${item.name} sub-categories`}
+                  title={`${item.name} sub-categories`}
+                  className="ml-auto shrink-0 p-1 rounded hover:bg-muted/60"
+                >
+                  <ChevronRight
+                    size={13}
+                    className={cn(
+                      'transition-transform',
+                      isOpen ? 'translate-x-0.5 text-primary' : 'text-faint',
+                    )}
+                  />
+                </button>
               </>
             )}
-          </button>
+          </div>
         );
       })}
     </>
@@ -1425,22 +1395,10 @@ export default function Shell({ children }) {
             )}
           </Link>
 
-          {/* Spotlight Search Shortcut */}
+          {/* Global search — typed into right here, no dialog. */}
           {!isSuperAdmin && !isCollapsed && (
             <div className="px-4 pb-2 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setSearchOpen(true)}
-                className="w-full flex items-center justify-between px-3 py-2 h-9 border border-border/85 bg-background/30 text-muted-foreground text-xs hover:text-foreground transition-all rounded-lg"
-              >
-                <div className="flex items-center gap-2">
-                  <Search size={13} className="text-muted-foreground" />
-                  <span>Search records...</span>
-                </div>
-                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0.5 rounded border border-border bg-muted px-1.5 font-mono text-2xs font-medium text-muted-foreground">
-                  <span className="text-xs">⌘</span>K
-                </kbd>
-              </Button>
+              <GlobalSearch ref={sidebarSearchRef} variant="sidebar" />
             </div>
           )}
 
@@ -1678,8 +1636,9 @@ export default function Shell({ children }) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setSearchOpen(true)}
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setMobileSearchOpen((v) => !v)}
+                  aria-label="Search records"
+                  className={cn('h-8 w-8 shrink-0 hover:text-foreground', mobileSearchOpen ? 'text-primary' : 'text-muted-foreground')}
                 >
                   <Search size={16} />
                 </Button>
@@ -1741,6 +1700,14 @@ export default function Shell({ children }) {
           </header>
         )}
 
+        {/* Phone search bar, opened from the header's search icon. Sticks just
+            under the 56px header so it stays put while results are browsed. */}
+        {!isEmbedded && !isSuperAdmin && mobileSearchOpen && (
+          <div className="lg:hidden sticky top-14 z-30 bg-card border-b border-border px-4 py-2">
+            <GlobalSearch variant="mobile" autoFocus onDone={() => setMobileSearchOpen(false)} />
+          </div>
+        )}
+
         {/* ─── Plan banners ───────────────────────────────────────────────
             Red once the plan has lapsed (the page under it is the lock screen
             or Billing), amber in the last week before it does — so an expiry is
@@ -1785,12 +1752,33 @@ export default function Shell({ children }) {
       {/* ─── Mobile Bottom Nav ─── */}
       {!isEmbedded && (
         <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border flex lg:hidden py-1.5 pb-[calc(6px+env(safe-area-inset-bottom))] shadow-lg">
-          {bottomNavItems.map((item) => {
+          {bottomNavItems.map((item, index) => {
             const Icon = item.icon;
             const active = isActivePath(item.path);
             return (
+              <Fragment key={item.name}>
+              {/* ── THE UPLOAD BUTTON, IN THE MIDDLE OF THE ROW ──────────────
+                  Uploading used to be reachable on a phone only from the Docs
+                  tab's floating `+`. It sits here instead, between Follow Up
+                  and Docs, so it is one tap from every tab and never floats
+                  over a page's content. Raised above the bar with `-mt-5` but
+                  the bar keeps its height, so Shell's `pb-[76px]` and the
+                  MobileActionFab offset arithmetic are unchanged. Only on the
+                  everyday rows — not the plan-lock or super-admin ones. */}
+              {showUploadAction && index === 2 && (
+                <div className="flex flex-col items-center justify-center gap-1 flex-1 py-1 text-center font-semibold text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={uploadPicker.openChooser}
+                    aria-label="Upload documents"
+                    className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-4 ring-card transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-ring"
+                  >
+                    <Plus size={24} strokeWidth={2.5} />
+                  </button>
+                  <span className="text-2xs tracking-wide" aria-hidden>Upload</span>
+                </div>
+              )}
               <button
-                key={item.name}
                 className={cn(
                   'flex flex-col items-center justify-center gap-1 flex-1 py-1 text-center font-semibold transition-colors',
                   active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -1822,140 +1810,13 @@ export default function Shell({ children }) {
                 </span>
                 <span className="text-2xs tracking-wide">{item.name}</span>
               </button>
+              </Fragment>
             );
           })}
+          {showUploadAction && uploadPicker.input}
         </nav>
       )}
 
-      {/* ─── Spotlight Search ─── */}
-      <AnimatePresence>
-        {searchOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[99999] flex items-start justify-center pt-[15vh] px-4 bg-black/70 backdrop-blur-md"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) { setSearchOpen(false); setSearchQuery(''); setSearchResults([]); }
-            }}
-          >
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0, y: -20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: -20 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full max-w-xl bg-card border border-border/50 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden p-0 flex flex-col"
-            >
-              {/* Search Input */}
-              <div className="flex items-center gap-3 px-4 py-4 border-b border-border/30 bg-background/50">
-                <Search size={20} className="text-primary shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Search documents, health records, vehicles..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="flex-grow bg-transparent border-none outline-none text-foreground text-base font-semibold placeholder:text-faint min-w-0"
-                  autoComplete="off"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchResults([]); }}
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-full"
-                >
-                  <X size={16} />
-                </Button>
-              </div>
-
-              {/* Results */}
-              <div className="overflow-y-auto flex-grow py-2 max-h-[450px]">
-                {searching ? (
-                  <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-                    <Loader2 size={28} className="animate-spin text-primary" />
-                    <span className="text-sm font-semibold">Searching your vault...</span>
-                  </div>
-                ) : searchQuery && searchResults.length === 0 ? (
-                  <div className="py-16 text-center text-muted-foreground text-sm font-medium">
-                    No matches found for &quot;{searchQuery}&quot;
-                  </div>
-                ) : !searchQuery ? (
-                  <div className="px-5 py-6 flex flex-col gap-5">
-                    <div>
-                      <span className="font-bold uppercase text-faint tracking-wider text-xs mb-3 block">Quick Actions</span>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {/* Scoped to the workspace the user is standing in —
-                            see quickActionsFor. Unprefixed, these five tiles
-                            were the last control in the shell that silently
-                            walked a company user back into the household. */}
-                        {quickActionsFor(activeCompanyId).map(action => (
-                          <button
-                            key={action.name}
-                            onClick={() => { router.push(action.path); setSearchOpen(false); }}
-                            className="flex items-center gap-3 p-3 rounded-xl border border-border/40 bg-muted/20 hover:bg-muted/50 hover:border-border transition-all text-left group"
-                          >
-                            <div className={`p-2 rounded-lg ${action.bg} ${action.color} group-hover:scale-110 transition-transform`}>
-                              <action.icon size={16} />
-                            </div>
-                            <span className="text-xs font-bold text-foreground">{action.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="bg-muted/20 border border-border/40 rounded-xl p-4 mt-2">
-                      <span className="font-bold uppercase text-faint tracking-wider text-xs block mb-2">Pro Tips</span>
-                      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground leading-relaxed">
-                         <span className="flex items-center gap-2"><CheckCircle2 size={12} className="text-primary"/> Search records across your entire workspace.</span>
-                         <span className="flex items-center gap-2"><CheckCircle2 size={12} className="text-primary"/> Press <kbd className="bg-background px-1 py-0.5 rounded font-mono border shadow-sm">↑↓</kbd> to navigate, <kbd className="bg-background px-1 py-0.5 rounded font-mono border shadow-sm">Enter</kbd> to select.</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col">
-                    {searchResults.map((res, index) => {
-                      const isSelected = index === activeIndex;
-                      return (
-                        <button
-                          key={res.id}
-                          onMouseEnter={() => setActiveIndex(index)}
-                          onClick={() => { router.push(res.link); setSearchOpen(false); setSearchQuery(''); setSearchResults([]); }}
-                          className={cn(
-                            'w-full text-left flex items-center justify-between px-5 py-3 transition-all border-l-2',
-                            isSelected
-                              ? 'bg-primary/10 border-l-primary'
-                              : 'border-l-transparent hover:bg-muted/30'
-                          )}
-                        >
-                          <div className="flex flex-col gap-0.5 min-w-0 pr-4">
-                            <span className={cn('text-xs font-bold truncate', isSelected ? 'text-primary' : 'text-foreground')}>
-                              {res.title}
-                            </span>
-                            <span className="text-xs text-muted-foreground truncate mt-0.5">{res.subtitle}</span>
-                          </div>
-                          <Badge variant={isSelected ? 'default' : 'secondary'} className="text-2xs font-bold uppercase shrink-0 py-0 h-5 px-2">
-                            {res.module}
-                          </Badge>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-between px-5 py-3 border-t border-border/30 text-xs text-faint bg-muted/20">
-                <span className="font-semibold">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</span>
-                <span className="flex gap-4 font-semibold">
-                  <span className="flex items-center gap-1"><kbd className="bg-background border px-1.5 py-0.5 rounded text-2xs shadow-sm">↑↓</kbd> Navigate</span>
-                  <span className="flex items-center gap-1"><kbd className="bg-background border px-1.5 py-0.5 rounded text-2xs shadow-sm">↵</kbd> Select</span>
-                  <span className="flex items-center gap-1"><kbd className="bg-background border px-1.5 py-0.5 rounded text-2xs shadow-sm">Esc</kbd> Close</span>
-                </span>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       {/* ─── Module Flyout ─── */}
       {/* Rendered once here rather than per row: only one can be open, and a
           portal per module row would be fourteen portals to keep in step. */}

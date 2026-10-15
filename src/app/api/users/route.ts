@@ -5,8 +5,7 @@ import { eq, and, ne, or, sql, count, isNull, inArray } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
-import { memberQuota } from '@/lib/billingAxis';
-import { activeAddonSeats, seatPredicate } from '@/lib/account/seatCounts';
+import { seatAllowance, seatPredicate, seatUsage } from '@/lib/account/seatCounts';
 import { parseQueryParams, buildListQueryHelper } from '@/lib/api-pagination';
 import { validateUserContacts } from '@/lib/userContactValidation';
 import { toDialString, isBlankPhone } from '@/lib/phone';
@@ -17,6 +16,9 @@ import {
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { defaultPermissionsFor } from '@/lib/moduleRegistry';
 import { serverError } from '@/lib/routeError';
+import crypto from 'crypto';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
+import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
 
 export async function GET(req: Request) {
   try {
@@ -181,9 +183,26 @@ export async function GET(req: Request) {
       return { ...safe, companyIds: grantsByUser.get(u.id) ?? [] };
     });
 
+    /**
+     * The workspace's seats, for the stats above the roster: the household's,
+     * or this company's. Admin-only, like the roster; a SUPER_ADMIN owns no
+     * tenant's plan. Never fails the list — a roster with no stats is still
+     * a roster.
+     */
+    let seats = null;
+    if (user.role === 'TENANT_ADMIN') {
+      const scope = workspaceCompanyId ? 'business' : 'personal';
+      try {
+        seats = { scope, ...(await seatUsage(user.tenantId, scope, workspaceCompanyId)) };
+      } catch (error) {
+        console.error('[users] seat usage unavailable:', error);
+      }
+    }
+
     return NextResponse.json({ 
       success: true, 
       users: safeUsers,
+      seats,
       pagination: {
         page: params.page,
         limit,
@@ -245,11 +264,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Tenant Admins cannot create Super Admin users.' }, { status: 403 });
     }
 
-    if (!name || !password) {
+    const newRole = (role as any) || 'STANDARD';
+
+    // A MEMBER no longer gets a password from the admin (0071): they are
+    // invited and choose their own on /activate. Anyone else — an admin added
+    // through the API — still needs one, because nothing invites them.
+    if (!name || (!password && newRole !== 'STANDARD')) {
       return NextResponse.json({ error: 'Name and Password are required' }, { status: 400 });
     }
-
-    const newRole = (role as any) || 'STANDARD';
 
     const contactCheck = validateUserContacts({
       role: newRole,
@@ -261,10 +283,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: errorMsg }, { status: 400 });
     }
 
-    // No delivery check here any more. A member is created WITHOUT sign-in
-    // (see `signInDisabledAt` below), so nothing is sent and nothing needs to
-    // be deliverable yet. Whether a code can reach them is checked when the
-    // admin gives them access — POST /api/users/[id]/sign-in.
 
     // Optional for a member since 0040, so it may legitimately be absent. Kept
     // as null rather than '' — the partial unique index treats NULLs as
@@ -325,31 +343,14 @@ export async function POST(req: Request) {
 
     if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
 
-    // The plan for the axis being joined. A 'both' plan sits in BOTH columns, so
-    // this resolves to the same row either way — which is the point of writing
-    // it to both rather than making every reader consult `appliesTo`.
-    const axisPlanId = accountScope === 'business'
-      ? tenant.businessPlanId
-      : tenant.subscriptionPlanId;
-    const plan = axisPlanId
-      ? await db.query.subscriptionPlans.findFirst({
-          where: (p, { eq }) => eq(p.id, axisPlanId)
-        })
-      : null;
-
     /**
+     * Plan + stored extras + live add-ons, on the axis being joined — through
+     * `seatAllowance`, the same number /billing and the Members screen show.
      * Add-on seats land on the axis they were bought for: "Additional user
      * (personal)" raises the household's allowance, "Additional user
-     * (business)" raises the per-company one.
-     *
-     * The business branch adds nothing here because `companySeatCap` — which
-     * the per-company check below calls — already includes it. Adding it twice
-     * would sell one add-on as two seats.
+     * (business)" the per-company one.
      */
-    const addonSeats = accountScope === 'business'
-      ? 0
-      : await activeAddonSeats(currentUser.tenantId, 'extraMembers');
-    const totalAllowed = memberQuota(plan, tenant, accountScope) + addonSeats;
+    const totalAllowed = await seatAllowance(currentUser.tenantId, accountScope);
 
     /**
      * Live members only, through the shared `seatPredicate` — the SAME
@@ -423,7 +424,28 @@ export async function POST(req: Request) {
     }
 
 
-    const passwordHash = await hashPassword(password);
+    /**
+     * ── SIGN-IN FOLLOWS ACCESS (0071) ───────────────────────────────────────
+     *
+     * A member given anything to look at is a member who is meant to sign in,
+     * so sign-in starts ON and an invite goes out — the admin no longer has to
+     * come back and "Give access". A member given NO access (a child added only
+     * so records can be filed under them) stays a record: sign-in off, nothing
+     * sent. And one the invite cannot reach — no email, and no number WhatsApp
+     * can deliver to — stays off too, and the response says why.
+     */
+    const effectivePermissions = Array.isArray(reqPermissions)
+      ? reqPermissions
+      : defaultPermissionsFor(accountScope);
+    const wantsAccess = newRole === 'STANDARD' && grantsAccess(effectivePermissions);
+    const reachable = canReceiveInvite(
+      { email: email ? String(email) : null, phoneNumber: isBlankPhone(phoneNumber) ? null : phoneNumber },
+      await isWhatsAppEnabled(),
+    );
+    const signInOn = newRole !== 'STANDARD' || (wantsAccess && reachable);
+
+    // No password from the admin: an unusable one until the member sets theirs.
+    const passwordHash = await hashPassword(password || crypto.randomBytes(32).toString('hex'));
 
     const newUser = await withTenant(currentUser.tenantId, async (tx) => {
       // 1. Create the user
@@ -445,7 +467,10 @@ export async function POST(req: Request) {
         // is sent. When the admin gives access (POST /api/users/[id]/sign-in)
         // the member meets the first-login code challenge — WhatsApp, or email
         // when WhatsApp is off.
-        signInDisabledAt: newRole === 'STANDARD' ? new Date() : null,
+        signInDisabledAt: signInOn ? null : new Date(),
+        // Set only when the admin chose a password; an invited member finishes
+        // on /activate, and login sends them there until then.
+        activatedAt: password ? new Date() : null,
         role: newRole,
       }).returning();
 
@@ -534,8 +559,24 @@ export async function POST(req: Request) {
       return user;
     });
 
+    // After the commit: the member exists whatever the messaging does.
+    const invite = newRole === 'STANDARD' && signInOn && !password
+      ? await sendMemberInvite({
+        tenantId: currentUser.tenantId,
+        actor: currentUser,
+        member: { id: newUser.id, name: newUser.name, email: newUser.email, phoneNumber: newUser.phoneNumber },
+        req,
+      })
+      : null;
+
     const { passwordHash: _, ...safeUser } = newUser;
-    return NextResponse.json({ success: true, user: safeUser }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      user: safeUser,
+      invite,
+      // Access was given but nothing can reach them: the screen asks for a contact.
+      inviteBlocked: wantsAccess && !reachable,
+    }, { status: 201 });
   } catch (error) {
     // Two members sharing a handset is a plausible thing for a tenant admin to
     // try; it should read as a form error, not as the platform falling over.

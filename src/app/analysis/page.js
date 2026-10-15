@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useWorkspaceApi } from '@/lib/net/useWorkspaceApi';
 import { usePermittedCategories, navModulesFrom } from '@/lib/usePermittedCategories';
 import { BUSINESS_NAV_MODULES } from '@/lib/moduleRegistry';
+import { CATCH_ALL_MODULE_KEYS } from '@/lib/documentCategories';
 import { moduleIcon } from '@/lib/moduleIcons';
 
 
@@ -70,7 +71,10 @@ export default function AnalysisPage() {
     if (!companyId) return PERSONAL_CATEGORIES;
     return navModulesFrom(
       permittedCategories, BUSINESS_NAV_MODULES, 'business', `/business/${companyId}`,
-    ).map((m) => ({ id: m.key, label: m.name, icon: moduleIcon(m.key) }));
+    )
+      // Others is in the rail (0068) but holds nothing a category analysis can read.
+      .filter((m) => !CATCH_ALL_MODULE_KEYS.includes(m.key))
+      .map((m) => ({ id: m.key, label: m.name, icon: moduleIcon(m.key) }));
   }, [companyId, permittedCategories]);
 
   /**

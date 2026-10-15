@@ -25,9 +25,13 @@ import {
   FAILED_MESSAGE,
   UNAVAILABLE_CATEGORY_MESSAGE,
   UNCLASSIFIED_MESSAGE,
+  FILED_AS_OTHERS_MESSAGE,
+  PDF_PASSWORD_INCORRECT,
+  PDF_PASSWORD_REQUIRED,
+  needsPdfPassword,
   resolveAutofillOutcome,
 } from '@/lib/records/autofillOutcome';
-import { UNCATEGORIZED } from '@/lib/documentCategories';
+import { BUSINESS_UNCATEGORIZED, UNCATEGORIZED } from '@/lib/documentCategories';
 
 const PAN = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -108,8 +112,7 @@ describe('resolveAutofillOutcome', () => {
           documentKey: UNCATEGORIZED.documentKey,
         },
       }),
-      // Offered — a tenant admin holds every category, Others included. Being
-      // ABLE to file there is not a reason to file there by default.
+      // Offered — a tenant admin holds every category, Others included.
       {
         categoryOptions: [
           ...OPTIONS,
@@ -123,7 +126,30 @@ describe('resolveAutofillOutcome', () => {
     );
 
     expect(outcome.kind).toBe('unclassified');
+    // Never an `apply`: nothing was read against Others, so no fields...
     expect(outcome.categoryId).toBe('');
+    expect(outcome.fields).toEqual({});
+    // ...but Others is pre-selected, so the document is saveable as it stands
+    // and the user changes it if they know better. A blank picker is how a
+    // "don't know" looked like a broken form.
+    expect(outcome.fallbackCategoryId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(outcome.message).toBe(FILED_AS_OTHERS_MESSAGE);
+  });
+
+  it('leaves the picker blank when this member cannot file under Others', () => {
+    const outcome = resolveAutofillOutcome(
+      permittedResponse({
+        category: {
+          id: '22222222-2222-4222-8222-222222222222',
+          moduleKey: UNCATEGORIZED.moduleKey,
+          documentKey: UNCATEGORIZED.documentKey,
+        },
+      }),
+      { categoryOptions: OPTIONS },
+    );
+
+    expect(outcome.kind).toBe('unclassified');
+    expect(outcome.fallbackCategoryId).toBe('');
     expect(outcome.message).toBe(UNCLASSIFIED_MESSAGE);
   });
 
@@ -227,5 +253,55 @@ describe('resolveAutofillOutcome', () => {
       { categoryOptions: OPTIONS },
     );
     expect(outcome.fields).toEqual({});
+  });
+});
+
+describe('falling back to Others', () => {
+  const OTHERS = {
+    id: '22222222-2222-4222-8222-222222222222',
+    moduleKey: UNCATEGORIZED.moduleKey,
+    documentKey: UNCATEGORIZED.documentKey,
+  };
+  const BIZ_OTHERS = {
+    id: '33333333-3333-4333-8333-333333333333',
+    moduleKey: BUSINESS_UNCATEGORIZED.moduleKey,
+    documentKey: BUSINESS_UNCATEGORIZED.documentKey,
+  };
+
+  it('pre-selects Others when the read failed outright', () => {
+    // An AI error or an unreadable answer still files the document somewhere
+    // the user can see and change, rather than leaving the picker blank.
+    const outcome = resolveAutofillOutcome(
+      { success: false, error: 'The document could not be read this time' },
+      { categoryOptions: [PAN, OTHERS] },
+    );
+    expect(outcome.kind).toBe('failed');
+    expect(outcome.fallbackCategoryId).toBe(OTHERS.id);
+    expect(outcome.message).toBe('The document could not be read this time');
+  });
+
+  it('pre-selects nothing on a failure when the picker has no Others', () => {
+    const outcome = resolveAutofillOutcome({ success: false }, { categoryOptions: OPTIONS });
+    expect(outcome.fallbackCategoryId).toBe('');
+    expect(outcome.message).toBe(FAILED_MESSAGE);
+  });
+
+  it('treats the company catch-all as unclassified, and pre-selects it', () => {
+    const outcome = resolveAutofillOutcome(
+      { success: true, category: BIZ_OTHERS, fields: { stray: 'x' } },
+      { categoryOptions: [BIZ_OTHERS] },
+    );
+    expect(outcome.kind).toBe('unclassified');
+    expect(outcome.fallbackCategoryId).toBe(BIZ_OTHERS.id);
+    expect(outcome.fields).toEqual({});
+  });
+});
+
+describe('needsPdfPassword', () => {
+  it('asks for the password on either locked-PDF code, and nothing else', () => {
+    expect(needsPdfPassword({ errorCode: PDF_PASSWORD_REQUIRED })).toBe(true);
+    expect(needsPdfPassword({ errorCode: PDF_PASSWORD_INCORRECT })).toBe(true);
+    expect(needsPdfPassword({ errorCode: 'AI_UNAVAILABLE' })).toBe(false);
+    expect(needsPdfPassword(null)).toBe(false);
   });
 });

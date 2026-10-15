@@ -15,6 +15,9 @@ import { defaultPermissionsFor } from '@/lib/moduleRegistry';
 import { memberQuota } from '@/lib/billingAxis';
 import { seatPredicate, activeAddonSeats } from '@/lib/account/seatCounts';
 import { serverError } from '@/lib/routeError';
+import crypto from 'crypto';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
+import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
 
 /**
  * Adds a member from the onboarding wizard.
@@ -66,8 +69,9 @@ export async function POST(req: Request) {
       permissions: reqPermissions,
     } = await req.json();
 
-    if (!name || !password) {
-      return NextResponse.json({ success: false, error: 'Name and password are required' }, { status: 400 });
+    // The password is optional since 0071: a member is invited and sets their own.
+    if (!name) {
+      return NextResponse.json({ success: false, error: 'Name is required' }, { status: 400 });
     }
 
     // Mobile mandatory, email optional — the wizard creates STANDARD members
@@ -217,10 +221,31 @@ export async function POST(req: Request) {
       }, { status: 403 });
     }
 
-    const passwordHash = await hashPassword(password);
+    const permissionDefaults = defaultPermissionsFor(accountScope);
+    const permissionOverrides = new Map(
+      (Array.isArray(reqPermissions) ? reqPermissions : [])
+        .filter((p: any) => p && typeof p.module === 'string')
+        .map((p: any) => [p.module, p]),
+    );
+    const finalPermissions = permissionDefaults.map((d) => {
+      const o = permissionOverrides.get(d.module);
+      return o
+        ? { module: d.module, documentKey: null, canView: !!o.canView, canAdd: !!o.canAdd, canEdit: !!o.canEdit, canDelete: !!o.canDelete, canShare: !!o.canShare }
+        : d;
+    });
+
+    // Sign-in follows access (0071) — the same rule as POST /api/users.
+    const reachable = canReceiveInvite(
+      { email: cleanEmail, phoneNumber: isBlankPhone(phoneNumber) ? null : phoneNumber },
+      await isWhatsAppEnabled(),
+    );
+    const signInOn = grantsAccess(finalPermissions) && reachable;
+
+    // No password from the admin: an unusable one until the member sets theirs.
+    const passwordHash = await hashPassword(password || crypto.randomBytes(32).toString('hex'));
 
     // Create User, Profile, and AuditLog inside a transaction
-    await db.transaction(async (tx) => {
+    const created = await db.transaction(async (tx) => {
       const [user] = await tx.insert(users).values({
         tenantId: adminUser.tenantId,
         email: cleanEmail,
@@ -238,8 +263,10 @@ export async function POST(req: Request) {
         // business member under a household they had no permissions for.
         accountScope,
         requiresPasswordChange: true, // Force password change on first login
-        // Added as a record only — see POST /api/users. Access is given later.
-        signInDisabledAt: new Date(),
+        // On when they were given access and an invite can reach them; see
+        // POST /api/users for the rule.
+        signInDisabledAt: signInOn ? null : new Date(),
+        activatedAt: password ? new Date() : null,
       }).returning();
 
       // Create default empty profile
@@ -268,18 +295,6 @@ export async function POST(req: Request) {
       // row, whatever the client sent) and means a client payload can only
       // override a module this scope already grants by default, never name
       // one of its own.
-      const permissionDefaults = defaultPermissionsFor(accountScope);
-      const permissionOverrides = new Map(
-        (Array.isArray(reqPermissions) ? reqPermissions : [])
-          .filter((p: any) => p && typeof p.module === 'string')
-          .map((p: any) => [p.module, p]),
-      );
-      const finalPermissions = permissionDefaults.map((d) => {
-        const o = permissionOverrides.get(d.module);
-        return o
-          ? { module: d.module, documentKey: null, canView: !!o.canView, canAdd: !!o.canAdd, canEdit: !!o.canEdit, canDelete: !!o.canDelete, canShare: !!o.canShare }
-          : d;
-      });
       await tx.insert(permissions).values(
         finalPermissions.map((p) => ({ ...p, userId: user.id })),
       );
@@ -320,9 +335,19 @@ export async function POST(req: Request) {
         entityType: 'users',
         entityId: user?.id,
       }, tx);
+      return user;
     });
 
-    return NextResponse.json({ success: true });
+    const invite = signInOn && !password
+      ? await sendMemberInvite({
+        tenantId: adminUser.tenantId,
+        actor: adminUser,
+        member: { id: created.id, name: created.name, email: created.email, phoneNumber: created.phoneNumber },
+        req,
+      })
+      : null;
+
+    return NextResponse.json({ success: true, invite, inviteBlocked: !reachable });
 
   } catch (error: any) {
     // Both are plausible things to hit by hand — one handset shared by two

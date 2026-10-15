@@ -34,7 +34,10 @@ vi.mock('@/lib/auth', () => ({
 
 /** Whether a WhatsApp code can be delivered — the give-access check reads it. */
 let whatsappOn = true;
-vi.mock('@/lib/whatsapp', () => ({ isWhatsAppEnabled: async () => whatsappOn })); 
+vi.mock('@/lib/whatsapp', () => ({
+  isWhatsAppEnabled: async () => whatsappOn,
+  sendWhatsAppTemplate: async () => ({ success: true }),
+}));
 vi.mock('@/lib/planGate', () => ({
   requireActivePlan: () => null,
   requireActivePlanFor: () => null,

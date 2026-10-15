@@ -32,9 +32,10 @@ import type { CategoryKey } from '@/lib/documentCategories';
 import { categoryDisplay } from '@/lib/documentCategories';
 import type { FieldSpec } from '@/lib/documentCategoryFields';
 import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
-import { processUpload } from '@/lib/documentProcessor';
+import { PdfPasswordError, processUpload } from '@/lib/documentProcessor';
+import { PDF_PASSWORD_INCORRECT, PDF_PASSWORD_REQUIRED } from '@/lib/records/autofillOutcome';
 import { extractCategoryFields } from '@/lib/ai';
-import { indexMembers, normalizeName } from '@/lib/records/holderMatch';
+import { findMember, indexMembers, normalizeName } from '@/lib/records/holderMatch';
 import { workspaceMembers } from './workspaceMembers';
 
 /**
@@ -100,12 +101,15 @@ export interface AiPage {
  */
 export async function pagesForAi(
   file: File,
+  { pdfPassword }: { pdfPassword?: string } = {},
 ): Promise<{
   aiFiles: AiPage[]; pagesTotal: number; rasterised: boolean; unreadable: boolean;
 }> {
   // Splits a PDF into page images, compresses images, extracts text from office
   // formats. Everything it writes lives in a private scratch dir.
-  const pages = await processUpload(file);
+  // Throws PdfPasswordError for a locked PDF — the route turns that into a
+  // password prompt rather than a read of ciphertext.
+  const pages = await processUpload(file, { pdfPassword });
   const aiFiles: AiPage[] = [];
 
   // Text-bearing formats (.docx, .xlsx) are never rasterised and never need to
@@ -157,6 +161,35 @@ export async function pagesForAi(
   };
 }
 
+/**
+ * The password the member typed for a locked PDF, or undefined.
+ *
+ * Read only to rasterise this one request's pages — never stored, logged or
+ * audited, and the stored document stays the file exactly as uploaded.
+ */
+export function pdfPasswordFrom(form: FormData): string | undefined {
+  const value = form.get('pdfPassword');
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * A locked PDF as a response the form can act on: a 422 whose `errorCode`
+ * tells it to ask for the password (again, when the last one was wrong). No AI
+ * call has been made — or billed — by the time this is sent. null for any other
+ * error.
+ */
+export function pdfPasswordResponse(error: unknown): { body: Record<string, unknown>; status: number } | null {
+  if (!(error instanceof PdfPasswordError)) return null;
+  return {
+    body: {
+      success: false,
+      error: error.message,
+      errorCode: error.incorrect ? PDF_PASSWORD_INCORRECT : PDF_PASSWORD_REQUIRED,
+    },
+    status: 422,
+  };
+}
+
 /** What the user is told when a file carried nothing any model could read. */
 export const UNREADABLE_FILE_MESSAGE =
   'No readable text or image in this file — upload the scan as a PDF or an image.';
@@ -164,11 +197,11 @@ export const UNREADABLE_FILE_MESSAGE =
 /**
  * The member whose name the document carries, or ''.
  *
- * Exact normalised equality via the same helpers `/api/ai/scan` matches with —
- * never fuzzy, and an ambiguous name (two members sharing one) resolves to
- * nothing. A missing "Belongs to" is one tap to fix and obvious on screen; a
- * wrong one is neither, and it is written to the audit log as the member's own
- * choice.
+ * The same closest-match rule `/api/ai/scan` uses (`findMember`): exact first,
+ * then the closest first and last name, middle names ignored — and a tie
+ * between two members resolves to nothing. A missing "Belongs to" is one tap
+ * to fix and obvious on screen; a wrong one is neither, and it is written to
+ * the audit log as the member's own choice.
  */
 export async function matchHolderByName(
   name: string,
@@ -188,7 +221,7 @@ export async function matchHolderByName(
   // business-only employee, so neither may the match.
   const members = await workspaceMembers(tenantId, companyId);
 
-  return indexMembers(members).get(key) || '';
+  return findMember(name, indexMembers(members)) || '';
 }
 
 /** What a read of one document against one category's spec produced. */
@@ -199,6 +232,11 @@ export interface AutofillResult {
   holderName: string;
   /** How many fields the category's spec declares — 0 means nothing to ask. */
   fieldCount: number;
+  /**
+   * Words read off the document for the keyword index, joined into one string.
+   * The form posts it back with the save as `searchText`; the vault hashes it.
+   */
+  searchText: string;
 }
 
 /**
@@ -232,7 +270,7 @@ export async function runAutofill(input: {
   spec?: readonly FieldSpec[];
 }): Promise<AutofillResult> {
   const fields = input.spec ?? await loadCategoryFieldSpec(db, input.categoryKey);
-  if (fields.length === 0) return { fields: {}, holderName: '', fieldCount: 0 };
+  if (fields.length === 0) return { fields: {}, holderName: '', fieldCount: 0, searchText: '' };
 
   const display = categoryDisplay(input.categoryKey);
   const result = await extractCategoryFields({
@@ -248,5 +286,6 @@ export async function runAutofill(input: {
     fields: result?.fields ?? {},
     holderName: typeof result?.holderName === 'string' ? result.holderName.trim() : '',
     fieldCount: fields.length,
+    searchText: Array.isArray(result?.searchKeywords) ? result.searchKeywords.join('\n') : '',
   };
 }

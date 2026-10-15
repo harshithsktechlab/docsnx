@@ -18,6 +18,7 @@ import { indexMembers, matchHolder, readHolderName } from '@/lib/records/holderM
 import { workspaceMembers } from '@/lib/records/workspaceMembers';
 import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
 import { MAX_PAGES, runAutofill, UNREADABLE_FILE_MESSAGE } from '@/lib/records/autofillRun';
+import { subCategoryTitle, withoutReadTitle } from '@/lib/records/autoTitle';
 import {
   MAX_SCAN_FILES, MAX_SCAN_PAGES, isAcceptedUpload, isWithinUploadSize,
   scanBatchError, uploadSizeError, uploadTypeError,
@@ -237,17 +238,13 @@ async function attachCategoryFields(records, aiFiles, user, companyId = null) {
         const result = await runAutofill({
           aiFiles: pages, categoryKey, spec, tenantId: user.tenantId, userId: user.id, companyId,
         });
-        rec.extractedData.fields = result.fields;
-
-        // `document_title` is a field of EVERY category spec (BASELINE_LEADING)
-        // and is mandatory, but it names the document rather than being printed
-        // on it, so a read often leaves it blank. Pass 1 proposed a clean name
-        // for exactly this: without seeding it, every scanned record would open
-        // the review grid already failing its own required-field check.
-        if (!rec.extractedData.fields.document_title) {
-          const proposed = rec.extractedData.name || rec.title || '';
-          if (proposed) rec.extractedData.fields.document_title = proposed;
-        }
+        // Without the read's `document_title`: it copies the heading printed at
+        // the top of the page ("INCOME TAX DEPARTMENT"). Named below instead.
+        rec.extractedData.fields = withoutReadTitle(result.fields);
+        // Words read off the document for the keyword index. Round-trips
+        // through the review grid inside `extractedData` and is hashed by the
+        // vault at save; no text of it is kept.
+        if (result.searchText) rec.extractedData.searchText = result.searchText;
 
         // The extract pass looked at the field the category DECLARES for the
         // holder; pass 1 answered a generic instruction. So it fills a gap pass
@@ -256,6 +253,20 @@ async function attachCategoryFields(records, aiFiles, user, companyId = null) {
         // so `attachHolderIds` below does the matching, in the one place that
         // knows the rules. Which is why this pass runs BEFORE it.
         if (!rec.holderName && result.holderName) rec.holderName = result.holderName;
+
+        // `document_title` is a field of EVERY category spec (BASELINE_LEADING)
+        // and is mandatory, so every scanned record is named here or it opens
+        // the review grid already failing its own required-field check. Its
+        // sub-category and holder — "PAN Card - Ravi Kumar" — after the holder
+        // gap above is filled; pass 1's name only when the category has none.
+        // `rec.title` too, so the grid shows the same name. The reviewer's edit
+        // in the grid still wins at save.
+        const named = subCategoryTitle(rec.extractedData.categoryName, rec.holderName)
+          || rec.extractedData.name || rec.title || '';
+        if (named) {
+          rec.extractedData.fields.document_title = named;
+          rec.title = named;
+        }
       } catch (e) {
         // Logged, not thrown: see NON-FATAL above.
         console.error(`[AI] Field pass failed for ${categoryLabel(categoryKey)}:`, e?.message || e);

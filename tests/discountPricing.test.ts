@@ -47,6 +47,8 @@ const discount = (overrides: Record<string, any> = {}) => ({
   expiresAt: null,
   planId: null,
   addonId: null,
+  planIds: [],
+  addonIds: [],
   billingCycle: null,
   isActive: true,
   ...overrides,
@@ -112,8 +114,10 @@ describe('loadRedeemableDiscount', () => {
 });
 
 describe('computeAmountSaved', () => {
-  it('takes a percentage off the whole cart for an unbound code', () => {
-    const res = computeAmountSaved(discount(), { subtotal: 1000, planId: 'p1', planPrice: 600 });
+  const plans = (...lines: [string, number][]) => lines.map(([planId, price]) => ({ planId, price }));
+
+  it('takes a percentage off the whole cart for an unrestricted code', () => {
+    const res = computeAmountSaved(discount(), { subtotal: 1000, plans: plans(['p1', 600]) });
     expect(savedBy(res)).toBe(200);
   });
 
@@ -131,40 +135,64 @@ describe('computeAmountSaved', () => {
     expect(savedBy(computeAmountSaved(d, { subtotal: 300 }))).toBe(300);
   });
 
-  it('discounts only the plan line for a plan-bound code', () => {
-    const d = discount({ planId: 'p1' });
-    const res = computeAmountSaved(d, { subtotal: 1000, planId: 'p1', planPrice: 600 });
+  it('discounts only the plan line for a plan-restricted code', () => {
+    const d = discount({ planIds: ['p1'] });
+    const res = computeAmountSaved(d, { subtotal: 1000, plans: plans(['p1', 600]) });
     expect(savedBy(res)).toBe(120); // 20% of the plan, not of the 1000 cart
   });
 
-  it('rejects a plan-bound code on a different plan, or on an addons-only cart', () => {
-    const d = discount({ planId: 'p1' });
-    expect(errorOf(computeAmountSaved(d, { subtotal: 1000, planId: 'p2', planPrice: 600 })))
+  it('discounts every ticked plan in the cart, not just the first', () => {
+    const d = discount({ planIds: ['p1', 'p2'] });
+    const res = computeAmountSaved(d, { subtotal: 1500, plans: plans(['p1', 600], ['p2', 400], ['p3', 500]) });
+    expect(savedBy(res)).toBe(200); // 20% of 600 + 400
+  });
+
+  it('matches a code restricted to a second plan when it is not the primary line', () => {
+    const d = discount({ planIds: ['p2'] });
+    expect(savedBy(computeAmountSaved(d, { subtotal: 1000, plans: plans(['p1', 600], ['p2', 400]) }))).toBe(80);
+  });
+
+  it('rejects a plan-restricted code on a different plan, or on an addons-only cart', () => {
+    const d = discount({ planIds: ['p1'] });
+    expect(errorOf(computeAmountSaved(d, { subtotal: 1000, plans: plans(['p2', 600]) })))
       .toBe('Discount code is not valid for this plan.');
-    expect(errorOf(computeAmountSaved(d, { subtotal: 400, planId: null })))
+    expect(errorOf(computeAmountSaved(d, { subtotal: 400, addons: [{ id: 'a1', price: 400 }] })))
       .toBe('Discount code is not valid for this plan.');
   });
 
-  it('discounts only the matching addon for an addon-bound code', () => {
-    const d = discount({ addonId: 'a2' });
+  it('discounts only the ticked addons for an addon-restricted code', () => {
+    const d = discount({ addonIds: ['a2', 'a3'] });
     const res = computeAmountSaved(d, {
-      subtotal: 1000,
-      planId: 'p1',
-      planPrice: 600,
-      addons: [{ id: 'a1', price: 100 }, { id: 'a2', price: 300 }],
+      subtotal: 1200,
+      plans: plans(['p1', 600]),
+      addons: [{ id: 'a1', price: 100 }, { id: 'a2', price: 300 }, { id: 'a3', price: 200 }],
     });
-    expect(savedBy(res)).toBe(60); // 20% of the a2 line
+    expect(savedBy(res)).toBe(100); // 20% of a2 + a3
   });
 
-  it('rejects an addon-bound code when that addon is not in the cart', () => {
-    const d = discount({ addonId: 'a2' });
-    expect(errorOf(computeAmountSaved(d, { subtotal: 600, planId: 'p1', planPrice: 600, addons: [{ id: 'a1', price: 100 }] })))
+  it('rejects an addon-restricted code when none of its addons is in the cart', () => {
+    const d = discount({ addonIds: ['a2'] });
+    expect(errorOf(computeAmountSaved(d, { subtotal: 700, plans: plans(['p1', 600]), addons: [{ id: 'a1', price: 100 }] })))
       .toBe('Discount code is not valid for the addons in the cart.');
-    expect(errorOf(computeAmountSaved(d, { subtotal: 600, planId: 'p1', planPrice: 600 })))
+    expect(errorOf(computeAmountSaved(d, { subtotal: 600, plans: plans(['p1', 600]) })))
+      .toBe('Discount code is not valid for the addons in the cart.');
+  });
+
+  it('sums matching plans and addons when both are restricted', () => {
+    const d = discount({ planIds: ['p1'], addonIds: ['a1'] });
+    const cart = { subtotal: 1100, plans: plans(['p1', 600]), addons: [{ id: 'a1', price: 400 }, { id: 'a2', price: 100 }] };
+    expect(savedBy(computeAmountSaved(d, cart))).toBe(200); // 20% of 600 + 400
+    // Either side matching is enough.
+    expect(savedBy(computeAmountSaved(d, { subtotal: 400, addons: [{ id: 'a1', price: 400 }] }))).toBe(80);
+  });
+
+  it('still honours the legacy single plan / addon columns', () => {
+    expect(savedBy(computeAmountSaved(discount({ planId: 'p1' }), { subtotal: 1000, plans: plans(['p1', 600]) }))).toBe(120);
+    expect(errorOf(computeAmountSaved(discount({ addonId: 'a1' }), { subtotal: 600, plans: plans(['p1', 600]) })))
       .toBe('Discount code is not valid for the addons in the cart.');
   });
 
   it('saves nothing on a free plan rather than going negative', () => {
-    expect(savedBy(computeAmountSaved(discount(), { subtotal: 0, planId: 'p1', planPrice: 0 }))).toBe(0);
+    expect(savedBy(computeAmountSaved(discount(), { subtotal: 0, plans: plans(['p1', 0]) }))).toBe(0);
   });
 });

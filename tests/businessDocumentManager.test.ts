@@ -34,7 +34,7 @@ import {
   stampIdentifiers,
   type FieldSpec,
 } from '@/lib/documentCategoryFields';
-import { DOCUMENT_CATEGORY_SEED, isBusinessModule } from '@/lib/documentCategories';
+import { DOCUMENT_CATEGORY_SEED, isBusinessModule, isCatchAll } from '@/lib/documentCategories';
 import {
   documentDisplay,
   documentFieldList,
@@ -42,15 +42,18 @@ import {
   type DocMetadata,
 } from '@/lib/records/docMetadata';
 
-const BUSINESS = DOCUMENT_CATEGORY_SEED.filter((c) => isBusinessModule(c.moduleKey));
+// Every business category but `biz_other` (0067) — the catch-all is a holding
+// bin for documents nobody could identify, not a kind of document with a number.
+const BUSINESS_WITH_CATCH_ALL = DOCUMENT_CATEGORY_SEED.filter((c) => isBusinessModule(c.moduleKey));
+const BUSINESS = BUSINESS_WITH_CATCH_ALL.filter((c) => !isCatchAll(c));
 const specOf = (moduleKey: string, documentKey: string) => fieldsFor({ moduleKey, documentKey });
 const idsOf = (moduleKey: string, documentKey: string) => identifierFields(specOf(moduleKey, documentKey));
 const labelOf = (moduleKey: string, documentKey: string, fieldKey: string) =>
   specOf(moduleKey, documentKey).find((f) => f.fieldKey === fieldKey)?.fieldLabel;
 
 describe('every business sub-category names the number it is known by', () => {
-  it('covers all 84 of them, with none left identified by nothing', () => {
-    expect(BUSINESS).toHaveLength(84);
+  it('covers all 90 of them, with none left identified by nothing', () => {
+    expect(BUSINESS).toHaveLength(90);
     const naked = BUSINESS.filter((c) => idsOf(c.moduleKey, c.documentKey).length === 0);
     expect(naked.map((c) => `${c.moduleKey}/${c.documentKey}`)).toEqual([]);
   });

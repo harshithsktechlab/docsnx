@@ -71,6 +71,7 @@ export const ACTIONS = {
   rentals: crud('rentals'),
   utility_bills: crud('utility_bills'),
   employment_payroll: crud('employment_payroll'),
+  travel: crud('travel'),
 
   // The business scopes. `recordAction` builds these strings dynamically from
   // the URL, so the generic handler needs no entry — but the two must agree, and
@@ -89,6 +90,8 @@ export const ACTIONS = {
   biz_procurement: crud('biz_procurement'),
   biz_sales: crud('biz_sales'),
   biz_operations: crud('biz_operations'),
+  biz_travel: crud('biz_travel'),
+  biz_other: crud('biz_other'),
 
   // Not record modules — their own tables, their own actions.
   company: crud('company'),
@@ -105,6 +108,10 @@ export const ACTIONS = {
     // member stays in the workspace either way (users.sign_in_disabled_at).
     sign_in_disable: 'user.sign_in_disable',
     sign_in_enable: 'user.sign_in_enable',
+    // 0071: the invite link went to a member, and the member finished setting
+    // up their own password from it.
+    invite_sent: 'user.invite_sent',
+    activated: 'user.activated',
   },
   profile: { update: 'profile.update' },
   tenant: {
@@ -368,6 +375,8 @@ const VERB_LABELS: Record<string, string> = {
   onboarding_create: 'Added',
   sign_in_disable: 'Turned off sign-in for',
   sign_in_enable: 'Turned on sign-in for',
+  invite_sent: 'Sent an invite to',
+  activated: 'Activated',
   onboarding_complete: 'Completed',
   edit_manual: 'Updated',
   delete_manual: 'Deleted',
@@ -431,6 +440,7 @@ const ENTITY_LABELS: Record<string, string> = {
   utility_bills: 'Utility Bills',
   utility_bill: 'Utility Bills',
   employment_payroll: 'Employment & Payroll',
+  travel: 'Travel & Tickets',
 
   // The business taxonomy. Without these, `titleCase` renders the module key
   // and the audit trail reads "Biz Hr".
@@ -448,6 +458,8 @@ const ENTITY_LABELS: Record<string, string> = {
   biz_procurement: 'Vendor & Procurement',
   biz_sales: 'Sales & Marketing',
   biz_operations: 'Operations & Assets',
+  biz_travel: 'Travel & Expenses',
+  biz_other: 'Others',
   password: 'Passwords',
   emergency_contact: 'Important Contact',
   todo: 'To-Do',

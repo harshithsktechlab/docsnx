@@ -75,6 +75,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Account inactive or suspended' }, { status: 403 });
     }
 
+    /**
+     * An invited member who has not set their own password yet (0071). Their
+     * stored hash is random, so any password would fail as "Invalid
+     * credentials" — which tells them nothing. Point them at /activate instead.
+     * Only while sign-in is on: a switched-off member gets the usual answer.
+     */
+    if (user.role === 'STANDARD' && !user.activatedAt && !isSignInDisabled(user)) {
+      return NextResponse.json({
+        error: 'You haven’t set up your account yet. Use “Set up my account” to get a code and choose your password.',
+        requireActivation: true,
+      }, { status: 403 });
+    }
+
     const isValid = await comparePassword(password, user.passwordHash);
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });

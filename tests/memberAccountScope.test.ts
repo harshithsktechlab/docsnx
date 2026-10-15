@@ -82,7 +82,8 @@ describe('the two default grants divide the taxonomy', () => {
     const unexpected = BUSINESS_PERMISSION_KEYS.filter(
       (k: string) => !k.startsWith('biz_') && !SHARED_UTILITY_KEYS.includes(k));
     expect(unexpected, 'a business member reaching a personal category').toEqual([]);
-    expect(BUSINESS_PERMISSION_KEYS).toHaveLength(14 + SHARED_UTILITY_KEYS.length);
+    // 15 business modules plus the `biz_other` catch-all (0067).
+    expect(BUSINESS_PERMISSION_KEYS).toHaveLength(16 + SHARED_UTILITY_KEYS.length);
   });
 });
 

@@ -274,6 +274,7 @@ function rasterisePdf(
   uploadDir: string,
   baseName: string,
   originalName: string,
+  password?: string,
 ): ProcessedPage[] | null {
   if (!hasPdftoppm) return null;
   const prefix = uniquePrefix('page');
@@ -292,10 +293,13 @@ function rasterisePdf(
      */
     execFileSync('pdftoppm', [
       '-jpeg', '-jpegopt', 'quality=90', '-r', '200',
+      ...(password ? ['-upw', password] : []),
       pdfPath, path.join(uploadDir, prefix),
-    ]);
-  } catch (err) {
-    console.error('PDF splitting failed:', err);
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  } catch (err: any) {
+    // The error carries the argv — which holds the password when one was given.
+    const detail = String(err?.stderr || err?.message || err);
+    console.error('PDF splitting failed:', password ? detail.split(password).join('***') : detail);
     return null;
   }
   const files = collectGeneratedPages(uploadDir, prefix);
@@ -388,6 +392,51 @@ function rasteriseOfficeDocument(
 }
 
 /**
+ * A PDF that will not open without its user password.
+ *
+ * Bank statements, e-CAS and salary slips are routinely locked with the
+ * holder's PAN or date of birth. Sending the encrypted bytes to the model
+ * anyway is how a bank statement came back as "Others": the model was looking
+ * at ciphertext. The caller turns this into a prompt for the password instead.
+ */
+export class PdfPasswordError extends Error {
+  /** true when a password WAS supplied and it was the wrong one. */
+  readonly incorrect: boolean;
+
+  constructor(incorrect: boolean) {
+    super(incorrect
+      ? 'That password did not open the PDF — check it and try again.'
+      : 'This PDF is password-protected — enter its password to read it.');
+    this.name = 'PdfPasswordError';
+    this.incorrect = incorrect;
+  }
+}
+
+/**
+ * Whether the PDF needs a user password this call does not have.
+ *
+ * `pdfinfo` exits non-zero with "Incorrect password" both when a locked file is
+ * opened with no password and when it is opened with the wrong one. A PDF with
+ * only an OWNER password (print/copy restrictions) opens and renders fine, so
+ * it is not "locked" here. Without poppler nothing can be known — and nothing
+ * could be rasterised either — so it reports unlocked and the existing
+ * fallback stands.
+ *
+ * The password goes in the argument array, never a shell, and never into a log.
+ */
+function pdfNeedsPassword(pdfPath: string, password?: string): boolean {
+  if (!hasPdftoppm) return false;
+  try {
+    execFileSync('pdfinfo', [...(password ? ['-upw', password] : []), pdfPath], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    return false;
+  } catch (err: any) {
+    return /incorrect password/i.test(String(err?.stderr || ''));
+  }
+}
+
+/**
  * Processes an uploaded file:
  * - PDF: split into individual high-quality compressed JPEGs (pdftoppm).
  * - Multi-frame image (TIFF): split into one JPEG per frame, like a PDF's pages.
@@ -400,7 +449,10 @@ function rasteriseOfficeDocument(
  *
  * @param {File} file - Next.js/Browser File object
  */
-export async function processUpload(file: File | any): Promise<ProcessedPage[]> {
+export async function processUpload(
+  file: File | any,
+  { pdfPassword }: { pdfPassword?: string } = {},
+): Promise<ProcessedPage[]> {
   // Says once, loudly, if the page-image pipeline is missing on this host. See
   // checkTooling(): the fallbacks below are silent by design, which is why the
   // absence has to be announced somewhere that is not a fallback.
@@ -442,7 +494,12 @@ export async function processUpload(file: File | any): Promise<ProcessedPage[]> 
 
   try {
     if (fileExt === '.pdf') {
-      const pages = rasterisePdf(tempOriginalPath, uploadDir, baseName, file.name);
+      // Asked before rasterising: a locked file makes pdftoppm fail, and that
+      // failure used to fall through to sending the encrypted bytes as-is.
+      if (pdfNeedsPassword(tempOriginalPath, pdfPassword)) {
+        throw new PdfPasswordError(Boolean(pdfPassword));
+      }
+      const pages = rasterisePdf(tempOriginalPath, uploadDir, baseName, file.name, pdfPassword);
       if (pages) {
         console.log(`Successfully split PDF into ${pages.length} page images.`);
         return pages;

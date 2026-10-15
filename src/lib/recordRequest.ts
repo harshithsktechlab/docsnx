@@ -10,6 +10,8 @@
  * that are typed in the JSON path.
  */
 
+import { normalizeHolderIds } from '@/lib/records/holderIds';
+
 export interface RecordRequest {
   fields: Record<string, any>;
   file: File | null;
@@ -69,6 +71,25 @@ export function holderFrom(
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   return String(raw);
+}
+
+/**
+ * Every member a record belongs to (drizzle/0066) — `holderFrom`'s multi-member
+ * twin. Sent as a JSON array: a real one on the JSON path, a JSON string on the
+ * multipart path (which is what `toFormData` already produces for an array).
+ *
+ * `undefined` when not sent, so the single `holderId` keeps its meaning;
+ * `[]` is "All members". Ids are cleaned and checked by `normalizeHolderIds`.
+ */
+export function holderIdsFrom(
+  source: Record<string, any> | FormData,
+): string[] | undefined {
+  const raw = source instanceof FormData
+    ? (source.has('holderIds') ? source.get('holderIds') : undefined)
+    : (source as Record<string, any>)?.holderIds;
+  if (raw === undefined || raw === null) return undefined;
+  const list = typeof raw === 'string' ? asJson<unknown>(raw, raw.split(',')) : raw;
+  return normalizeHolderIds(Array.isArray(list) ? list : [list]);
 }
 
 /** Accepts real booleans (JSON path) and `"true"`/`"1"` (multipart path). */

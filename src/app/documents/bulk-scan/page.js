@@ -43,9 +43,11 @@ import { prepareUploadBatch } from '@/lib/records/fileSnapshot';
 import { postUpload } from '@/lib/records/uploadRequest';
 import { AI_ERROR_CODES, aiErrorMessageFor } from '@/lib/aiErrors';
 import HolderSelect, { unmatchedHolderError } from '@/app/components/HolderSelect';
-import { holderForWrite } from '@/lib/records/holderScope';
+import { holdersForWrite } from '@/lib/records/holderScope';
 import { listSentence } from '@/lib/records/fieldValidation';
 import CategorySelect from '@/app/components/CategorySelect';
+import { TITLE_KEY } from '@/app/components/CategoryFieldInputs';
+import { subCategoryTitle } from '@/lib/records/autoTitle';
 import { clientGetMe, clientCan } from '@/lib/clientAuth';
 import { DEFAULT_MODULE_COLOR, MODULE_COLORS } from '@/lib/documentCategories';
 import { usePermittedCategories } from '@/lib/usePermittedCategories';
@@ -62,8 +64,10 @@ import ScanRecordFields, {
 import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
 import PageContainer from '@/app/components/PageContainer';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
-import { belongsToWorkspace } from '@/lib/documentCategories';
+import { belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
+import OthersLabelInput from '@/app/components/OthersLabelInput';
 import { utilityNavPath } from '@/lib/moduleRegistry';
+import { takePendingFiles, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
 import { chunkBySavePages } from '@/lib/records/saveChunks';
 
 
@@ -401,10 +405,18 @@ export default function BulkScanPage() {
   );
 
   /**
-   * The holder this row will actually be saved with. `''` means nobody has
-   * answered for it yet.
+   * The members this row will be saved with, as `<HolderSelect multiple>`
+   * holds them: `null` while nobody has answered, `[]` All members, else ids.
+   * The reviewer's own choice (`holderIds`) outranks the scan's match
+   * (`holderId`, set server-side).
    */
-  const rowHolder = (record) => record?.holderId ?? '';
+  const rowHolders = (record) => {
+    if (Array.isArray(record?.holderIds)) return record.holderIds;
+    if (!record?.holderId) return null;
+    return record.holderId === 'all' ? [] : [record.holderId];
+  };
+  /** Has anyone answered who this row belongs to? */
+  const rowHolder = (record) => rowHolders(record) != null;
 
   /**
    * The `holderId` a row puts on the wire.
@@ -418,8 +430,13 @@ export default function BulkScanPage() {
    *   · a uuid — that member.
    */
   const rowHolderForWrite = (record) => {
-    const holder = holderForWrite(companyId, rowHolder(record));
-    return holder === undefined ? undefined : (holder || null);
+    const { holderId, holderIds } = holdersForWrite(companyId, rowHolders(record));
+    return {
+      holderId: holderId === undefined ? undefined : (holderId || null),
+      // Every member, in the household (drizzle/0066). Overrides the grid's
+      // own field when spread over a row.
+      holderIds,
+    };
   };
 
   /**
@@ -599,6 +616,26 @@ export default function BulkScanPage() {
     if (budget.accepted.length === 0) return;
     setFiles((prev) => [...prev, ...budget.accepted]);
   };
+
+  // Several files picked with the one Upload button — on another page, or with
+  // this one already open — arrive here. Rebuilt every render so it reads the
+  // current step: only the file-selection step can take them, and mid-review
+  // they are refused out loud rather than kept for a surprise later.
+  const receivePendingRef = useRef(null);
+  receivePendingRef.current = () => {
+    // A single file is on its way to the Document Manager's form — not ours.
+    if (pendingFileCount() < 2) return;
+    const picked = takePendingFiles();
+    if (status !== 'upload') {
+      toast.error('Finish or leave this scan first, then add more documents.');
+      return;
+    }
+    addFiles(picked);
+  };
+  useEffect(() => {
+    receivePendingRef.current();
+    return onPendingFiles(() => receivePendingRef.current());
+  }, []);
 
   const removeFile = (index) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
@@ -867,6 +904,8 @@ export default function BulkScanPage() {
         ...updated[recordIndex].extractedData,
         fields: { ...current, [key]: value },
       };
+      // The title field and the row's heading are one value shown twice.
+      if (key === TITLE_KEY) updated[recordIndex].title = value;
       return updated;
     });
     // Editing a field clears what Save said about it. An error still showing
@@ -1073,7 +1112,7 @@ export default function BulkScanPage() {
       // the omission `holderFrom` reads as "not sent", so `resolveHolder`
       // takes the module default rather than reading a null as an explicit
       // "All members". See src/lib/records/holderScope.
-      holderId: rowHolderForWrite(r),
+      ...rowHolderForWrite(r),
     }));
     const post = (body) => api('/api/ai/scan/save', {
       timeoutMs: 180_000,
@@ -1203,7 +1242,11 @@ export default function BulkScanPage() {
     setProposedRecords(payload.map((row, i) => {
       // `payload` carries the holder as it goes on the wire. The grid's own
       // value is kept, so the picker does not change under the member.
-      const clean = { ...withoutIssue(row), holderId: proposedRecords[i]?.holderId };
+      const clean = {
+        ...withoutIssue(row),
+        holderId: proposedRecords[i]?.holderId,
+        holderIds: proposedRecords[i]?.holderIds,
+      };
       const r = byIndex.get(i);
       if (!r || r.ok) return clean;
       flagged += 1;
@@ -1261,7 +1304,7 @@ export default function BulkScanPage() {
       const outcome = await postRecordsInChunks(
         resolved.map((r) => ({
           ...proposedRecords[r.index],
-          holderId: rowHolderForWrite(proposedRecords[r.index]),
+          ...rowHolderForWrite(proposedRecords[r.index]),
           // One or the other, never both: `replaceId` names the record to
           // write onto, and `createRecord` refuses a keep-both answer that
           // arrives with one.
@@ -1710,7 +1753,18 @@ export default function BulkScanPage() {
                               const val = e.target.value;
                               setProposedRecords(prev => {
                                 const updated = [...prev];
-                                updated[rIdx] = { ...withoutIssue(updated[rIdx]), title: val };
+                                const rec = withoutIssue(updated[rIdx]);
+                                // `fields.document_title` too: it is what the
+                                // save names the record from, so an edit here
+                                // that left it behind was quietly discarded.
+                                updated[rIdx] = {
+                                  ...rec,
+                                  title: val,
+                                  extractedData: {
+                                    ...rec.extractedData,
+                                    fields: { ...(rec.extractedData?.fields || {}), [TITLE_KEY]: val },
+                                  },
+                                };
                                 return updated;
                               });
                             }}
@@ -1724,7 +1778,8 @@ export default function BulkScanPage() {
                           <HolderSelect
                             id={`holder-${rIdx}`}
                             label=""
-                            value={rowHolder(record)}
+                            multiple
+                            value={rowHolders(record)}
                             required
                             compact
                             // Red on the rows the scan could not place, naming
@@ -1748,7 +1803,8 @@ export default function BulkScanPage() {
                               // skipping this row afterwards.
                               updated[rIdx] = {
                                 ...withoutIssue(updated[rIdx]),
-                                holderId: val,
+                                holderIds: val,
+                                holderId: undefined,
                                 holderMatchedFromScan: false,
                               };
                               return updated;
@@ -1842,13 +1898,27 @@ export default function BulkScanPage() {
                               // no spec to render from.
                               updateRecordField(rIdx, 'moduleKey', picked?.moduleKey || '');
                               updateRecordField(rIdx, 'documentKey', picked?.documentKey || '');
+                              // A label belongs to Others (0068); it does not follow a re-file.
+                              updateRecordField(rIdx, 'customSubcategory', '');
                               // The values below are keyed by the OLD category's
                               // field keys. Kept, they would be posted as fields
                               // the new category does not declare — dropped by
                               // `buildTaxonomyRecord` at best, and misleading on
                               // screen either way, since the inputs that showed
                               // them are about to be replaced.
-                              updateRecordField(rIdx, 'fields', {});
+                              //
+                              // Except the title, which is the record's name
+                              // whatever it is filed under. One the scan made
+                              // from the old sub-category follows the new one;
+                              // one the reviewer typed is kept as it is.
+                              const holder = record.holderName || '';
+                              const wasAuto = !String(record.title || '').trim()
+                                || record.title === subCategoryTitle(extractedData.categoryName, holder);
+                              const nextTitle = wasAuto
+                                ? (subCategoryTitle(picked?.documentName, holder) || record.title || '')
+                                : record.title;
+                              updateRecordField(rIdx, 'fields', nextTitle ? { [TITLE_KEY]: nextTitle } : {});
+                              updateRecordField(rIdx, 'categoryName', picked?.documentName || '');
                               // The record moves to whichever page owns the new
                               // category. Kept in step here purely so the
                               // permission warning and the module icon on this
@@ -1863,12 +1933,21 @@ export default function BulkScanPage() {
                                 const { replaceId, keepBoth, ...rest } = withoutIssue(updated[rIdx]);
                                 updated[rIdx] = {
                                   ...rest,
+                                  title: nextTitle,
                                   category: scanCategoryForKey(picked) || updated[rIdx].category,
                                 };
                                 return updated;
                               });
                             }}
                           />
+                          {isCatchAll(extractedData) && (
+                            <OthersLabelInput
+                              id={`label-${rIdx}`}
+                              value={extractedData.customSubcategory || ''}
+                              onChange={(v) => updateRecordField(rIdx, 'customSubcategory', v)}
+                              disabled={status === 'saving'}
+                            />
+                          )}
                           <ScanRecordFields
                             {...documentSpec(extractedData)}
                             values={extractedData.fields}

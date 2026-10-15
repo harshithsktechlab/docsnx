@@ -32,7 +32,7 @@
  * time, which is exactly the bug the `action` parameter exists to fix.
  */
 import { useEffect, useState } from 'react';
-import { UNCATEGORIZED, isBusinessModule } from '@/lib/documentCategories';
+import { isBusinessModule } from '@/lib/documentCategories';
 import { subCategoryPath, MODULE_BASE } from '@/lib/moduleRegistry';
 
 export interface PermittedCategory {
@@ -146,10 +146,9 @@ export function usePermittedCategories(action: CategoryAction = 'view'): {
  * Both paths are derivable — `/modules/<moduleKey>` and its sub-category
  * workspaces — so a new category needs no route and no entry anywhere.
  *
- * `other` is excluded for the reason NAV_MODULES excludes it: it is the
- * catch-all for a scan whose module could not be determined, reachable from the
- * documents list, and a sidebar entry called "Others" beside the real modules
- * would invite filing into it.
+ * The catch-all (`other` / `biz_other`) is included, as in NAV_MODULES: it is
+ * where an unplaced document lands, and it arrives last because its module
+ * number is the highest.
  */
 export interface NavModule {
   key: string;
@@ -201,7 +200,6 @@ export function navModulesFrom(
 
   const byModule = new Map<string, NavModule>();
   for (const row of categories) {
-    if (row.moduleKey === UNCATEGORIZED.moduleKey) continue;
     if (isBusinessModule(row.moduleKey) !== (scope === 'business')) continue;
     let mod = byModule.get(row.moduleKey);
     if (!mod) {

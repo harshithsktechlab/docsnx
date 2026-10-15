@@ -10,6 +10,7 @@ import { isRecordScope, recordScopeConfig } from '@/lib/records/registry';
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { previewFailureMessage, renderForPreview } from '@/lib/records/previewRender';
 import { serverError } from '@/lib/routeError';
+import { findAttachment } from '@/lib/records/recordAttachments';
 
 export const dynamic = 'force-dynamic';
 
@@ -211,6 +212,65 @@ export async function GET(
           { status: 403 },
         );
       }
+    }
+
+    /**
+     * ── `?attachment=<id>` — one of the record's photos (0069) ─────────────
+     *
+     * Ahead of the no-file check below on purpose: a jewel can have photos and
+     * no invoice, and that is not "this record has no stored file".
+     *
+     * Every gate above still applies — view, company access, and `share` for a
+     * download. The id is looked up in the record's OWN attachment list, so it
+     * cannot name another record's object, and the AAD binds each photo to its
+     * own id and to this document, so a swapped Drive object would fail to
+     * decrypt rather than show the wrong picture.
+     */
+    const attachmentId = new URL(req.url).searchParams.get('attachment');
+    if (attachmentId) {
+      if (!record.categoryModuleKey || !record.categoryDocumentKey) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      const attachmentKey = { moduleKey: record.categoryModuleKey, documentKey: record.categoryDocumentKey };
+      const owner = await readRecord<any>(
+        {
+          tenant: { ...(user as any).tenant, id: user.tenantId },
+          tenantId: user.tenantId,
+          userId: user.id,
+          companyId: record.companyId,
+        } as any,
+        record.categoryModuleKey as any,
+        attachmentKey,
+        record.id,
+      );
+      const attachment = findAttachment(owner, attachmentId);
+      if (!attachment) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+      const thumb = new URL(req.url).searchParams.get('thumb') === '1' ? attachment.thumb ?? null : null;
+      const wantsThumb = Boolean(thumb);
+      const photo = await openDocumentFile({
+        tenant: { ...(user as any).tenant, id: user.tenantId },
+        documentId: record.id,
+        companyId: record.companyId,
+        categoryKey: attachmentKey,
+        driveFileId: thumb ? thumb.driveFileId : attachment.driveFileId,
+        fileId: thumb ? thumb.fileId : attachment.id,
+      });
+      const photoType = wantsThumb ? 'image/jpeg' : attachment.mimeType || 'application/octet-stream';
+      const photoHeaders: Record<string, string> = {
+        'Content-Type': photoType,
+        'Content-Length': String(photo.length),
+        'X-Preview-Page-Count': '1',
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy':
+          "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
+      };
+      if (wantsDownload || photoType === 'image/svg+xml') {
+        const safeName = String(attachment.name || 'photo').replace(/["\\\r\n]/g, '_');
+        photoHeaders['Content-Disposition'] = `attachment; filename="${safeName}"`;
+      }
+      return new NextResponse(new Uint8Array(photo), { headers: photoHeaders });
     }
 
     if (!record.fileDriveId || !record.categoryModuleKey || !record.categoryDocumentKey) {

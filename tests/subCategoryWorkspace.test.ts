@@ -268,12 +268,13 @@ describe('mandatory fields', () => {
   });
 
   it('asks for something beyond the title in every real category', () => {
-    // `other/uncategorized` is the exception and must stay one: it holds scans
-    // whose module could not be identified, so demanding a specific field of it
-    // would block the very records that most need somewhere to land.
+    // The two catch-alls are the exception and must stay so: they hold scans
+    // whose module could not be identified, so demanding a specific field of
+    // them would block the very records that most need somewhere to land.
     const bare = DOCUMENT_CATEGORY_SEED.filter((row) =>
       !fieldsFor(row).some((f) => f.isRequired && f.fieldKey !== 'document_title'));
-    expect(bare.map((r) => `${r.moduleKey}/${r.documentKey}`)).toEqual(['other/uncategorized']);
+    expect(bare.map((r) => `${r.moduleKey}/${r.documentKey}`))
+      .toEqual(['other/uncategorized', 'biz_other/uncategorized']);
   });
 
   it('requires the deadline on the documents that exist to be renewed', () => {

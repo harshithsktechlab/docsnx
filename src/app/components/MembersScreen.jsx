@@ -22,7 +22,8 @@ import {
   MessageCircle,
   Building2,
   LogIn,
-  LogOut
+  LogOut,
+  Send
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -52,6 +53,7 @@ import { isBlankPhone } from '@/lib/phone';
 import { PhoneInput } from '@/components/ui/PhoneInput';
 import { DataTable } from '@/components/ui/data-table';
 import PageContainer from '@/app/components/PageContainer';
+import MemberSeatStats from '@/app/components/MemberSeatStats';
 import { apiCall } from '@/lib/net/apiRequest';
 import { withCompany } from '@/lib/net/useWorkspaceApi';
 import { workspaceMenu } from '@/lib/workspaceNav';
@@ -90,6 +92,8 @@ export default function MembersScreen({ companyId = null }) {
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
+  // This workspace's seats — `{ scope, used, limit, remaining }`, or null.
+  const [seats, setSeats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, totalCount: 0 });
 
@@ -135,11 +139,6 @@ export default function MembersScreen({ companyId = null }) {
   const [pickedPwdIds, setPickedPwdIds] = useState([]);
   const [removing, setRemoving] = useState(false);
   const [togglingSignIn, setTogglingSignIn] = useState(false);
-  // "Give access" dialog: the member being given access, the temporary
-  // password they will sign in with, and the server's refusal if any.
-  const [giveAccessTarget, setGiveAccessTarget] = useState(null);
-  const [giveAccessPassword, setGiveAccessPassword] = useState('');
-  const [giveAccessError, setGiveAccessError] = useState('');
 
   /**
    * Which account a newly added member belongs to, and therefore which half of
@@ -194,7 +193,6 @@ export default function MembersScreen({ companyId = null }) {
   // Add User Form State
   const [addName, setAddName] = useState('');
   const [addEmail, setAddEmail] = useState('');
-  const [addPassword, setAddPassword] = useState('');
   const [addPhone, setAddPhone] = useState('');
   const [addDob, setAddDob] = useState('');
   const [addAnniversary, setAddAnniversary] = useState('');
@@ -202,7 +200,13 @@ export default function MembersScreen({ companyId = null }) {
   const [addPermissions, setAddPermissions] = useState(defaultAddPerms);
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
-  const [tempPasswordView, setTempPasswordView] = useState('');
+  /**
+   * What the Add dialog says once the member exists (0071): whether they got
+   * sign-in, and where the invite went. Null while the form is showing.
+   */
+  const [addResult, setAddResult] = useState(null);
+  /** Guards "Resend invite" against a double click. */
+  const [resendingInvite, setResendingInvite] = useState(false);
 
   // Edit User Form State
   const [editName, setEditName] = useState('');
@@ -221,6 +225,7 @@ export default function MembersScreen({ companyId = null }) {
       const { json } = await apiCall(withCompany(`/api/users${search}`, companyId));
       if (json.success) {
         setUsers(json.users);
+        setSeats(json.seats ?? null);
         if (json.pagination) {
           setPagination(json.pagination);
         }
@@ -403,11 +408,11 @@ export default function MembersScreen({ companyId = null }) {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    // Mobile and email are both optional: the member is added as a record only.
-    // A contact is needed when you give them access. See
-    // src/lib/userContactValidation.ts and POST /api/users/[id]/sign-in.
-    if (!addName || !addPassword) {
-      toast.error('Please fill in Name and Password.');
+    // Mobile and email are both optional. A member given access is invited on
+    // whichever they have and sets their own password (0071); one with neither
+    // is added as a record only. See POST /api/users.
+    if (!addName) {
+      toast.error('Please fill in the name.');
       return;
     }
     // Only step 2 creates. A submit from step 1 (Enter in a field, or any
@@ -427,7 +432,6 @@ export default function MembersScreen({ companyId = null }) {
         // null, not '': the column is nullable and its unique index treats
         // NULLs as non-colliding, but two empty strings would be duplicates.
         email: addEmail || null,
-        password: addPassword,
         // An untouched PhoneInput still holds its country code ('+91').
         phoneNumber: isBlankPhone(addPhone) ? null : addPhone,
         // Always STANDARD: the role picker is gone, because a member
@@ -444,17 +448,18 @@ export default function MembersScreen({ companyId = null }) {
         })
       });
       if (json.success) {
-        toast.success(`Successfully added user: ${addName}`);
-        // The temporary password, HELD here rather than read back off
-        // `addPassword` by the panel below — the reset a few lines down runs in
-        // the same batch, so the panel that exists to show the password was
-        // rendering an empty box.
-        setTempPasswordView(addPassword);
+        toast.success(`Added ${addName}`);
+        // Held, not read back off the form state the reset below clears.
+        setAddResult({
+          name: addName,
+          signInOn: !json.user?.signInDisabledAt,
+          invite: json.invite || null,
+          inviteBlocked: Boolean(json.inviteBlocked),
+        });
 
         // Reset
         setAddName('');
         setAddEmail('');
-        setAddPassword('');
         setAddPhone('');
         setAddDob('');
         setAddAnniversary('');
@@ -672,9 +677,13 @@ export default function MembersScreen({ companyId = null }) {
         toast.error(json.error || 'Could not change sign-in');
         return false;
       }
-      toast.success(enabled
-        ? `${target.name} can sign in again.`
-        : `${target.name} can no longer sign in. They stay in the workspace, and you can keep adding their records.`);
+      if (enabled && json.invite) {
+        toast[json.invite.delivered ? 'success' : 'error'](inviteSentence(target.name, json.invite));
+      } else {
+        toast.success(enabled
+          ? `${target.name} can sign in again.`
+          : `${target.name} can no longer sign in. They stay in the workspace, and you can keep adding their records.`);
+      }
       const signInDisabledAt = enabled ? null : new Date().toISOString();
       setSelectedUser((u) => (u && u.id === target.id ? { ...u, signInDisabledAt } : u));
       await fetchUsers();
@@ -688,45 +697,29 @@ export default function MembersScreen({ companyId = null }) {
     }
   };
 
-  const openGiveAccess = (target) => {
-    setGiveAccessTarget(target);
-    setGiveAccessPassword(generateTempPassword());
-    setGiveAccessError('');
-  };
-
   /**
-   * Gives a member who was added as a record only the ability to sign in.
-   * Nothing is sent now: their verification code (WhatsApp, or email when
-   * WhatsApp is off) goes out when they first sign in with this password.
+   * Give access (0071): one click. Sign-in turns on and the member is invited
+   * to set their own password — no temporary password to hand over.
    */
-  const handleGiveAccess = async () => {
-    const target = giveAccessTarget;
-    if (!target) return;
-    if (giveAccessPassword.length < 8) {
-      setGiveAccessError('Use a temporary password of at least 8 characters.');
-      return;
-    }
-    setTogglingSignIn(true);
-    setGiveAccessError('');
+  const openGiveAccess = (target) => handleSetSignIn(target, true);
+
+  /** Send a member who has not set up their account their invite again. */
+  const handleResendInvite = async (target) => {
+    if (!target || resendingInvite) return;
+    setResendingInvite(true);
     try {
-      const { json } = await apiCall(withCompany(`/api/users/${target.id}/sign-in`, companyId), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: true, password: giveAccessPassword }),
-      });
+      const { json } = await apiCall(withCompany(`/api/users/${target.id}/invite`, companyId), { method: 'POST' });
       if (!json.success) {
-        setGiveAccessError(json.error || 'Could not give access');
+        toast.error(json.error || 'Could not send the invite');
         return;
       }
-      toast.success(`${target.name} now has access. They verify with a code when they first sign in.`);
-      setSelectedUser((u) => (u && u.id === target.id ? { ...u, signInDisabledAt: null } : u));
-      setGiveAccessTarget(null);
+      toast[json.invite?.delivered ? 'success' : 'error'](inviteSentence(target.name, json.invite));
       await fetchUsers();
     } catch (err) {
       console.error('[users] handler threw', err);
-      setGiveAccessError('Something went wrong giving access. Please try again.');
+      toast.error('Something went wrong sending the invite. Please try again.');
     } finally {
-      setTogglingSignIn(false);
+      setResendingInvite(false);
     }
   };
 
@@ -822,9 +815,13 @@ export default function MembersScreen({ companyId = null }) {
         </div>
         <Button
           onClick={() => {
-            setAddPassword(generateTempPassword());
+            setAddResult(null);
             setShowAddModal(true);
           }}
+          // A full workspace would only be refused by POST /api/users after the
+          // form was filled in; say so up front instead.
+          disabled={seats?.remaining === 0}
+          title={seats?.remaining === 0 ? 'No seats left in this workspace' : undefined}
           className="flex items-center gap-2 h-10 px-4"
         >
           <UserPlus size={16} />
@@ -866,6 +863,8 @@ export default function MembersScreen({ companyId = null }) {
           })}
         </div>
       )}
+
+      {!selectedUser && <MemberSeatStats seats={seats} workspaceName={workspaceName} />}
 
       {/*
         ── WHERE THE COMPANY GRAIN IS DECIDED ─────────────────────────────────
@@ -927,7 +926,7 @@ export default function MembersScreen({ companyId = null }) {
               render: (u) => (
                 <div className="flex items-center gap-1.5">
                   <Badge variant={getRoleBadgeVariant(u.role)}>{u.role}</Badge>
-                  {hasNoAccess(u) ? <NoAccessBadge /> : u.signInDisabledAt && <SignInOffBadge />}
+                  {hasNoAccess(u) ? <NoAccessBadge /> : u.signInDisabledAt ? <SignInOffBadge /> : isInvitePending(u) && <InvitedBadge />}
                 </div>
               )
             },
@@ -963,7 +962,7 @@ export default function MembersScreen({ companyId = null }) {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={getRoleBadgeVariant(u.role)} className="text-xs">{u.role}</Badge>
-                  {hasNoAccess(u) ? <NoAccessBadge /> : u.signInDisabledAt && <SignInOffBadge />}
+                  {hasNoAccess(u) ? <NoAccessBadge /> : u.signInDisabledAt ? <SignInOffBadge /> : isInvitePending(u) && <InvitedBadge />}
                 </div>
               </div>
           )}
@@ -1012,7 +1011,7 @@ export default function MembersScreen({ companyId = null }) {
                   <div className="mt-1 flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground">Role:</span>
                     <Badge variant={getRoleBadgeVariant(selectedUser.role)}>{selectedUser.role}</Badge>
-                    {hasNoAccess(selectedUser) ? <NoAccessBadge /> : selectedUser.signInDisabledAt && <SignInOffBadge />}
+                    {hasNoAccess(selectedUser) ? <NoAccessBadge /> : selectedUser.signInDisabledAt ? <SignInOffBadge /> : isInvitePending(selectedUser) && <InvitedBadge />}
                   </div>
                 </div>
               </div>
@@ -1025,7 +1024,19 @@ export default function MembersScreen({ companyId = null }) {
                   the admin who created them to send another one. The member's
                   own Resend button needs a password they may never have used.
                 */}
-                {!isFullyVerified(selectedUser) && !selectedUser.signInDisabledAt && (
+                {/* Invited, not set up yet (0071): the invite is what they need again. */}
+                {isInvitePending(selectedUser) && (
+                  <Button
+                    onClick={() => handleResendInvite(selectedUser)}
+                    variant="outline"
+                    disabled={resendingInvite}
+                    className="flex items-center gap-1.5 text-xs h-9"
+                  >
+                    {resendingInvite ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                    Resend Invite
+                  </Button>
+                )}
+                {!isInvitePending(selectedUser) && !isFullyVerified(selectedUser) && !selectedUser.signInDisabledAt && (
                   <Button
                     onClick={handleResendVerification}
                     variant="outline"
@@ -1204,7 +1215,7 @@ export default function MembersScreen({ companyId = null }) {
       )}
 
       {/* ==================== ADD MEMBER MODAL ==================== */}
-      <Dialog open={showAddModal} onOpenChange={(open) => { if(!open) { setShowAddModal(false); setAddError(''); setTempPasswordView(''); setAddStep(1); } }}>
+      <Dialog open={showAddModal} onOpenChange={(open) => { if(!open) { setShowAddModal(false); setAddError(''); setAddResult(null); setAddStep(1); } }}>
         <DialogContent aria-describedby={undefined} className="max-w-[700px] border-border/50 bg-popover/95 backdrop-blur shadow-glass h-[85vh] flex flex-col">
           <DialogHeader className="shrink-0">
             <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
@@ -1213,18 +1224,23 @@ export default function MembersScreen({ companyId = null }) {
             </DialogTitle>
           </DialogHeader>
 
-          {tempPasswordView ? (
+          {addResult ? (
             <div className="flex flex-col flex-1 items-center justify-center gap-4 text-center py-10">
               <CheckCircle2 size={48} className="text-emerald-500" />
-              <h3 className="text-xl font-bold">Member Added!</h3>
+              <h3 className="text-xl font-bold">{addResult.name} added!</h3>
               <p className="text-muted-foreground text-sm max-w-sm">
-                The member has been added without access — nothing has been sent to them. When you want them to
-                sign in, open their profile and choose Give Access; they verify with a code at their first sign-in.
-                Their temporary password for now:
+                {addResult.invite
+                  ? inviteSentence(addResult.name, addResult.invite)
+                  : addResult.inviteBlocked
+                    ? `${addResult.name} has access but no email, and no mobile number WhatsApp can reach — so they cannot sign in yet. Use Edit Details to add one, then Give Access.`
+                    : `Added as a member without sign-in — nothing was sent. Records can still be filed under ${addResult.name}. Give them access any time to invite them.`}
               </p>
-              <div className="bg-muted border border-border p-4 rounded-xl flex items-center justify-center min-w-[250px] mt-2">
-                <span className="font-mono text-xl font-bold text-foreground tracking-wider">{tempPasswordView}</span>
-              </div>
+              {addResult.invite && (
+                <p className="text-xs text-muted-foreground max-w-sm">
+                  They open the link, enter their mobile number or email, get a code on WhatsApp and email,
+                  and set their own password. You can resend the invite from their profile.
+                </p>
+              )}
               {closeOnDone && (
                 <p className="text-xs text-muted-foreground max-w-sm">
                   This tab will close. Back on the record you were filling in, this member is now
@@ -1234,7 +1250,7 @@ export default function MembersScreen({ companyId = null }) {
               <Button
                 onClick={() => {
                   setShowAddModal(false);
-                  setTempPasswordView('');
+                  setAddResult(null);
                   // Opened by a holder picker in another tab: hand focus back to
                   // the record that sent us here. A browser that refuses the
                   // close just leaves the admin on this page, which is where the
@@ -1285,22 +1301,6 @@ export default function MembersScreen({ companyId = null }) {
                         onChange={(e) => setAddEmail(e.target.value)}
                         disabled={adding}
                       />
-                    </div>
-
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="addPassword">Temporary Password *</Label>
-                      <div className="relative">
-                        <Input
-                          id="addPassword"
-                          type="text"
-                          placeholder="Set temporary password"
-                          value={addPassword}
-                          onChange={(e) => setAddPassword(e.target.value)}
-                          disabled={adding}
-                          className="font-mono pr-10"
-                        />
-                        <Lock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-faint" />
-                      </div>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
@@ -1402,7 +1402,7 @@ export default function MembersScreen({ companyId = null }) {
             </div>
           )}
 
-          {!tempPasswordView && (
+          {!addResult && (
             <DialogFooter className="mt-4 gap-2 pt-4 border-t border-border/50 shrink-0 sm:justify-between">
               <span className="hidden text-xs font-semibold text-muted-foreground sm:inline">
                 Step {addStep} of 2 · {addStep === 1 ? 'Details' : 'Access'}
@@ -1431,8 +1431,8 @@ export default function MembersScreen({ companyId = null }) {
                     key="add-next"
                     type="button"
                     onClick={() => {
-                      if (!addName || !addPassword) {
-                        toast.error('Please fill in Name and Password.');
+                      if (!addName) {
+                        toast.error('Please fill in the name.');
                         return;
                       }
                       setAddStep(2);
@@ -1572,56 +1572,6 @@ export default function MembersScreen({ companyId = null }) {
       {/* ==================== GIVE ACCESS ====================
           A member added as a record only gets sign-in here. Nothing is sent
           now; their code goes out at their first sign-in. */}
-      <Dialog open={!!giveAccessTarget} onOpenChange={(open) => { if (!open) setGiveAccessTarget(null); }}>
-        <DialogContent className="max-w-[460px] border-border/50 bg-popover/95 backdrop-blur shadow-glass">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><KeyRound size={18} /> Give Access</DialogTitle>
-            <DialogDescription>
-              {giveAccessTarget?.name} will be able to sign in with{' '}
-              {[giveAccessTarget?.phoneNumber && 'their mobile number', giveAccessTarget?.email && 'their email']
-                .filter(Boolean).join(' or ') || 'a mobile number or email (add one with Edit Details first)'}
-              {' '}and this temporary password. At their first sign-in they get a verification code on
-              WhatsApp, or by email if WhatsApp is off or they have no number.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="give-access-password">Temporary Password</Label>
-            <div className="flex gap-2">
-              <Input
-                id="give-access-password"
-                value={giveAccessPassword}
-                onChange={(e) => setGiveAccessPassword(e.target.value)}
-                className="font-mono"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  navigator.clipboard?.writeText(giveAccessPassword).then(
-                    () => toast.success('Password copied'),
-                    () => toast.error('Could not copy'),
-                  );
-                }}
-              >
-                Copy
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Share this with them before they sign in.</p>
-            {giveAccessError && (
-              <Alert variant="destructive">
-                <AlertDescription>{giveAccessError}</AlertDescription>
-              </Alert>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setGiveAccessTarget(null)} disabled={togglingSignIn}>Cancel</Button>
-            <Button onClick={handleGiveAccess} disabled={togglingSignIn} className="flex items-center gap-1.5">
-              {togglingSignIn ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
-              Give Access
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* ==================== REMOVE MEMBER ====================
           Two steps, because removing a member and destroying the workspace's
@@ -1829,8 +1779,27 @@ function hasNoAccess(u) {
   return !!u && u.role === 'STANDARD' && !!u.signInDisabledAt && !u.emailVerified && !u.phoneVerified;
 }
 
-function generateTempPassword() {
-  return Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-2).toUpperCase() + '!';
+/** Invited with sign-in on, but has not set their own password yet (0071). */
+function isInvitePending(u) {
+  return !!u && u.role === 'STANDARD' && !u.signInDisabledAt && !u.activatedAt;
+}
+
+/** "Invite sent to Asha on WhatsApp and email." — or what went wrong. */
+function inviteSentence(name, invite) {
+  if (!invite) return '';
+  const sent = [invite.whatsapp === 'sent' && 'WhatsApp', invite.email === 'sent' && 'email'].filter(Boolean);
+  const failedWa = invite.whatsapp === 'failed';
+  if (sent.length === 0) {
+    return `${name} has access, but the invite could not be delivered${failedWa ? ' (WhatsApp refused it)' : ''}. Check their contact details and use Resend Invite.`;
+  }
+  return `Invite sent to ${name} on ${sent.join(' and ')}.`
+    + (failedWa ? ' WhatsApp did not deliver it — the WhatsApp invite template may still be awaiting approval.' : '');
+}
+
+function InvitedBadge() {
+  return (
+    <Badge variant="outline" className="text-xs font-normal text-primary border-primary/40">Invite sent</Badge>
+  );
 }
 
 function NoAccessBadge() {

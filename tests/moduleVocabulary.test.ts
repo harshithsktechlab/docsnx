@@ -35,8 +35,8 @@ const taxonomyModules = DOCUMENT_CATEGORY_MODULES.map((m) => m.moduleKey);
 const taxonomySet = new Set<string>(taxonomyModules);
 
 /**
- * The PERSONAL modules — 13, plus the one catch-all. Written out so a silent
- * addition has to be deliberate.
+ * The PERSONAL modules — 14, plus the one catch-all. Written out so a silent
+ * addition has to be deliberate. `travel` (14) was added by 0065.
  *
  * `business` left this list in 0050. It was a 16-category module for company
  * paperwork sitting inside the personal account; the business account now has
@@ -45,7 +45,7 @@ const taxonomySet = new Set<string>(taxonomyModules);
 const EXPECTED_PERSONAL = [
   'identity', 'bank_investments', 'insurance', 'property_legal', 'education',
   'health_medical', 'employment', 'vehicle', 'civil_government', 'warranty_amc',
-  'rentals_subscriptions', 'utility_bills', 'tax_compliance', 'other',
+  'rentals_subscriptions', 'utility_bills', 'tax_compliance', 'travel', 'other',
 ];
 
 /**
@@ -56,7 +56,8 @@ const EXPECTED_PERSONAL = [
 const EXPECTED_BUSINESS = [
   'biz_registration', 'biz_tax', 'biz_finance', 'biz_banking', 'biz_licenses',
   'biz_compliance', 'biz_contracts', 'biz_hr', 'biz_ip', 'biz_insurance',
-  'biz_governance', 'biz_procurement', 'biz_sales', 'biz_operations',
+  'biz_governance', 'biz_procurement', 'biz_sales', 'biz_operations', 'biz_travel',
+  'biz_other',
 ];
 
 const EXPECTED = [...EXPECTED_PERSONAL, ...EXPECTED_BUSINESS];
@@ -72,7 +73,7 @@ const EXPECTED = [...EXPECTED_PERSONAL, ...EXPECTED_BUSINESS];
 const EXPECTED_PERSONAL_SCOPES = [
   'documents', 'medical', 'lic_mediclaim', 'bank_info', 'trading', 'investments',
   'loans_debt', 'vehicles', 'tax_compliance', 'wills_estate', 'warranty',
-  'rentals', 'utility_bills', 'employment_payroll',
+  'rentals', 'utility_bills', 'employment_payroll', 'travel',
 ];
 
 const EXPECTED_SCOPES = [...EXPECTED_PERSONAL_SCOPES, ...EXPECTED_BUSINESS];
@@ -80,7 +81,7 @@ const EXPECTED_SCOPES = [...EXPECTED_PERSONAL_SCOPES, ...EXPECTED_BUSINESS];
 describe('one module vocabulary', () => {
   it('the taxonomy declares exactly the master table plus the catch-all', () => {
     expect(taxonomyModules).toEqual(EXPECTED);
-    expect(taxonomyModules).toHaveLength(28);
+    expect(taxonomyModules).toHaveLength(31);
   });
 
   it('separates the two taxonomies by the biz_ prefix alone', () => {
@@ -97,20 +98,20 @@ describe('one module vocabulary', () => {
     expect(DOCUMENT_CATEGORY_SEED.some((r) => r.moduleKey === 'business')).toBe(false);
   });
 
-  it('numbers the personal modules 1..15 and the business ones 101..114', () => {
-    // The gap at 14 is where the retired `business` module was, and the jump to
+  it('numbers the personal modules 1..15 and the business ones 101..116', () => {
+    // 14 was a gap after `business` retired, until 0065 put `travel` in it. The jump to
     // 101 is deliberate: `sort_order` is derived from `moduleNo`, so letting the
     // two taxonomies share a run would mean renumbering — and therefore
     // re-seeding the sort order of — every row each time either one grows.
     const personal = DOCUMENT_CATEGORY_MODULES
       .filter((m) => !m.moduleKey.startsWith('biz_'))
       .map((m) => m.moduleNo);
-    expect(personal).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15]);
+    expect(personal).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
 
     const business = DOCUMENT_CATEGORY_MODULES
       .filter((m) => m.moduleKey.startsWith('biz_'))
       .map((m) => m.moduleNo);
-    expect(business).toEqual(Array.from({ length: 14 }, (_, i) => 101 + i));
+    expect(business).toEqual(Array.from({ length: 16 }, (_, i) => 101 + i));
   });
 
   it('is the same set as VAULT_MODULES, apart from the passwords pseudo-module', () => {
@@ -131,17 +132,24 @@ describe('one module vocabulary', () => {
     expect(PERMISSION_MODULE_KEYS).toContain(UNCATEGORIZED.moduleKey);
   });
 
-  it('keeps `other` out of the sidebar, and business out of the PERSONAL one', () => {
+  it('puts Others last in each rail, and business out of the PERSONAL one', () => {
     // Two separate rails. A tenant on account_type = 'personal' must never see
     // the fourteen company modules appear beside their own, so the split is
     // asserted rather than left to the component that renders it.
-    expect(NAV_MODULES.map((m) => m.key))
-      .toEqual(EXPECTED_PERSONAL.filter((m) => m !== 'other'));
+    //
+    // The catch-alls are IN the rails since 0068 — Others is where an unplaced
+    // document lands, and a member has to be able to find it — and last.
+    expect(NAV_MODULES.map((m) => m.key)).toEqual(EXPECTED_PERSONAL);
+    expect(NAV_MODULES.at(-1)?.key).toBe('other');
     expect(BUSINESS_NAV_MODULES.map((m) => m.key)).toEqual(EXPECTED_BUSINESS);
-    // ...but both are still grantable, or nobody could be given business access.
+    expect(BUSINESS_NAV_MODULES.at(-1)?.key).toBe('biz_other');
+    // ...all still grantable, or nobody could be given business access.
     for (const key of EXPECTED_BUSINESS) {
       expect(PERMISSION_MODULE_KEYS, `${key} is not grantable`).toContain(key);
     }
+    // Named twice in the source (rail + explicit grant), listed once.
+    expect(PERMISSION_MODULE_KEYS.filter((k) => k === 'other')).toHaveLength(1);
+    expect(PERMISSION_MODULE_KEYS.filter((k) => k === 'biz_other')).toHaveLength(1);
   });
 
   it('gives every module a colour and a Drive folder', () => {
@@ -172,8 +180,10 @@ describe('record scopes partition the taxonomy', () => {
     expect(Object.keys(MODULE_CATEGORY).sort()).toEqual([...EXPECTED_SCOPES].sort());
     // The legacy field map covers the PERSONAL scopes only. The business
     // modules never had a pre-taxonomy page, so they post snake_case taxonomy
-    // keys already and there is nothing for it to translate.
-    expect(new Set(MAPPED_MODULES)).toEqual(new Set(EXPECTED_PERSONAL_SCOPES));
+    // keys already and there is nothing for it to translate. Nor did `travel`
+    // (0065), which lives on the same generic page.
+    expect(new Set(MAPPED_MODULES))
+      .toEqual(new Set(EXPECTED_PERSONAL_SCOPES.filter((s) => s !== 'travel')));
   });
 
   it('owns every category exactly once — none orphaned, none owned twice', () => {
@@ -185,7 +195,7 @@ describe('record scopes partition the taxonomy', () => {
 
     expect(new Set(owned).size, 'a category is owned by two scopes').toBe(owned.length);
     expect(owned.sort()).toEqual([...seeded].sort());
-    expect(owned).toHaveLength(151);
+    expect(owned).toHaveLength(165);
   });
 
   it("keeps each scope's primaryModule inside the modules it spans", () => {
@@ -206,11 +216,11 @@ describe('record scopes partition the taxonomy', () => {
 });
 
 describe('the realignment preserved the taxonomy', () => {
-  it('has 151 categories — 67 personal plus 84 business', () => {
-    expect(DOCUMENT_CATEGORY_SEED).toHaveLength(151);
-    expect(DOCUMENT_CATEGORY_ENCRYPTED_FIELDS).toHaveLength(151);
+  it('has 165 categories — 74 personal plus 91 business (90 + the 0067 catch-all)', () => {
+    expect(DOCUMENT_CATEGORY_SEED).toHaveLength(165);
+    expect(DOCUMENT_CATEGORY_ENCRYPTED_FIELDS).toHaveLength(165);
     const business = DOCUMENT_CATEGORY_SEED.filter((r) => r.moduleKey.startsWith('biz_'));
-    expect(business).toHaveLength(84);
+    expect(business).toHaveLength(91);
   });
 
   it('seals far more than the baseline in the one catch-all', () => {

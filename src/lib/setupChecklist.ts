@@ -108,9 +108,9 @@ export interface SetupChecklist {
 /**
  * The household's rows.
  *
- * `/profile` carries four tabs and only two of them are asked about: Education
- * and Shopping are conveniences (a shoe size is not missing data), while a date
- * of birth and a PAN are referenced by half the vault.
+ * `/profile` carries three tabs and only two of them are asked about: Education
+ * is a convenience (a degree is not missing data), while a date of birth and a
+ * PAN are referenced by half the vault.
  */
 function personalItems(facts: SetupFacts): SetupItem[] {
   const items: SetupItem[] = [];

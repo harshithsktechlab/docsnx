@@ -145,7 +145,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'bank_investments',
     legacyEnvelope: 'bankInfos',
     categories: k('bank_investments', 'bank_statements_passbooks',
-      'credit_card_statements', 'cheque_books', 'bank_locker_agreement'),
+      'credit_card_statements', 'cheque_books', 'bank_locker_agreement', 'locker_items'),
   },
   trading: {
     ...DEFAULTS,
@@ -241,6 +241,16 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     categories: k('employment', 'offer_appointment_letters', 'salary_slips',
       'experience_relieving_letters', 'epf_uan_documents'),
   },
+  // Added with 0065. Unlike the scopes above it never had a bespoke page, so it
+  // is 1:1 with its module and lives on the generic `/modules` page, the way
+  // the business scopes below do.
+  travel: {
+    ...DEFAULTS,
+    path: '/modules/travel',
+    primaryModule: 'travel',
+    categories: k('travel', 'flight_tickets', 'train_tickets', 'bus_tickets',
+      'hotel_bookings', 'cab_car_rentals', 'event_tickets'),
+  },
 
   // ── BUSINESS SCOPES ──────────────────────────────────────────────────────
   // One per business module, and each spans exactly that module. The personal
@@ -334,6 +344,20 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_operations`,
     primaryModule: 'biz_operations',
     categories: k('biz_operations', 'property_lease_deeds', 'asset_registers', 'equipment_purchase_maintenance', 'utility_bills'),
+  },
+  biz_travel: {
+    ...DEFAULTS,
+    path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_travel`,
+    primaryModule: 'biz_travel',
+    categories: k('biz_travel', 'flight_tickets', 'train_tickets', 'bus_tickets', 'hotel_bookings', 'cab_car_rentals', 'travel_expense_claims'),
+  },
+  // 0067: the company's catch-all — last in the business rail since 0068 (see
+  // navModulesOf). The scope gives a document filed under it a home page and a policy.
+  biz_other: {
+    ...DEFAULTS,
+    path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_other`,
+    primaryModule: 'biz_other',
+    categories: k('biz_other', 'uncategorized'),
   },
 };
 

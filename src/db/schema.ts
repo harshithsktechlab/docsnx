@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp, integer, bigint, decimal, pgEnum, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp, integer, bigint, decimal, pgEnum, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const roleEnum = pgEnum("role", ["SUPER_ADMIN", "TENANT_ADMIN", "STANDARD"]);
@@ -320,6 +320,14 @@ export const users = pgTable("users", {
    * session for a row with this set, which ends any session already open.
    */
   signInDisabledAt: timestamp("sign_in_disabled_at", { withTimezone: true }),
+  /**
+   * The member chose their own password (0071). NULL = invited and not yet
+   * finished: login refuses them and points at /activate. Every user that
+   * existed before 0071 was backfilled, so this only ever gates new invitees.
+   */
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+  /** When the last invite went out — the Members screen's badge and the resend cooldown. */
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
 }, (table) => {
   return {
     /**
@@ -658,6 +666,14 @@ export const documents = pgTable("documents", {
   accountScope: varchar("account_scope", { length: 16 }).default('personal').notNull(),
   isGlobal: boolean("is_global").default(false).notNull(),
   title: varchar("title", { length: 255 }).notNull(),
+  /**
+   * The member's own name for a document filed under a catch-all (0068) —
+   * "Gym Membership" under Others. A display label, never a category: it is
+   * not part of the Drive path or the encryption binding, and createRecord /
+   * PUT /api/documents/[id] null it whenever the document is filed elsewhere.
+   * See src/lib/records/customSubcategory.ts.
+   */
+  customSubcategory: varchar("custom_subcategory", { length: 120 }),
   // Master-list FK. The legacy free-text `category` column it replaced was
   // dropped in 0016 along with LEGACY_CATEGORY_MAP; every row now resolves
   // through this FK or through the denormalised pair below.
@@ -681,6 +697,12 @@ export const documents = pgTable("documents", {
    * "how much does this tenant use".
    */
   fileSize: integer("file_size").default(0).notNull(),
+  /**
+   * Plaintext bytes of the record's photo attachments (0069). Separate from
+   * fileSize because replacing the primary file overwrites that column, and the
+   * photos must stay billed. Quota sums the two.
+   */
+  attachmentSize: bigint("attachment_size", { mode: 'number' }).default(0).notNull(),
   /**
    * How many pages the source file was split into. 0 when file-less, 1 for a
    * plain image, N for a PDF.
@@ -779,6 +801,26 @@ export const documents = pgTable("documents", {
   };
 });
 
+
+/**
+ * Every member a document belongs to — see drizzle/0066.
+ *
+ * `documents.holderId` stays the PRIMARY holder (the first one picked) so its
+ * many readers keep working; this is the full set. `isGlobal` ("All members")
+ * means no rows here. Written only through `setDocumentHolders` in
+ * src/lib/records/handler.ts, which keeps the two in step.
+ */
+export const documentHolders = pgTable("document_holders", {
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  // No FK onto documents.id — documents must stay partitionable (see
+  // tests/partitionReadiness.test.ts). Reads always come through a visible row.
+  documentId: uuid("document_id").notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ name: "document_holders_pk", columns: [table.documentId, table.userId] }),
+  tenantUserIdx: index("document_holders_tenant_user_idx").on(table.tenantId, table.userId),
+}));
 
 export const passwords = pgTable("passwords", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1567,6 +1609,10 @@ export const discountCodes = pgTable("discount_codes", {
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   planId: uuid("plan_id").references(() => subscriptionPlans.id, { onDelete: 'set null' }),
   addonId: uuid("addon_id").references(() => addons.id, { onDelete: 'set null' }),
+  // The restriction the admin ticks; empty = all. `planId` / `addonId` above are
+  // legacy (backfilled into these by 0072) and no longer written.
+  planIds: uuid("plan_ids").array().notNull().default(sql`'{}'::uuid[]`),
+  addonIds: uuid("addon_ids").array().notNull().default(sql`'{}'::uuid[]`),
   billingCycle: varchar("billing_cycle", { length: 50 }),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

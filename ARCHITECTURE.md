@@ -89,7 +89,7 @@ Tenant-admin only. `tenants.googleDriveEnabled` = on/off; `tenants.googleDriveTo
 
 ## Data model (Drizzle, `db/schema.ts`)
 - IDs = `uuid defaultRandom`. Audit cols `createdAt/updatedAt` everywhere; `deletedAt` (soft delete) on record vaults. `roleEnum` = SUPER_ADMIN | TENANT_ADMIN | STANDARD.
-- Core: `tenants` (aiProvider/aiModel/apiKey/aiCreditsBalance/googleDrive*/subscription/amc/maxMembers), `users` (passwordHash, role, consent*, reset/otp, requiresPasswordChange), `permissions` (per user×module bools, unique idx), `profiles` (jsonb personal/education/shopping/legal), `auditLogs`, `notifications`, `userDevices` (FCM), `emergencyContacts`, `todos`.
+- Core: `tenants` (aiProvider/aiModel/apiKey/aiCreditsBalance/googleDrive*/subscription/amc/maxMembers), `users` (passwordHash, role, consent*, reset/otp, requiresPasswordChange), `permissions` (per user×module bools, unique idx), `profiles` (jsonb personal/education/legal; `shopping_details` column retained but no longer used), `auditLogs`, `notifications`, `userDevices` (FCM), `emergencyContacts`, `todos`.
 - Record vaults (tenant+user+`holderId`+`isGlobal`, `customFields` jsonb, `aiAnalysis` jsonb, `filePath/fileSize`): documents, medicalRecords, passwords, bankInfos, creditCards, tradingDemats, vehicles, licMediclaims, investments, warrantyAmcs, contractAgreements, taxCompliances, willsEstates, loansDebts, utilityBills, corporateCompliances, employmentPayrolls.
 - Billing/AI: subscriptionPlans, addons, tenantAddons, payments (razorpay*), invoices (GST), discountCodes, discountUsages, apiKeys, aiApiKeys, systemConfigs (SMTP + AI costs), tenantAiUsages, aiAnalysisCache, trialUsedEmails.
 

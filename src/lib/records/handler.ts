@@ -34,6 +34,9 @@ import { type SQL, and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db, withTenant } from '@/lib/db';
 import { companies, documents, documentCategories, users } from '@/db/schema';
+import { heldByAny, loadHolderSets, setDocumentHolders } from './documentHolders';
+import { InvalidHolderError } from './holderIds';
+import { assertFieldReferences, InvalidReferenceError } from './fieldRefsServer';
 import { getUserFromRequest, hasCompanyAccess, hasPermission } from '@/lib/auth';
 import { requireActivePlanFor } from '@/lib/planGate';
 import { requireOnboarded } from '@/lib/onboardingGate';
@@ -76,6 +79,8 @@ import { runAfterResponse } from './afterResponse';
 import { isWorkspaceMember } from './workspaceMembers';
 import { duplicateMessage, keepBothAllowed, resolveDuplicate } from './duplicateMatch';
 import type { DuplicateFile, DuplicateMatch, SearchHashHit } from './duplicateMatch';
+import { labelForCategory } from './customSubcategory';
+import { type AttachmentSummary, summariseAttachments } from './recordAttachments';
 
 export type RecordAction = 'view' | 'add' | 'edit' | 'delete' | 'share';
 
@@ -137,6 +142,8 @@ export interface RecordIdentity {
 /** `revealRecord`'s answer: the plaintext, plus which record it came from. */
 export interface RevealedRecord extends Omit<RecordIdentity, 'id'> {
   sealed: Record<string, unknown>;
+  /** The open tier, read in the same store round trip — never a secret. */
+  open: Record<string, unknown>;
 }
 
 /**
@@ -649,6 +656,8 @@ export interface ProjectedRecord {
   categoryModuleKey: string | null;
   categoryDocumentKey: string | null;
   categoryName?: string;
+  /** The member's label under a catch-all (0068); null everywhere else. */
+  customSubcategory: string | null;
   recordType?: string;
   issuer?: string;
   fields: Record<string, unknown>;
@@ -659,12 +668,22 @@ export interface ProjectedRecord {
   mimeType: string | null;
   fileSize: number;
   pageCount: number;
+  /**
+   * The record's photo attachments (0069), without their Drive ids. Empty for
+   * every category that has no attachment slot.
+   */
+  attachments: AttachmentSummary[];
   status: string;
   userId: string;
   holderId: string | null;
   /** The holder's display name, resolved for rendering. Name only — no other
    *  user column crosses into a record projection. */
   holder: { id: string; name: string } | null;
+  /**
+   * EVERY member the record belongs to, primary first (drizzle/0066). Empty
+   * for "All members". A one-holder record lists just `holder`.
+   */
+  holders: { id: string; name: string }[];
   isGlobal: boolean;
   /**
    * The two facts a LIST has to derive rather than read — the record's number
@@ -712,6 +731,7 @@ function project(
   const open = (record?.open ?? {}) as Record<string, unknown>;
   const masked = (record?.masked ?? {}) as Record<string, string>;
   const holder = row.holderId ? { id: row.holderId, name: row.holderName ?? '' } : null;
+  const holders: { id: string; name: string }[] = row.holders ?? (holder ? [holder] : []);
   return {
     id: row.id,
     module,
@@ -720,6 +740,7 @@ function project(
     categoryModuleKey: row.categoryModuleKey,
     categoryDocumentKey: row.categoryDocumentKey,
     categoryName: row.categoryName,
+    customSubcategory: row.customSubcategory ?? null,
     recordType: record?.recordType,
     issuer: record?.issuer,
     fields: open,
@@ -732,10 +753,12 @@ function project(
     mimeType: record?.mimeType ?? row.mimeType,
     fileSize: row.fileSize ?? 0,
     pageCount: row.pageCount ?? 0,
+    attachments: summariseAttachments(record),
     status: row.status,
     userId: row.userId,
     holderId: row.holderId,
     holder,
+    holders,
     isGlobal: row.isGlobal,
     // `companyId`/`companyName` are read here and NOT projected: the name is
     // needed to answer "belongs to", and once answered there is no reason to
@@ -744,6 +767,7 @@ function project(
     display: documentDisplay(
       {
         holder,
+        holders,
         isGlobal: row.isGlobal,
         companyId: row.companyId,
         companyName: row.companyName,
@@ -998,13 +1022,20 @@ export async function listRecords(
   }
   if (f.documentKey) columnFilters.push(eq(documents.categoryDocumentKey, f.documentKey));
   if (f.userId && UUID_RE.test(f.userId)) columnFilters.push(eq(documents.userId, f.userId));
+  // The Others workspace's label filter (0068). 'none' is "no label of its own".
+  if (f.label) {
+    columnFilters.push(
+      f.label === 'none' ? isNull(documents.customSubcategory) : eq(documents.customSubcategory, f.label),
+    );
+  }
   if (f.holderId) {
     // 'none' is the sentinel for "filed for nobody in particular", which is a
     // NULL column and not a value to compare against.
     columnFilters.push(
       f.holderId === 'none'
         ? isNull(documents.holderId)
-        : UUID_RE.test(f.holderId) ? eq(documents.holderId, f.holderId) : sql`false`,
+        // A member's records include the ones they SHARE (drizzle/0066).
+        : UUID_RE.test(f.holderId) ? heldByAny(user.tenantId, [f.holderId]) : sql`false`,
     );
   }
 
@@ -1028,6 +1059,7 @@ export async function listRecords(
         // 'All members', or a dash. See holderDisplayName.
         companyName: companies.name,
         categoryName: documentCategories.documentName,
+        customSubcategory: documents.customSubcategory,
         filePath: documents.filePath,
         // Ground truth for "does this record have bytes at all" — see
         // servableFilePath. Never projected to the client.
@@ -1067,6 +1099,9 @@ export async function listRecords(
 
   const truncated = rows.length > LIST_ROW_CEILING;
   const bounded = truncated ? rows.slice(0, LIST_ROW_CEILING) : rows;
+  const holderSets = await withTenant(user.tenantId, (tx) =>
+    loadHolderSets(tx as any, user.tenantId, bounded));
+  for (const r of bounded as any[]) r.holders = holderSets.get(r.id) ?? [];
 
   const { records } = await loadRecords(user, bounded);
   // One spec read per DISTINCT category, exactly as `loadRecords` opens one
@@ -1085,7 +1120,7 @@ export async function listRecords(
     // that is deliberate: an exact-match lookup goes through `searchHashes`.
     const needle = search.toLowerCase();
     projected = projected.filter((r) =>
-      `${r.title} ${r.issuer ?? ''} ${JSON.stringify(r.fields)}`.toLowerCase().includes(needle));
+      `${r.title} ${r.customSubcategory ?? ''} ${r.issuer ?? ''} ${JSON.stringify(r.fields)}`.toLowerCase().includes(needle));
   }
 
   // `total` counts what was actually considered, not what exists. With
@@ -1124,6 +1159,7 @@ export async function getRecord(
       // `holder_id` is null by design. See holderDisplayName.
       companyName: companies.name,
       categoryName: documentCategories.documentName,
+      customSubcategory: documents.customSubcategory,
       filePath: documents.filePath,
       fileDriveId: documents.fileDriveId,
       fileName: documents.fileName,
@@ -1152,6 +1188,9 @@ export async function getRecord(
   );
   if (!row) return null;
 
+  const holderSets = await withTenant(user.tenantId, (tx) =>
+    loadHolderSets(tx as any, user.tenantId, [row]));
+  (row as any).holders = holderSets.get(row.id) ?? [];
   const { records } = await loadRecords(user, [row]);
   return project(row, records.get(row.id), module, await loadRowSpec(row));
 }
@@ -1210,6 +1249,7 @@ export async function revealRecord(
   }
   return {
     sealed,
+    open: (record.open ?? {}) as Record<string, unknown>,
     title: row.title,
     categoryModuleKey: row.categoryModuleKey,
     categoryDocumentKey: row.categoryDocumentKey,
@@ -1417,6 +1457,12 @@ export interface WriteInput {
    */
   taxonomyFields?: boolean;
   title: string;
+  /**
+   * The member's label for a record filed under a catch-all (0068). Stored only
+   * when the record lands under Others; see records/customSubcategory.ts.
+   * Absent means "not sent" — an edit keeps the existing label.
+   */
+  customSubcategory?: string | null;
   /** An explicitly chosen category id, from a picker. */
   categoryId?: string | null;
   /**
@@ -1430,6 +1476,14 @@ export interface WriteInput {
    */
   categoryKey?: CategoryKey | null;
   holderId?: string | null;
+  /**
+   * EVERY member the record belongs to, primary first (drizzle/0066). When
+   * sent it wins over `holderId`: `[]` is "All members", one id is the same as
+   * `holderId`, several share the record. Absent means "not sent" — the
+   * single `holderId` rules apply, and an edit through a single-member picker
+   * keeps the record's other holders (see `createRecord`).
+   */
+  holderIds?: string[];
   /**
    * The company this record belongs to, or null/absent for a personal one.
    *
@@ -1458,6 +1512,11 @@ export interface WriteInput {
   sourceFileName?: string | null;
   /** Keep `scratchPages` on disk after sealing — see `UploadSourceFile.keepScratch`. */
   keepScratch?: boolean;
+  /**
+   * Words the AI read off the document, for the keyword index — see
+   * `UploadSourceFile.contentText`. Hashed by the vault, never stored.
+   */
+  contentText?: string | null;
   /** Reuse this record and overwrite its Drive object. */
   replaceId?: string | null;
   /**
@@ -1486,13 +1545,27 @@ export interface WriteInput {
  * migration and audit.
  */
 export function resolveHolder(
-  input: Pick<WriteInput, 'holderId' | 'isGlobal'>,
+  input: Pick<WriteInput, 'holderId' | 'isGlobal' | 'holderIds'>,
   // Widened from `RecordScopeConfig` and defaulted so a module that is NOT on
   // this handler can still resolve a holder by the same rules: `passwords`
   // writes its secret to the vault itself and never enters `createRecord`, and
   // a second copy of the sentinel table is exactly how the three modules that
   // hand-rolled this ended up disagreeing about what 'all' meant.
   config: { defaultIsGlobal: boolean } = { defaultIsGlobal: false },
+): { holderId: string | null; isGlobal: boolean; holderIds: string[] } {
+  if (input.holderIds !== undefined) {
+    const ids = input.holderIds.filter((id) => id && id !== 'all' && id !== 'none');
+    return ids.length > 0
+      ? { holderId: ids[0], isGlobal: false, holderIds: ids }
+      : { holderId: null, isGlobal: true, holderIds: [] };
+  }
+  const single = resolveSingleHolder(input, config);
+  return { ...single, holderIds: single.holderId ? [single.holderId] : [] };
+}
+
+function resolveSingleHolder(
+  input: Pick<WriteInput, 'holderId' | 'isGlobal'>,
+  config: { defaultIsGlobal: boolean },
 ): { holderId: string | null; isGlobal: boolean } {
   const raw = input.holderId;
   // The client sent no holder field at all — the module's own default decides.
@@ -1577,12 +1650,9 @@ export async function assertHolderInTenant(
   return holder.name ?? null;
 }
 
-export class InvalidHolderError extends Error {
-  constructor() {
-    super('Invalid holder ID');
-    this.name = 'InvalidHolderError';
-  }
-}
+// Lives in ./holderIds so the pure id cleaner can throw it too; re-exported
+// here because every route imports it from this module.
+export { InvalidHolderError };
 
 /**
  * The resolved category is outside what this request may write — either not one
@@ -1819,6 +1889,14 @@ export function holderErrorResponse(error: unknown): Response | null {
   if (error instanceof InvalidHolderError) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+  // Same family: a pointer field naming something outside the workspace. Shaped
+  // as `fieldErrors` so the form puts the message under the field.
+  if (error instanceof InvalidReferenceError) {
+    return NextResponse.json(
+      { error: error.message, fieldErrors: { [error.fieldKey]: error.message } },
+      { status: 400 },
+    );
+  }
   // Folded in here rather than given its own hook: every write route already
   // calls this one first, and a route that forgot the new check would turn a
   // permission refusal into a 500.
@@ -1953,6 +2031,11 @@ export async function createRecord(
   );
   if (!permitted) throw new ForbiddenCategoryError(categoryKey);
 
+  // The member's label under Others (0068). Null for any other category — which
+  // is also what clears it when a record is re-filed out of the catch-all —
+  // and `undefined` (leave it alone) when a catch-all edit did not send one.
+  const label = labelForCategory(categoryKey, input.customSubcategory);
+
   /**
    * ── THE FILE TYPE, CHECKED FOR EVERY MODULE THAT WRITES THROUGH HERE ──────
    *
@@ -2005,6 +2088,14 @@ export async function createRecord(
   const normalized = input.taxonomyFields
     ? toTaxonomyRecordFromFields(specs, input.record, identifiers)
     : toTaxonomyRecord(scope, categoryKey, input.record, identifiers, specs);
+
+  // A member or linked record (0069) must exist in THIS workspace. Checked on
+  // the renamed record, so both vocabularies above are covered.
+  await assertFieldReferences(
+    { tenantId: user.tenantId, companyId, isEdit: Boolean(input.replaceId) },
+    specs,
+    normalized.record,
+  );
 
   // Resolved here rather than just before the row write: the title and
   // filename arms of the duplicate check are scoped to the category, so the id
@@ -2149,21 +2240,34 @@ export async function createRecord(
   // holder can never leave an orphaned Drive object behind.
   const resolvedHolder = resolveHolder(input, config);
   const { holderId } = resolvedHolder;
+  let { holderIds } = resolvedHolder;
+  const holderSent = input.holderId !== undefined || input.holderIds !== undefined;
   // A company record whose member was explicitly CLEARED goes back to the
   // company — not to "every household member". `is_global` is a personal-vault
   // idea, and setting it on a business row reads as `coversAllMembers`. A
   // holder that was never sent keeps the module default, as before.
-  const isGlobal = companyId && input.holderId !== undefined && !holderId
+  const isGlobal = companyId && holderSent && !holderId
     ? false
     : resolvedHolder.isGlobal;
-  if (holderId) {
-    await assertHolderInTenant(user, holderId);
+  for (const id of holderIds) {
+    await assertHolderInTenant(user, id);
     // A record may be filed only under a member of ITS workspace — see
     // ./workspaceMembers.ts. A company record never takes a household member's
     // id, and a household record never takes a business-only employee's: the
     // pickers offer neither, and a request is not the picker.
-    if (!await isWorkspaceMember(user.tenantId, holderId, companyId ?? null)) {
+    if (!await isWorkspaceMember(user.tenantId, id, companyId ?? null)) {
       throw new InvalidHolderError();
+    }
+  }
+  // An edit through a SINGLE-member picker (every module page but the
+  // document manager) must not quietly drop the record's other holders: when
+  // it kept the primary, the rest of the set stays.
+  if (input.holderIds === undefined && input.replaceId && holderId) {
+    const existing = await withTenant(user.tenantId, (tx) =>
+      loadHolderSets(tx as any, user.tenantId, [{ id: input.replaceId! }]));
+    const kept = (existing.get(input.replaceId) ?? []).map((h) => h.id);
+    if (kept.includes(holderId)) {
+      holderIds = [holderId, ...kept.filter((id) => id !== holderId)];
     }
   }
   const ownerId = input.ownerId || user.id;
@@ -2293,6 +2397,7 @@ export async function createRecord(
         existingFileId,
         scratchPages: input.scratchPages,
         keepScratch: input.keepScratch,
+        contentText: input.contentText,
       }],
     });
     vault = uploaded.vault;
@@ -2328,6 +2433,7 @@ export async function createRecord(
       masked: normalized.masked,
       reminders: normalized.reminders,
       mustSeal: normalized.mustSeal,
+      contentText: input.contentText,
     });
   }
 
@@ -2347,6 +2453,7 @@ export async function createRecord(
       accountScope: companyId ? 'business' : 'personal',
       isGlobal,
       title,
+      customSubcategory: label ?? null,
       categoryId: resolvedCategoryId ?? null,
       categoryModuleKey: vault.categoryModuleKey,
       categoryDocumentKey: vault.categoryDocumentKey,
@@ -2372,6 +2479,7 @@ export async function createRecord(
       target: documents.id,
       set: {
         title,
+        ...(label !== undefined ? { customSubcategory: label } : {}),
         categoryId: resolvedCategoryId ?? null,
         // Update IS createRecord({replaceId}), so it always lands here. Leaving
         // these two out meant every module's edit form silently failed to
@@ -2426,6 +2534,7 @@ export async function createRecord(
         ...revivedDocumentState(),
       },
     });
+    await setDocumentHolders(tx as any, user.tenantId, recordId, holderIds);
   });
 
   const created = await getRecord(ctx, recordId);

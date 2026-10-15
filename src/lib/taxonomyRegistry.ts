@@ -316,7 +316,7 @@ export async function buildLiveAiCategoryList(
   const modules = (await taxonomyModules()).filter(
     (m) => (isBusinessModule(m.moduleKey) ? 'business' : 'personal') === scope,
   );
-  return renderAiCategoryList(modules);
+  return renderAiCategoryList(modules, scope);
 }
 
 /** For log lines and error messages. Re-exported so callers need one import. */

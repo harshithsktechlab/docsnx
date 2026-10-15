@@ -86,6 +86,15 @@ function makeTx() {
   return chain;
 }
 
+// The holder set (drizzle/0066) is its own table; these tests are about other
+// things, so a document's set is just its primary holder.
+vi.mock('@/lib/records/documentHolders', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/records/documentHolders')>()),
+  setDocumentHolders: vi.fn(async () => {}),
+  loadHolderSets: vi.fn(async (_tx: unknown, _tenantId: string, rows: any[]) =>
+    new Map(rows.map((r) => [r.id, r.holderId ? [{ id: r.holderId, name: r.holderName ?? '' }] : []]))),
+}));
+
 vi.mock('@/lib/db', () => ({
   db: {},
   withTenant: vi.fn(async (_t: string, cb: any) => cb(makeTx())),
@@ -493,5 +502,34 @@ describe('the refusal every route answers with', () => {
     expect(body.keepBothAllowed).toBe(false);
     expect(body.keepNewAllowed).toBe(true);
     expect(body.existingFile).toBeNull();
+  });
+});
+
+describe('the label under Others (0068)', () => {
+  const OTHERS = { moduleKey: 'other', documentKey: 'uncategorized' };
+  const othersCtx = { ...ctx, keys: [...ctx.keys, OTHERS] };
+  const othersInput = { title: 'Gym card', categoryKey: OTHERS, record: {}, holderId: null };
+
+  it('is stored when the record is filed under the catch-all', async () => {
+    await createRecord(othersCtx, { ...othersInput, customSubcategory: 'Gym Membership' });
+
+    expect(insertedRows[0].customSubcategory).toBe('Gym Membership');
+    expect(conflictUpdates[0].set.customSubcategory).toBe('Gym Membership');
+  });
+
+  it('is dropped — and cleared on an existing row — anywhere else', async () => {
+    // `input` files a passport. A label posted with it means nothing there, and
+    // a record re-filed out of Others must not carry its old label along.
+    await createRecord(ctx, { ...input, customSubcategory: 'Gym Membership' });
+
+    expect(insertedRows[0].customSubcategory).toBeNull();
+    expect(conflictUpdates[0].set).toHaveProperty('customSubcategory', null);
+  });
+
+  it('is left alone by a catch-all edit that did not send one', async () => {
+    await createRecord(othersCtx, othersInput);
+
+    expect(insertedRows[0].customSubcategory).toBeNull();
+    expect(conflictUpdates[0].set).not.toHaveProperty('customSubcategory');
   });
 });

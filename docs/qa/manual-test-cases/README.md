@@ -17,7 +17,7 @@
 | [TC-01-authentication-session.md](TC-01-authentication-session.md) | Registration, Email OTP Verification, Login, Forgot/Reset Password, Logout, Session & JWT, Rate Limiting | `AUTH` |
 | [TC-02-onboarding-shell-navigation.md](TC-02-onboarding-shell-navigation.md) | Onboarding wizard, App Shell, Sidebar navigation, Theme, Font-size, PWA, "More" page | `SHL` |
 | [TC-03-members-permissions.md](TC-03-members-permissions.md) | Members (Users), Roles, Per-module Permission Matrix, Member limits | `MEM` |
-| [TC-04-profiles.md](TC-04-profiles.md) | Profiles (personal / education / shopping / legal details), auto-profile enrichment | `PRF` |
+| [TC-04-profiles.md](TC-04-profiles.md) | Profiles (personal / education / legal details), auto-profile enrichment | `PRF` |
 | [TC-05-documents.md](TC-05-documents.md) | Document Vault (upload, categories, replace, AI auto-fill, download/share) | `DOC` |
 | [TC-06-passwords.md](TC-06-passwords.md) | Password Manager (encrypted credential vault, reveal, copy, generator) | `PWD` |
 | [TC-07-todos.md](TC-07-todos.md) | To-Dos (assignment, status, due dates, push notification flag) | `TDO` |

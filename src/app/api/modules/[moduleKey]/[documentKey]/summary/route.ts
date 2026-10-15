@@ -41,6 +41,7 @@ import { recordScopeConfig, scopeForCategory } from '@/lib/records/registry';
 import { categoryDescriptor } from '@/lib/taxonomyRegistry';
 import { vaultErrorResponse } from '@/lib/vault/vaultErrors';
 import { serverError } from '@/lib/routeError';
+import { isCatchAll } from '@/lib/documentCategories';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,6 +74,7 @@ export async function GET(req: Request, { params }: Params) {
           .select({
             id: documents.id,
             title: documents.title,
+            customSubcategory: documents.customSubcategory,
             holderId: documents.holderId,
             isGlobal: documents.isGlobal,
             filePath: documents.filePath,
@@ -174,8 +176,25 @@ export async function GET(req: Request, { params }: Params) {
           .map((r) => [r.id, holderNames.get(r.holderId as string) ?? null] as const),
       );
 
+      // Others only (0068): how the member has labelled what landed there, most
+      // used first and the unlabelled last. Null for every real category.
+      let labels: { label: string | null; count: number }[] | null = null;
+      if (isCatchAll(categoryKey)) {
+        const counts = new Map<string | null, number>();
+        for (const r of rows) {
+          const key = r.customSubcategory ?? null;
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        labels = [...counts]
+          .map(([label, count]) => ({ label, count }))
+          .sort((a, b) => (a.label === null ? 1 : 0) - (b.label === null ? 1 : 0)
+            || b.count - a.count
+            || String(a.label).localeCompare(String(b.label)));
+      }
+
       return NextResponse.json({
         success: true,
+        labels,
         // Canonical identity plus its mirror addresses — see categoryDescriptor.
         category: await categoryDescriptor(categoryKey),
         counts: {

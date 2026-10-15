@@ -66,7 +66,10 @@ describe('every module is reachable in every module-keyed table', () => {
     // camelCase key missed the encrypt list — does not arise for them: with no
     // translation step the key IS the taxonomy key, and `splitRecordFields`
     // intersects it with the category's encrypt list directly.
-    for (const m of RECORD_SCOPE_KEYS.filter((s) => !s.startsWith('biz_'))) {
+    //
+    // `travel` (0065) is the same case on the personal side: it has no legacy
+    // page either, only the generic one, so the test asks the PATH.
+    for (const m of RECORD_SCOPE_KEYS.filter((s) => !recordScopeConfig(s).path.includes('/modules/'))) {
       expect(MODULE_FIELD_MAP[m], `${m} has no field map`).toBeDefined();
     }
   });

@@ -64,8 +64,7 @@ export async function POST(req: Request) {
 
     const priced = computeAmountSaved(loaded.discount, {
       subtotal: planPrice,
-      planId,
-      planPrice,
+      plans: [{ planId, price: planPrice }],
       addons: [],
     });
 

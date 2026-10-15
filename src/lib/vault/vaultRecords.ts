@@ -455,7 +455,12 @@ export async function removeRecordFromStore(
         : [];
       // The primary is normally pages[0], but a record written before pages
       // existed has only this one — union rather than either/or.
-      owned.value = [...new Set([...pageIds, prev.driveFileId].filter(Boolean))] as string[];
+      // Photo attachments (0069) and their thumbnails are the record's too, and
+      // nothing else lists them — dropping them here orphans them for good.
+      const attachmentIds = Array.isArray(prev.attachments)
+        ? prev.attachments.flatMap((a: any) => [a?.driveFileId, a?.thumb?.driveFileId]).filter(Boolean)
+        : [];
+      owned.value = [...new Set([...pageIds, prev.driveFileId, ...attachmentIds].filter(Boolean))] as string[];
 
       delete records[recordId];
     }

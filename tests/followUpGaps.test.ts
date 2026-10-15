@@ -70,6 +70,16 @@ const dialect = new PgDialect();
 /** Pending tasks the Tasks tab would show, if the member may see them. */
 let pendingTodos: any[] = [];
 
+// The holder set (drizzle/0066) is its own table; these tests are about other
+// things, so a document's set is just its primary holder.
+vi.mock('@/lib/records/documentHolders', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/records/documentHolders')>()),
+  setDocumentHolders: vi.fn(async () => {}),
+  loadHolderSets: vi.fn(async (_tx: unknown, _tenantId: string, rows: any[]) =>
+    // Fixtures here carry no ids; a set keyed by `undefined` would merge them.
+    new Map(rows.filter((r) => r.id).map((r) => [r.id, r.holderId ? [{ id: r.holderId, name: '' }] : []]))),
+}));
+
 vi.mock('@/lib/db', () => ({
   db: {},
   // The route runs three tenant-scoped selects. `users` is told apart by its

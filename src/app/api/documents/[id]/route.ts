@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { loadRefLookups, pointerValues } from '@/lib/records/fieldRefsServer';
 import { db, withTenant } from '@/lib/db';
 import { documents } from '@/db/schema';
 import { eq, and, isNull } from 'drizzle-orm';
@@ -28,6 +29,10 @@ import { runAfterResponse } from '@/lib/records/afterResponse';
 import { serverError } from '@/lib/routeError';
 import { inCompanyOf, resolveUtilityCompany } from '@/lib/records/companyScope';
 import { isWorkspaceMember } from '@/lib/records/workspaceMembers';
+import { MAX_HOLDERS, loadHolderSets, setDocumentHolders } from '@/lib/records/documentHolders';
+import {
+  CUSTOM_SUBCATEGORY_MAX, labelForCategory, readCustomSubcategory,
+} from '@/lib/records/customSubcategory';
 
 /**
  * The sealed tier, in the clear, for one document.
@@ -130,18 +135,27 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         documentKey: document.categoryDocumentKey,
       })
       : [];
+    const holders = (await withTenant(user.tenantId, (tx) =>
+      loadHolderSets(tx as any, user.tenantId,
+        [{ id: document.id, holderId: document.holderId, holderName: document.holder?.name }]),
+    )).get(document.id) ?? [];
     return NextResponse.json({
       success: true,
-      document: withDocMetadata(document, revealed),
+      document: { ...withDocMetadata(document, revealed), holders },
       // The same two derived facts the list route returns, so the edit modal can
       // seed its one generic number input from `numberKey` — the field THIS
       // category calls its identifier — instead of through the legacy
       // `documentNumber` mapping, which names six keys and comes back empty for
       // a record filed under any of the other 77 categories.
-      display: documentDisplay(document, revealed, identifierSpecs(spec)),
+      display: documentDisplay({ ...document, holders }, revealed, identifierSpecs(spec)),
       // As on the list route, so a share or print started from an opened record
       // says the same things as one started from its row.
-      fields: documentFieldList(revealed, spec),
+      fields: documentFieldList(
+        revealed,
+        spec,
+        await loadRefLookups(user.tenantId, pointerValues(
+          { ...(revealed.open ?? {}), ...(revealed.masked ?? {}) }, spec)),
+      ),
     });
   } catch (error) {
     return serverError(error, 'loading document details');
@@ -162,6 +176,17 @@ const putSchema = z.object({
    */
   taxonomyFields: z.boolean().optional(),
   holderId: z.string().uuid().nullable().optional(),
+  /**
+   * EVERY member the document belongs to, primary first (drizzle/0066). When
+   * sent it wins over `holderId`; `[]` is "All members".
+   */
+  holderIds: z.array(z.string().uuid()).max(MAX_HOLDERS).optional(),
+  /**
+   * The member's label under Others (0068). Kept only when the document's
+   * category — after this edit — is a catch-all; moving it anywhere else
+   * clears it. Absent leaves it alone.
+   */
+  customSubcategory: z.string().max(CUSTOM_SUBCATEGORY_MAX).nullable().optional(),
 });
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -203,7 +228,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       ),
       // The member the record is filed under, for the audit line. Name only —
       // the users row carries reset tokens and OTPs that must never leave here.
-      with: { holder: { columns: { name: true } } },
+      // `categoryRef` decides whether a label may stay — see customSubcategory.
+      with: {
+        holder: { columns: { name: true } },
+        categoryRef: { columns: { moduleKey: true, documentKey: true } },
+      },
     });
 
     if (!document) {
@@ -223,31 +252,46 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
-    const { title, categoryId, category, metadata, taxonomyFields, holderId } = parsed.data;
+    const { title, categoryId, category, metadata, taxonomyFields } = parsed.data;
+    // One shape from here on: the full set when the picker sent one, else the
+    // single holder as a set of one. `holderId` is the PRIMARY, kept on the row.
+    const holderIds: string[] | undefined = parsed.data.holderIds !== undefined
+      ? [...new Set(parsed.data.holderIds)]
+      : parsed.data.holderId !== undefined
+        ? (parsed.data.holderId ? [parsed.data.holderId] : [])
+        : undefined;
+    const holderId: string | null | undefined = holderIds === undefined
+      ? undefined
+      : holderIds[0] ?? null;
 
     // The holder the record ends up with, by name, for the audit line: the one
     // being assigned when the body names one, the existing one when the body is
     // silent, and nobody when it clears the field. The lookup below already had
     // the row and was throwing the name away.
     let holderName: string | null = document.holder?.name ?? null;
-    if (holderId !== undefined && holderId !== null) {
-      const holderUser = await db.query.users.findFirst({
-        where: (table, { eq, and }) => and(eq(table.id, holderId), eq(table.tenantId, user.tenantId))
+    if (holderIds !== undefined && holderIds.length > 0) {
+      const holderUsers = await db.query.users.findMany({
+        where: (table, { eq, and, inArray }) => and(
+          inArray(table.id, holderIds), eq(table.tenantId, user.tenantId), isNull(table.deletedAt)),
+        columns: { id: true, name: true },
       });
-      if (!holderUser) {
+      if (holderUsers.length !== holderIds.length) {
         return NextResponse.json({ error: 'Invalid holder ID' }, { status: 400 });
       }
-      // A document may name only a member of its own workspace — a company's
+      // A document may name only members of its own workspace — a company's
       // members on a company document, the household's on a personal one.
-      if (!await isWorkspaceMember(user.tenantId, holderId, scope.companyId ?? null)) {
-        return NextResponse.json({
-          error: scope.companyId
-            ? 'That member does not work on this company'
-            : 'That member is not part of your household',
-        }, { status: 400 });
+      for (const memberId of holderIds) {
+        if (!await isWorkspaceMember(user.tenantId, memberId, scope.companyId ?? null)) {
+          return NextResponse.json({
+            error: scope.companyId
+              ? 'That member does not work on this company'
+              : 'That member is not part of your household',
+          }, { status: 400 });
+        }
       }
-      holderName = holderUser.name ?? null;
-    } else if (holderId === null) {
+      const byId = new Map(holderUsers.map((u) => [u.id, u.name ?? '']));
+      holderName = holderIds.map((memberId) => byId.get(memberId)).filter(Boolean).join(', ') || null;
+    } else if (holderIds !== undefined) {
       holderName = null;
     }
 
@@ -331,8 +375,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       // into its AAD, so changing them without moving and re-sealing the file
       // would make it unreadable. Re-filing an already-uploaded document needs
       // a Drive move; until that exists, only the FK moves.
+      // Judged against the category the document ends up in: a move out of
+      // Others clears the label even when the body did not mention it.
+      const label = labelForCategory(
+        resolved ?? document.categoryRef,
+        readCustomSubcategory(parsed.data.customSubcategory),
+      );
       const [row] = await tx.update(documents).set({
         title: title !== undefined ? title : undefined,
+        customSubcategory: label,
         categoryId: resolved ? resolved.id : undefined,
         // No `metadata` write. The body went to the Drive store above, which is
         // now the only place it lives; the open-tier projection this route used
@@ -352,6 +403,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         // guards nothing if the update is ever reordered or reused.
         inCompanyOf(documents.companyId, scope.companyId),
       )).returning();
+
+      // The full set moves with the primary, in the same transaction.
+      if (row && holderIds !== undefined) {
+        await setDocumentHolders(tx as any, user.tenantId, row.id, holderIds);
+      }
 
       await writeAudit({
         tenantId: user.tenantId,
@@ -398,7 +454,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     return NextResponse.json({
       success: true,
-      document: withDocMetadata(updated, revealed),
+      document: {
+        ...withDocMetadata(updated, revealed),
+        holders: (await withTenant(user.tenantId, (tx) =>
+          loadHolderSets(tx as any, user.tenantId, [updated]))).get(updated.id) ?? [],
+      },
     });
   } catch (error) {
     // Drive is where the body lives, so its failures carry their own status and

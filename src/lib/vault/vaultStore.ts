@@ -11,6 +11,7 @@ import { loadCategoryFieldSpec } from '../records/categorySpec';
 import { identifierFields } from '../documentCategoryFields';
 import { vaultFilePath } from '../records/fileUrl';
 import { scopeForCategory } from '../records/registry';
+import { fieldTokens, hashSearchTokens, textTokens } from '../search/tokens';
 
 /**
  * The one place any record becomes vault content.
@@ -121,6 +122,17 @@ export interface StoreRecordInVaultInput {
   mustSeal?: readonly string[];
   /** Replace flow — overwrite this Drive file rather than creating another. */
   existingFileId?: string | null;
+  /**
+   * The document's own words, for keyword search: the text read off the file
+   * and the keywords the AI pulled from it.
+   *
+   * Never stored. It is tokenised and HASHED into `contentTokens` here (see
+   * src/lib/search/tokens.ts) and the plaintext is dropped with this call.
+   * Omitted on an edit that brings no new file, which keeps the record's
+   * previous content tokens; a new file without it clears them, since they
+   * described the old one.
+   */
+  contentText?: string | null;
 }
 
 /**
@@ -269,6 +281,14 @@ export async function storeRecordInVault(
     } | null;
   } = { value: null };
 
+  // Keyword index, hashed. Built from `metadata` BEFORE the split, so sealed
+  // fields (an address, a name on the document) are searchable by whole word
+  // without their plaintext being kept anywhere.
+  const searchTokens = hashSearchTokens(fieldTokens(name, metadata ?? {}));
+  const newContentTokens = input.contentText
+    ? hashSearchTokens(textTokens(input.contentText))
+    : null;
+
   // 4. Merge into the category's store.
   const ctx: VaultCtx = { tenant, tenantId, companyId, userId: actorUserId };
   const now = new Date().toISOString();
@@ -315,6 +335,9 @@ export async function storeRecordInVault(
       pages: keep ? keep.pages : storedPages,
       pageCount: keep ? keep.pages.length : storedPages.length,
       searchHashes: input.searchHashes ?? {},
+      searchTokens,
+      contentTokens: newContentTokens
+        ?? (pageInputs.length === 0 && Array.isArray(prev.contentTokens) ? prev.contentTokens : []),
       masked: input.masked ?? {},
       reminders: input.reminders ?? [],
       driveFileId: keep ? keep.driveFileId : stored.driveFileId,

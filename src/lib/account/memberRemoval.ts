@@ -46,11 +46,12 @@
  * stay filed under the old row. That is a deliberate product decision, and it
  * is why `revokeMemberAccess` tombstones the email — see there.
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { withTenant } from '@/lib/db';
 import type { db } from '@/lib/db';
 import {
   documentCategories,
+  documentHolders,
   documents,
   passwords,
   permissions,
@@ -134,6 +135,7 @@ export async function listHolderRecords(
       .where(and(
         eq(documents.tenantId, user.tenantId),
         eq(documents.holderId, holderId),
+        notSharedBeyond(user.tenantId, holderId),
         visibleDocument(),
       ));
 
@@ -279,7 +281,9 @@ export async function setMemberSignIn(
       .set({
         signInDisabledAt: null,
         updatedAt: now,
-        ...(passwordHash ? { passwordHash, requiresPasswordChange: true } : {}),
+        // A password from the admin is a usable one: that member is set up,
+        // not waiting on /activate (0071).
+        ...(passwordHash ? { passwordHash, requiresPasswordChange: true, activatedAt: now } : {}),
       })
       .where(and(eq(users.id, targetId), eq(users.tenantId, user.tenantId)));
     return;
@@ -478,11 +482,27 @@ export async function deleteSelectedHolderRecords(
 }
 
 /** The one predicate both the select and the update must share. */
+/**
+ * Documents this member does NOT share with anyone else (drizzle/0066).
+ *
+ * A marriage certificate or a family policy filed for several members is not
+ * "this member's record" to delete — the others still need it. Such a document
+ * is left out of the picker and out of the delete, so it is always kept; like
+ * every kept record, it goes on naming the removed member beside the others.
+ */
+function notSharedBeyond(tenantId: string, holderId: string) {
+  return sql`${documents.id} NOT IN (
+    SELECT ${documentHolders.documentId} FROM ${documentHolders}
+    WHERE ${documentHolders.tenantId} = ${tenantId} AND ${documentHolders.userId} <> ${holderId}
+  )`;
+}
+
 function holderDocumentScope(tenantId: string, holderId: string, ids: string[]) {
   return and(
     inArray(documents.id, ids),
     eq(documents.tenantId, tenantId),
     eq(documents.holderId, holderId),
+    notSharedBeyond(tenantId, holderId),
     // Already-tombstoned rows are excluded so a double-submit cannot re-stamp
     // `deleted_at` and log a second deletion.
     visibleDocument(),

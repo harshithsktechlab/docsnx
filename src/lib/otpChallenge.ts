@@ -177,10 +177,31 @@ function sixDigits(): string {
  * password, or a matching account on an explicit resend). Nothing here rate
  * limits; the routes do, at the IP.
  */
-export async function issueOtpChallenge(user: ChallengeTarget): Promise<OtpChallenge> {
+export async function issueOtpChallenge(
+  user: ChallengeTarget,
+  options: {
+    /**
+     * Every channel the account HAS, whatever is verified and whatever its
+     * role requires — member activation (0071), where the invitee asked for a
+     * code to "WhatsApp and email" and either one will do.
+     */
+    allChannels?: boolean;
+  } = {},
+): Promise<OtpChallenge> {
   const opts = { whatsappEnabled: await isWhatsAppEnabled() };
-  const hints = otpHints(user, opts);
-  const outstanding = outstandingChannels(user, opts);
+  const everyChannel = options.allChannels
+    ? {
+      email: Boolean(user.email),
+      phone: opts.whatsappEnabled && Boolean(toDialString(user.phoneNumber)),
+    }
+    : null;
+  const hints = everyChannel
+    ? {
+      emailHint: everyChannel.email ? maskEmail(user.email as string) : '',
+      phoneHint: everyChannel.phone ? maskPhone(user.phoneNumber as string) : '',
+    }
+    : otpHints(user, opts);
+  const outstanding = everyChannel ?? outstandingChannels(user, opts);
   const base = {
     ...hints,
     needsEmailCode: outstanding.email,

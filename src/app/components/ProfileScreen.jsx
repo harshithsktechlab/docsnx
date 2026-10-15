@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   GraduationCap,
-  ShoppingBag,
   Scale,
   Save,
   Loader2,
@@ -36,12 +35,11 @@ import { BLOOD_GROUPS, normaliseBloodGroup, parseBirthPlace } from '@/lib/profil
 import PlanQuotaMeters from '@/app/components/PlanQuotaMeters';
 import { getInitials } from '@/lib/accountMenu';
 
-/** The member form's four sections. At module scope so `openTabFrom` below can
+/** The member form's three sections. At module scope so `openTabFrom` below can
  *  validate a deep link against the very list the strip renders. */
 const MY_PROFILE_TABS = [
   { value: 'personal', label: 'Personal', icon: User },
   { value: 'education', label: 'Education', icon: GraduationCap },
-  { value: 'shopping', label: 'Shopping', icon: ShoppingBag },
   { value: 'legal', label: 'Legal / ID', icon: Scale },
 ];
 
@@ -297,11 +295,6 @@ function MyProfileSection({ heading = true }) {
   const [college, setCollege] = useState('');
   const [yearOfPassing, setYearOfPassing] = useState('');
 
-  // Shopping Fields
-  const [clothingSize, setClothingSize] = useState('');
-  const [shoeSize, setShoeSize] = useState('');
-  const [brandPreferences, setBrandPreferences] = useState('');
-
   // Legal Fields
   const [panNumber, setPanNumber] = useState('');
   const [aadhaarNumber, setAadhaarNumber] = useState('');
@@ -334,11 +327,6 @@ function MyProfileSection({ heading = true }) {
           setDegree(edu.degree || '');
           setCollege(edu.college || '');
           setYearOfPassing(edu.yearOfPassing || '');
-
-          const shop = json.profile.shoppingDetails || {};
-          setClothingSize(shop.clothingSize || '');
-          setShoeSize(shop.shoeSize || '');
-          setBrandPreferences(shop.brandPreferences || '');
 
           const legal = json.profile.legalDetails || {};
           setPanNumber(legal.panNumber || '');
@@ -424,11 +412,20 @@ function MyProfileSection({ heading = true }) {
 
       const [typed, setTyped] = idNumberState[kind];
       let number = String(typed || '').trim();
+      // What else the card says about its holder. Sent with the upload so the
+      // server can fill a blank date of birth / gender on the profile; only
+      // well-formed values, so a misread never turns into a failed upload.
+      const cardDetails = {};
       if (!number) {
         const body = new FormData();
         body.append('file', file);
         const read = await postUpload(`/api/modules/identity/${def.documentKey}/autofill`, body);
-        number = String(read.json?.success ? (read.json.fields?.[def.fieldKey] ?? '') : '').trim();
+        const readFields = read.json?.success ? (read.json.fields || {}) : {};
+        number = String(readFields[def.fieldKey] ?? '').trim();
+        const readDob = String(readFields.date_of_birth ?? '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(readDob)) cardDetails.date_of_birth = readDob;
+        const readGender = String(readFields.gender ?? '').trim();
+        if (readGender && kind !== 'pan') cardDetails.gender = readGender;
         if (!number) {
           toast.error(`Could not read the number off this ${def.title}. Type it in above, then upload again.`);
           return;
@@ -441,7 +438,7 @@ function MyProfileSection({ heading = true }) {
       formData.append('categoryId', entry.categoryId);
       formData.append('holderId', profile.userId);
       formData.append('taxonomyFields', 'true');
-      formData.append('metadata', JSON.stringify({ [def.fieldKey]: number }));
+      formData.append('metadata', JSON.stringify({ ...cardDetails, [def.fieldKey]: number }));
       if (answer === 'replace' && pendingDuplicate?.match?.existingId) {
         formData.append('replaceId', pendingDuplicate.match.existingId);
       } else if (answer === 'keepBoth') {
@@ -464,16 +461,36 @@ function MyProfileSection({ heading = true }) {
 
       setPendingDuplicate(null);
       setTyped(number);
-      toast.success(`${def.title} saved \u2014 it is in Document Management too.`);
 
-      // Refresh only the cards and the number the upload synced, so unsaved
-      // edits elsewhere on the form are left alone.
+      // The upload synced the number (and any blank date of birth / gender)
+      // into the saved profile. Refresh only those, and only where the form is
+      // still blank, so unsaved edits elsewhere on the form are left alone.
       const { json } = await apiCall('/api/profiles');
       if (json?.success) {
         setIdDocuments(json.idDocuments || null);
-        const synced = json.profile?.legalDetails?.[def.legalKey];
-        if (synced) setTyped(synced);
+        const savedLegal = json.profile?.legalDetails || {};
+        const synced = savedLegal[def.legalKey];
+        if (synced) {
+          setTyped(synced);
+        } else {
+          // The server did not keep the number — save it here rather than
+          // leave it showing on a form nobody has saved. Only the legal block,
+          // built on what is stored, so nothing else typed is saved with it.
+          const put = await apiCall('/api/profiles', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ legalDetails: { ...savedLegal, [def.legalKey]: number } }),
+          });
+          if (!put.json?.success) {
+            toast.error(`${def.title} uploaded, but its number could not be saved to your profile. Press Save to keep it.`);
+            return;
+          }
+        }
+        const savedPersonal = json.profile?.personalDetails || {};
+        if (savedPersonal.dob) setDob((cur) => cur || savedPersonal.dob);
+        if (savedPersonal.gender) setGender((cur) => cur || savedPersonal.gender);
       }
+      toast.success(`${def.title} saved to your profile \u2014 it is in Document Management too.`);
     } catch (err) {
       console.error('[profile] ID upload handler threw', err);
       toast.error('Something went wrong uploading this document. Please try again.');
@@ -490,7 +507,6 @@ function MyProfileSection({ heading = true }) {
     const payload = {
       personalDetails: { dob, bloodGroup, gender, birthPlace, birthState, birthCity },
       educationDetails: { degree, college, yearOfPassing },
-      shoppingDetails: { clothingSize, shoeSize, brandPreferences },
       legalDetails: { panNumber, aadhaarNumber, passportNumber },
     };
 
@@ -544,7 +560,7 @@ function MyProfileSection({ heading = true }) {
       {heading && (
         <div className="flex flex-col gap-1 mb-2 animate-fade-in">
           <h1 className="text-3xl font-extrabold tracking-tight text-foreground">My Profile</h1>
-          <p className="text-muted-foreground text-sm">Manage personal details and size configurations</p>
+          <p className="text-muted-foreground text-sm">Manage your personal, education and ID details</p>
         </div>
       )}
 
@@ -706,51 +722,6 @@ function MyProfileSection({ heading = true }) {
                       value={yearOfPassing}
                       onChange={(e) => setYearOfPassing(e.target.value)}
                       disabled={saving}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Shopping Details Tab */}
-            {activeTab === 'shopping' && (
-              <div className="flex flex-col gap-5 animate-fade-in">
-                <h3 className="text-lg font-bold text-foreground flex items-center gap-2 border-b border-border pb-3">
-                  <ShoppingBag size={18} className="text-primary" /> Shopping Preferences
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="clothingSize">Clothing Size (Shirt / Top)</Label>
-                    <Input
-                      id="clothingSize"
-                      type="text"
-                      placeholder="e.g. M, L, 40, XL"
-                      value={clothingSize}
-                      onChange={(e) => setClothingSize(e.target.value)}
-                      disabled={saving}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="shoeSize">Shoe Size (UK/US/EU)</Label>
-                    <Input
-                      id="shoeSize"
-                      type="text"
-                      placeholder="e.g. UK 9"
-                      value={shoeSize}
-                      onChange={(e) => setShoeSize(e.target.value)}
-                      disabled={saving}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5 md:col-span-2">
-                    <Label htmlFor="brandPreferences">Preferred Brands / Shopping Notes</Label>
-                    <Textarea
-                      id="brandPreferences"
-                      placeholder="e.g. Prefers Nike for shoes, Levi's for jeans. Prefers organic cotton."
-                      value={brandPreferences}
-                      onChange={(e) => setBrandPreferences(e.target.value)}
-                      rows={4}
-                      disabled={saving}
-                      className="resize-none"
                     />
                   </div>
                 </div>

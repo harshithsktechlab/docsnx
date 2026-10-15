@@ -17,6 +17,50 @@ export function normaliseBloodGroup(value: unknown): string {
   return `${m[1]}${sign}`;
 }
 
+/**
+ * A blood group named in free text — a lab report's results, a diagnosis — or
+ * ''. Only a value labelled "blood group" counts: a bare "A+" in a report is as
+ * likely to be a grade as a blood type.
+ */
+export function bloodGroupFromText(text: unknown): string {
+  const m = String(text ?? '').match(
+    /blood\s*group(?:\s*\(?\s*abo\s*(?:\/|&|and)?\s*rh\s*\)?)?\s*[:\-=]?\s*(AB|A|B|O)\s*(\+\s*ve|-\s*ve|\+|-|positive|negative|pos|neg)/i,
+  );
+  return m ? normaliseBloodGroup(`${m[1]}${m[2]}`) : '';
+}
+
+/**
+ * A date of birth as the profile's `<input type="date">` holds it (YYYY-MM-DD),
+ * from what a card or the AI might give: ISO (with or without a time),
+ * DD/MM/YYYY, DD-MM-YYYY or DD.MM.YYYY. '' for anything else or an impossible
+ * date — a wrong DOB saved silently is worse than a blank one.
+ */
+export function normaliseDob(value: unknown): string {
+  const text = String(value ?? '').trim();
+  let y: number; let mo: number; let d: number;
+  let m = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/);
+  if (m) {
+    [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  } else {
+    m = text.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
+    if (!m) return '';
+    [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  }
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) return '';
+  if (y < 1900 || date.getTime() > Date.now()) return '';
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** One of the profile's gender values (male / female / other), or ''. */
+export function normaliseGender(value: unknown): string {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (['m', 'male', 'man'].includes(text)) return 'male';
+  if (['f', 'female', 'woman'].includes(text)) return 'female';
+  if (['t', 'o', 'other', 'others', 'transgender', 'third gender'].includes(text)) return 'other';
+  return '';
+}
+
 export interface IndiaPlaces {
   states: { code: string; name: string }[];
   /** [city name, state code] */

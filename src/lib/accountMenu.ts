@@ -24,9 +24,17 @@
  * /billing/credits bounce a non-admin to /dashboard, and /api/audit-logs
  * hard-gates on role. This module decides what is worth OFFERING; the server
  * decides what is allowed.
+ *
+ * ── MEMBERS IS HERE TOO, AND ALSO IN THE RAIL ──────────────────────────────
+ * The roster is a workspace page, not an account page, and it stays in the
+ * sidebar's and the More screen's Workspace group. It is repeated here because
+ * this menu is the one surface that is identical on every width, so an admin
+ * reaches Members from the same place on a phone as on a desktop.
  */
 
-export type AccountItemKey = 'billing' | 'credits' | 'settings' | 'audit' | 'expired';
+import { utilityNavPath } from './moduleRegistry';
+
+export type AccountItemKey = 'members' | 'billing' | 'credits' | 'settings' | 'audit' | 'expired';
 
 export interface AccountItem {
   key: AccountItemKey;
@@ -136,6 +144,9 @@ export function accountMenuItems(
   if (role !== 'TENANT_ADMIN') return [];
 
   return [
+    // A real company route rather than `?company=`: unlike the four account
+    // pages, a company has a roster of its own (see `utilityNavPath`).
+    { key: 'members', name: 'Members', path: utilityNavPath('/users', companyId) },
     billing,
     { key: 'credits', name: 'AI Credits', path: here('/billing/credits') },
     settings,

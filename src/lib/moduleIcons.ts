@@ -18,6 +18,7 @@
  */
 import {
   Award,
+  Archive,
   BadgeCheck,
   Banknote,
   Briefcase,
@@ -37,6 +38,7 @@ import {
   ListTodo,
   Megaphone,
   PhoneCall,
+  Plane,
   Package,
   Receipt,
   ScrollText,
@@ -68,9 +70,11 @@ export const MODULE_ICON_MAP: Readonly<Record<string, LucideIcon>> = {
   rentals_subscriptions: FileSignature,
   utility_bills: Receipt,
   tax_compliance: Receipt,
+  travel: Plane,
+  other: Archive,
 
-  // The 14 business modules. Distinct silhouettes matter more here than in the
-  // personal set: a business user sees all fourteen in one sidebar, where a
+  // The 15 business modules. Distinct silhouettes matter more here than in the
+  // personal set: a business user sees all fifteen in one sidebar, where a
   // second Building or a third Receipt reads as a rendering bug.
   biz_registration: Building2,
   biz_tax: Receipt,
@@ -86,6 +90,8 @@ export const MODULE_ICON_MAP: Readonly<Record<string, LucideIcon>> = {
   biz_procurement: Package,
   biz_sales: Megaphone,
   biz_operations: Warehouse,
+  biz_travel: Plane,
+  biz_other: Archive,
 };
 
 /**

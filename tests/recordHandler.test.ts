@@ -197,10 +197,11 @@ describe('the gate', () => {
 
 describe('the registry', () => {
   it('covers the personal and business record scopes', () => {
-    // 14 personal pages + 14 business modules. `corporate_compliance` went with
-    // the personal `business` module in 0050.
-    expect(RECORD_SCOPE_KEYS).toHaveLength(28);
-    expect(RECORD_SCOPE_KEYS.filter((s) => s.startsWith('biz_'))).toHaveLength(14);
+    // 15 personal pages + 16 business modules. `corporate_compliance` went with
+    // the personal `business` module in 0050; `travel`/`biz_travel` came in 0065,
+    // and the `biz_other` catch-all in 0067.
+    expect(RECORD_SCOPE_KEYS).toHaveLength(31);
+    expect(RECORD_SCOPE_KEYS.filter((s) => s.startsWith('biz_'))).toHaveLength(16);
     expect(isRecordScope('biz_tax')).toBe(true);
     expect(isRecordScope('corporate_compliance')).toBe(false);
     expect(isRecordScope('medical')).toBe(true);

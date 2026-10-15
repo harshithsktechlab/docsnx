@@ -49,8 +49,8 @@
  * churned through its roster could not add anybody. Fixed here, once, for both
  * callers.
  */
-import { and, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
-import { db } from '@/lib/db';
+import { and, count, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { db, withTenant } from '@/lib/db';
 import { companyAccess, subscriptionPlans, tenants, users } from '@/db/schema';
 import { memberQuota, type AccountAxis } from '@/lib/billingAxis';
 import { storedQuantity } from '@/lib/addonQuantity';
@@ -143,6 +143,56 @@ export async function companySeatCap(tenantId: string): Promise<number> {
 
   return memberQuota(plan, tenant, 'business')
     + await activeAddonSeats(tenantId, 'extraMembersPerCompany');
+}
+
+/**
+ * How many seats one axis allows: the plan, the tenant's stored extras, and any
+ * live add-ons — for business, the allowance of EACH company.
+ *
+ * The one answer to "what is the limit", for the route that enforces it, the
+ * route that reports it on /billing and the stats on the Members screen. POST
+ * /api/users used to compute its own and left per-company add-ons out, so a
+ * seat that /billing and the member editor both counted was refused on add.
+ */
+export async function seatAllowance(tenantId: string, axis: AccountAxis): Promise<number> {
+  if (axis === 'business') return companySeatCap(tenantId);
+
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(tenants.id, tenantId),
+    columns: { subscriptionPlanId: true, extraMembers: true },
+  });
+  const plan = tenant?.subscriptionPlanId
+    ? await db.query.subscriptionPlans.findFirst({
+      where: eq(subscriptionPlans.id, tenant.subscriptionPlanId),
+      columns: { maxMembers: true },
+    })
+    : null;
+
+  return memberQuota(plan, tenant, 'personal')
+    + await activeAddonSeats(tenantId, 'extraMembers');
+}
+
+/**
+ * Used, allowed and left, for one workspace — the household, or one company.
+ * `remaining` never goes negative: a tenant who downgraded below its roster is
+ * full, not owed seats.
+ */
+export async function seatUsage(
+  tenantId: string,
+  axis: AccountAxis,
+  companyId?: string | null,
+): Promise<{ used: number; limit: number; remaining: number }> {
+  const [limit, used] = await Promise.all([
+    seatAllowance(tenantId, axis),
+    withTenant(tenantId, async (tx) => {
+      const [row] = await tx
+        .select({ n: count() })
+        .from(users)
+        .where(seatPredicate(tenantId, axis, companyId));
+      return Number(row?.n ?? 0);
+    }),
+  ]);
+  return { used, limit, remaining: Math.max(0, limit - used) };
 }
 
 /**

@@ -38,12 +38,13 @@
  * one either.
  */
 import { NextResponse } from 'next/server';
+import { subCategoryTitle, withoutReadTitle } from '@/lib/records/autoTitle';
 import { db } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { documentManagerContext } from '@/lib/records/handler';
 import { resolveCategory } from '@/lib/documentCategoryResolver';
-import { UNCATEGORIZED } from '@/lib/documentCategories';
+import { isCatchAll } from '@/lib/documentCategories';
 import { isAcceptedUpload, uploadTypeError } from '@/lib/records/uploadTypes';
 import { refreshUploadLimit } from '@/lib/records/uploadLimitLoader';
 import { classifyDocument } from '@/lib/ai';
@@ -51,8 +52,8 @@ import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { AI_ERROR_CODES, AI_ERROR_MESSAGES } from '@/lib/aiKeyManager';
 import { driveReauthResponse, storageLimitResponse } from '@/lib/uploadErrors';
 import {
-  AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, runAutofill,
-  UNREADABLE_FILE_MESSAGE,
+  AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, pdfPasswordFrom,
+  pdfPasswordResponse, runAutofill, UNREADABLE_FILE_MESSAGE,
 } from '@/lib/records/autofillRun';
 
 export const dynamic = 'force-dynamic';
@@ -109,7 +110,9 @@ export async function POST(req: Request) {
     // Both model calls below read these same pages. This is the whole reason
     // the route exists; splitting it back into two requests re-introduces the
     // second rasterisation.
-    const { aiFiles, pagesTotal, unreadable } = await pagesForAi(upload);
+    const { aiFiles, pagesTotal, unreadable } = await pagesForAi(upload, {
+      pdfPassword: pdfPasswordFrom(form),
+    });
     if (aiFiles.length === 0) {
       return NextResponse.json({
         // `unreadable` names the ONE cause the user can act on: the file holds
@@ -128,9 +131,9 @@ export async function POST(req: Request) {
     );
 
     // The pair the model returned is already checked against the seeded
-    // taxonomy inside `classifyDocument` — Uncategorized when it does not fit
-    // in the household, and NO pair at all in a company, which has no
-    // catch-all. This resolves it to the row id the picker is keyed on; an
+    // taxonomy inside `classifyDocument` — the workspace's catch-all (Others:
+    // `other` in the household, `biz_other` in a company since 0067) when it
+    // does not fit. This resolves it to the row id the picker is keyed on; an
     // empty pair falls through to the 422 below, which asks the member to
     // choose. That is the honest answer, not a failure.
     const category = await resolveCategory(db, null, {
@@ -151,6 +154,8 @@ export async function POST(req: Request) {
     );
 
     const holderId = await matchHolderByName(proposal.holderName, user.tenantId, companyId);
+    // The catch-all is not a name: "Uncategorized - Ravi Kumar" says nothing.
+    const unclassified = isCatchAll(category);
     const base = {
       success: true,
       category: {
@@ -160,8 +165,15 @@ export async function POST(req: Request) {
         moduleName: category.moduleName,
         documentName: category.documentName,
       },
-      /** A clean name for the document, for the title input if it is empty. */
-      title: proposal.title,
+      /**
+       * The document's name, for the title input if it is empty: its
+       * sub-category and the person it belongs to ("PAN Card - Ravi Kumar"),
+       * never the heading printed at the top of the page. The classifier's own
+       * name only when the category has no name to give.
+       */
+      title: unclassified
+        ? proposal.title
+        : subCategoryTitle(category.documentName, proposal.holderName) || proposal.title,
       /**
        * Pre-selects "Belongs to" when the name on the document is one member's,
        * unambiguously. '' means the user chooses.
@@ -188,10 +200,7 @@ export async function POST(req: Request) {
      * document turns out to be — and the form reads the file again against the
      * category the user picks.
      */
-    if (
-      category.moduleKey === UNCATEGORIZED.moduleKey
-      && category.documentKey === UNCATEGORIZED.documentKey
-    ) {
+    if (unclassified) {
       return NextResponse.json({ ...base, fields: {}, unclassified: true });
     }
 
@@ -212,17 +221,30 @@ export async function POST(req: Request) {
       aiFiles, categoryKey, tenantId: user.tenantId, userId: user.id, companyId,
     });
 
+    // The extract pass reads the holder off the document too, and it is
+    // looking at the field the category declares for it rather than at a
+    // generic instruction. Preferred when pass 1 read nothing — and then the
+    // title names that holder too.
+    const readHolder = holderId || !result.holderName ? null : {
+      holderId: await matchHolderByName(result.holderName, user.tenantId, companyId),
+      holderName: result.holderName,
+      title: subCategoryTitle(category.documentName, result.holderName) || base.title,
+    };
+
     return NextResponse.json({
       ...base,
-      /** fieldKey → value, keyed exactly as the form's inputs are. */
-      fields: result.fields,
-      // The extract pass reads the holder off the document too, and it is
-      // looking at the field the category declares for it rather than at a
-      // generic instruction. Preferred when pass 1 read nothing.
-      ...(holderId || !result.holderName ? {} : {
-        holderId: await matchHolderByName(result.holderName, user.tenantId, companyId),
-        holderName: result.holderName,
-      }),
+      /**
+       * fieldKey → value, keyed exactly as the form's inputs are. Without
+       * `document_title`: the read copies it off the page heading, and `title`
+       * above is the document's name.
+       */
+      fields: withoutReadTitle(result.fields),
+      ...(readHolder ?? {}),
+      /**
+       * Words read off the document, for the keyword index. The page posts it
+       * back with the save; the vault hashes it and keeps no text.
+       */
+      searchText: result.searchText,
     });
   } catch (error: any) {
     // An unusable Google Drive grant is the tenant's to fix, not a fault here.
@@ -230,6 +252,10 @@ export async function POST(req: Request) {
     if (outOfSpace) return outOfSpace;
     const reauth = driveReauthResponse(error);
     if (reauth) return reauth;
+
+    // A locked PDF: the form asks for its password and sends the file again.
+    const locked = pdfPasswordResponse(error);
+    if (locked) return NextResponse.json(locked.body, { status: locked.status });
 
     // A model that returned something other than JSON is a failed read, not a
     // 500 — the form still works, the user just picks and types.

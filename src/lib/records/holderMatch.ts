@@ -9,7 +9,18 @@
  * Pure and separate from the route so the matching rules can be asserted
  * directly: getting them wrong files one member's passport under their
  * sibling, which is the kind of error nobody notices in a review grid.
+ *
+ * ── CLOSEST MATCH, NEVER A COIN TOSS ───────────────────────────────────────
+ * Documents carry names the member did not register under: a middle name
+ * ("Supriya Suresh Rai" for the member Supriya Rai), a surname cut to an
+ * initial ("Supriya Aditya R"), surname-first ordering off a PAN card, an OCR
+ * slip. So an exact normalised match is tried first, and failing that the
+ * member whose FIRST and LAST names come closest — middle names ignored on
+ * both sides — is taken. When two members come equally close nobody is picked:
+ * a missing "Belongs to" is one tap to fix, a wrong one goes unnoticed.
  */
+
+import { isWholeWord, wordScore } from './nameSimilarity';
 
 /**
  * The name fields each scan category puts a PERSON in.
@@ -62,6 +73,77 @@ export function normalizeName(value: unknown): string {
     .trim();
 }
 
+/** Titles a document prints before a name; they say nothing about WHO. */
+const HONORIFICS = new Set([
+  'mr', 'mrs', 'ms', 'miss', 'dr', 'shri', 'sri', 'smt', 'kumari', 'km', 'late',
+]);
+
+/**
+ * "Supriya Rai D/O Suresh Rai" names Supriya, not Suresh: everything from a
+ * relation marker on describes someone else. Matched on the raw string, since
+ * `normalizeName` turns the slash into a space.
+ */
+const RELATION_MARKER = /\b(?:[sdwc]\s*\/\s*o|son of|daughter of|wife of|care of)\b.*$/i;
+
+/**
+ * The words of a name, ready to compare one by one: normalised, cut at a
+ * relation marker, and with leading titles dropped.
+ */
+export function nameTokens(value: unknown): string[] {
+  if (!value || typeof value !== 'string') return [];
+  const words = normalizeName(value.replace(RELATION_MARKER, ' ')).split(' ').filter(Boolean);
+  while (words.length > 1 && HONORIFICS.has(words[0])) words.shift();
+  return words;
+}
+
+/** A closest match has to score at least this on first AND last name. */
+export const MATCH_THRESHOLD = 0.88;
+
+/**
+ * How far the best member has to lead the runner-up. Two members within this
+ * of each other ("Supriya S R" against Supriya Rai and Supriya Rao) are a tie,
+ * and a tie picks nobody.
+ */
+export const MATCH_MARGIN = 0.03;
+
+/**
+ * How closely a name on a document fits a member's name, 0 to 1.
+ *
+ * Only the first and last words are compared — a middle name on either side,
+ * present or absent, matching or not, never counts against a match. Tried in
+ * the member's order and surname-first ("RAI SUPRIYA SURESH" off a PAN card),
+ * and the better reading wins.
+ *
+ * The first name must agree as a WORD: "S Rai" would otherwise fit every Rai
+ * in the family. A one-word name on either side has no surname to confirm
+ * anything with, so it only ever matches exactly (via `findMember`'s first
+ * step), and scores 0 here.
+ */
+export function nameScore(scan: readonly string[], member: readonly string[]): number {
+  if (scan.length < 2 || member.length < 2) return 0;
+  const mFirst = member[0];
+  const mLast = member[member.length - 1];
+
+  const reading = (first: string, last: string) => {
+    if (!isWholeWord(first, mFirst)) return 0;
+    const firstScore = wordScore(first, mFirst);
+    if (firstScore < MATCH_THRESHOLD) return 0;
+    return Math.min(firstScore, wordScore(last, mLast));
+  };
+
+  return Math.max(
+    reading(scan[0], scan[scan.length - 1]),
+    reading(scan[1], scan[0]),
+  );
+}
+
+/** What a batch matches against: exact names, and every member's words. */
+export interface MemberIndex {
+  /** Normalised name → member id, or `null` when two members share it. */
+  exact: Map<string, string | null>;
+  people: Array<{ id: string; tokens: string[] }>;
+}
+
 /**
  * Build the lookup a batch matches against.
  *
@@ -71,14 +153,47 @@ export function normalizeName(value: unknown): string {
  */
 export function indexMembers(
   members: ReadonlyArray<{ id: string; name: string }>,
-): Map<string, string | null> {
-  const byName = new Map<string, string | null>();
+): MemberIndex {
+  const exact = new Map<string, string | null>();
+  const people: MemberIndex['people'] = [];
   for (const m of members) {
     const key = normalizeName(m.name);
     if (!key) continue;
-    byName.set(key, byName.has(key) ? null : m.id);
+    exact.set(key, exact.has(key) ? null : m.id);
+    people.push({ id: m.id, tokens: nameTokens(m.name) });
   }
-  return byName;
+  return { exact, people };
+}
+
+/**
+ * The member a name belongs to, or null.
+ *
+ * An exact normalised match wins outright — and an exact name two members
+ * share is an answer too: nobody, never a guess between them. Otherwise the
+ * member with the best `nameScore` at or above `MATCH_THRESHOLD`, provided no
+ * other member comes within `MATCH_MARGIN` of them.
+ */
+export function findMember(name: unknown, index: MemberIndex): string | null {
+  const key = normalizeName(name);
+  if (!key) return null;
+  if (index.exact.has(key)) return index.exact.get(key) ?? null;
+
+  const scan = nameTokens(name);
+  let best: string | null = null;
+  let bestScore = 0;
+  let runnerUp = 0;
+  for (const person of index.people) {
+    const score = nameScore(scan, person.tokens);
+    if (score > bestScore) {
+      runnerUp = bestScore;
+      bestScore = score;
+      best = person.id;
+    } else if (score > runnerUp) {
+      runnerUp = score;
+    }
+  }
+  if (bestScore < MATCH_THRESHOLD) return null;
+  return bestScore - runnerUp >= MATCH_MARGIN ? best : null;
 }
 
 /**
@@ -116,20 +231,18 @@ export function readHolderName(record: any): string {
 /**
  * The member a scanned record belongs to, or null.
  *
- * ── EXACT MATCH ONLY ───────────────────────────────────────────────────────
- * Normalised equality, never fuzzy. The review grid's dropdown makes correcting
- * a MISSING holder cheap, while a WRONG one is easy to miss and is then written
- * to the audit log as the reviewer's own choice. An ambiguous name is left
- * unmatched for the same reason.
+ * Each name the record offers is tried in turn through `findMember`: exact
+ * first, then the closest member by first and last name. The review grid's
+ * dropdown makes correcting a MISSING holder cheap, while a WRONG one is easy
+ * to miss and is then written to the audit log as the reviewer's own choice —
+ * so a tie between two members is left unmatched.
  */
 export function matchHolder(
   record: any,
-  byName: ReadonlyMap<string, string | null>,
+  index: MemberIndex,
 ): string | null {
   for (const name of holderNames(record)) {
-    const key = normalizeName(name);
-    if (!key) continue;
-    const hit = byName.get(key);
+    const hit = findMember(name, index);
     if (hit) return hit;
   }
   return null;

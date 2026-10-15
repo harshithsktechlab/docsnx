@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  DOCUMENT CATEGORY TAXONOMY — SINGLE SOURCE OF TRUTH (28 modules / 151)  ║
+ * ║  DOCUMENT CATEGORY TAXONOMY — SINGLE SOURCE OF TRUTH (30 modules / 163)  ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * Every document is filed under exactly one row of this taxonomy, resolved to
@@ -122,7 +122,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
     moduleKey: 'identity',
     moduleName: 'Identity',
     subCategories: [
-      { documentKey: 'aadhaar_card', documentName: 'Aadhaar Card (all members)' },
+      { documentKey: 'aadhaar_card', documentName: 'Aadhaar Card' },
       { documentKey: 'pan_card', documentName: 'PAN Card' },
       { documentKey: 'passport', documentName: 'Passport' },
       { documentKey: 'voter_id', documentName: 'Voter ID' },
@@ -147,6 +147,10 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'epf_ppf_nps_statements', documentName: 'EPF / PPF / NPS statements' },
       { documentKey: 'cheque_books', documentName: 'Cheque books, cancelled cheques' },
       { documentKey: 'bank_locker_agreement', documentName: 'Bank locker agreement and inventory list' },
+      // 0070. What is IN the locker, one record per item — owner, weight,
+      // invoice, photos — each pointing at its `bank_locker_agreement` through
+      // the `locker_ref` record_link field.
+      { documentKey: 'locker_items', documentName: 'Locker inventory — jewellery & valuables' },
     ],
   },
   {
@@ -279,6 +283,25 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
   },
   {
     /**
+     * Added by 0065 in the free slot 14. Before it, a flight e-ticket had
+     * nowhere to go and the classifier — told never to use the fallback — filed
+     * it under Rentals & Subscriptions on the strength of a "convenience fee"
+     * and a card-offer banner.
+     */
+    moduleNo: 14,
+    moduleKey: 'travel',
+    moduleName: 'Travel & Tickets',
+    subCategories: [
+      { documentKey: 'flight_tickets', documentName: 'Flight tickets / e-tickets' },
+      { documentKey: 'train_tickets', documentName: 'Train tickets (IRCTC etc.)' },
+      { documentKey: 'bus_tickets', documentName: 'Bus tickets' },
+      { documentKey: 'hotel_bookings', documentName: 'Hotel / stay booking confirmations' },
+      { documentKey: 'cab_car_rentals', documentName: 'Cab / self-drive car rental bookings' },
+      { documentKey: 'event_tickets', documentName: 'Event, movie & other tickets' },
+    ],
+  },
+  {
+    /**
      * The one global catch-all. See "THE 15th MODULE" in the header — it exists
      * for a scan whose MODULE could not be determined, not as a per-module
      * miscellaneous bucket (0023 retired those 15 rows).
@@ -292,7 +315,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
   },
 
   // ── THE BUSINESS TAXONOMY ────────────────────────────────────────────────
-  // Modules 101-114, added for the Business Account. They live in this same
+  // Modules 101-115, added for the Business Account (115 by 0065). They live in this same
   // list, and therefore in the same global `document_categories` table, because
   // a module key is simultaneously the permission key, the Drive folder name
   // and the AAD binding — a second parallel taxonomy would need a second copy
@@ -483,6 +506,35 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'utility_bills', documentName: 'Utility Bills (Business Premises)' },
     ],
   },
+  {
+    // Added by 0065, alongside the personal `travel` module.
+    moduleNo: 115,
+    moduleKey: 'biz_travel',
+    moduleName: 'Travel & Expenses',
+    subCategories: [
+      { documentKey: 'flight_tickets', documentName: 'Flight tickets / e-tickets' },
+      { documentKey: 'train_tickets', documentName: 'Train tickets' },
+      { documentKey: 'bus_tickets', documentName: 'Bus tickets' },
+      { documentKey: 'hotel_bookings', documentName: 'Hotel / stay booking confirmations' },
+      { documentKey: 'cab_car_rentals', documentName: 'Cab / car rental bookings' },
+      { documentKey: 'travel_expense_claims', documentName: 'Travel expense claims / reimbursements' },
+    ],
+  },
+  {
+    /**
+     * The company's catch-all, added by 0067 — the business twin of `other`.
+     * A company document the classifier could not place used to come back with
+     * no category at all, and the member faced a blank picker. It lands here
+     * instead: visible, saveable, and changed from the picker or the edit
+     * dialog like any other category. Hidden from the sidebar, like `other`.
+     */
+    moduleNo: 116,
+    moduleKey: 'biz_other',
+    moduleName: 'Others',
+    subCategories: [
+      { documentKey: 'uncategorized', documentName: 'Others' },
+    ],
+  },
 ] as const;
 
 /**
@@ -498,6 +550,35 @@ export const UNCATEGORIZED = {
   moduleName: 'Others',
   documentName: 'Others',
 } as const;
+
+/** The company workspace's catch-all — `UNCATEGORIZED` for the business taxonomy. */
+export const BUSINESS_UNCATEGORIZED = {
+  moduleNo: 116,
+  moduleKey: 'biz_other',
+  documentKey: 'uncategorized',
+  moduleName: 'Others',
+  documentName: 'Others',
+} as const;
+
+/** Every catch-all module key — `other` and `biz_other`. */
+export const CATCH_ALL_MODULE_KEYS: readonly string[] = [
+  UNCATEGORIZED.moduleKey, BUSINESS_UNCATEGORIZED.moduleKey,
+];
+
+/** The catch-all an unplaced document of this taxonomy files under. */
+export function catchAllFor(scope: 'personal' | 'business' = 'personal') {
+  return scope === 'business' ? BUSINESS_UNCATEGORIZED : UNCATEGORIZED;
+}
+
+/**
+ * Is this pair a catch-all — the classifier saying "I don't know" rather than
+ * naming a category? True for either taxonomy's.
+ */
+export function isCatchAll(key: { moduleKey?: unknown; documentKey?: unknown } | null | undefined): boolean {
+  return Boolean(key)
+    && CATCH_ALL_MODULE_KEYS.includes(key!.moduleKey as string)
+    && key!.documentKey === UNCATEGORIZED.documentKey;
+}
 
 export interface SeedCategoryRow {
   moduleNo: number;
@@ -530,7 +611,7 @@ export const DOCUMENT_CATEGORY_SEED: readonly SeedCategoryRow[] =
  * ║   TWO TAXONOMIES, ONE TABLE — the `biz_` prefix                          ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * Personal modules (1-15) and business modules (101-114) share
+ * Personal modules (1-15) and business modules (101-115) share
  * `document_categories`, and deliberately so. A module key is simultaneously
  * the `hasPermission` key, the Drive folder name and half the AAD binding — a
  * second, parallel taxonomy table would need a second copy of all three, and
@@ -604,7 +685,7 @@ export function keysForWorkspace<T extends { moduleKey: string }>(
 export const PERSONAL_CATEGORY_MODULES: readonly DocumentCategoryModule[] =
   DOCUMENT_CATEGORY_MODULES.filter((m) => !isBusinessModule(m.moduleKey));
 
-/** The 14 business modules. */
+/** The 15 business modules. */
 export const BUSINESS_CATEGORY_MODULES: readonly DocumentCategoryModule[] =
   DOCUMENT_CATEGORY_MODULES.filter((m) => isBusinessModule(m.moduleKey));
 
@@ -631,6 +712,7 @@ export const MODULE_COLORS: Readonly<Record<string, { fg: string; bg: string }>>
   rentals_subscriptions: { fg: '#ec4899', bg: 'rgba(236, 72, 153, 0.12)' },
   utility_bills: { fg: '#84cc16', bg: 'rgba(132, 204, 22, 0.12)' },
   tax_compliance: { fg: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.12)' },
+  travel: { fg: '#0284c7', bg: 'rgba(2, 132, 199, 0.12)' },
   other: { fg: '#94a3b8', bg: 'rgba(148, 163, 184, 0.12)' },
 
   // Business taxonomy. `biz_registration` inherits the indigo of the personal
@@ -649,6 +731,8 @@ export const MODULE_COLORS: Readonly<Record<string, { fg: string; bg: string }>>
   biz_procurement: { fg: '#84cc16', bg: 'rgba(132, 204, 22, 0.12)' },
   biz_sales: { fg: '#eab308', bg: 'rgba(234, 179, 8, 0.12)' },
   biz_operations: { fg: '#ef4444', bg: 'rgba(239, 68, 68, 0.12)' },
+  biz_travel: { fg: '#0284c7', bg: 'rgba(2, 132, 199, 0.12)' },
+  biz_other: { fg: '#94a3b8', bg: 'rgba(148, 163, 184, 0.12)' },
 };
 
 export const DEFAULT_MODULE_COLOR = { fg: '#94a3b8', bg: 'rgba(148, 163, 184, 0.12)' };
@@ -749,7 +833,7 @@ export function subCategoriesFor(moduleKey: string): readonly DocumentSubCategor
  */
 const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   identity: 'Government photo ID and civil identity of a PERSON. Not a company\'s registrations.',
-  bank_investments: 'A private individual\'s banking, investments, loans and retirement savings.',
+  bank_investments: 'A private individual\'s banking — including bank account statements and passbooks — investments, loans and retirement savings.',
   insurance: 'Any insurance POLICY or premium receipt — life, health, vehicle, home, term.',
   property_legal: 'Ownership, transfer and inheritance of immovable property; deeds and court orders.',
   education: 'Proof of study: mark sheets, degrees, transfer certificates, exam scorecards.',
@@ -758,17 +842,18 @@ const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   vehicle: 'Papers that follow the VEHICLE itself — registration, emissions, purchase. A motor insurance policy is Insurance, and is listed under Vehicle from there.',
   civil_government: 'Civil status and entitlement certificates issued by a government body.',
   warranty_amc: 'Cover for an appliance or equipment: warranty cards, annual maintenance contracts.',
-  rentals_subscriptions: 'Recurring agreements to use something owned by someone else.',
+  rentals_subscriptions: 'Ongoing agreements that renew or recur: a rental or lease, or a periodic service plan (OTT, SaaS, gym). Not a one-off booking or ticket.',
   utility_bills: 'A periodic consumption bill for electricity, gas or water at a premises.',
   tax_compliance: 'Tax deducted, tax paid in advance, declared wealth, pension orders.',
+  travel: 'A booking or ticket for one journey, stay or event — PNR, booking ID, date of travel. A one-off purchase, never a subscription, even when the page carries offers or a convenience fee.',
 
   // Business taxonomy. These modules are only ever rendered into a prompt for a
   // BUSINESS scan (see `buildAiCategoryList`), so the boundaries they state are
   // against each other, not against the personal modules above.
   biz_registration: 'A company\'s own EXISTENCE and legal form — how the entity was constituted and registered.',
   biz_tax: 'The entity\'s tax registrations, periodic returns and tax audit reports.',
-  biz_finance: 'Books of account and financial statements. Not bank-issued paper, which is Banking & Credit.',
-  biz_banking: 'Paper the BANK issues to the entity — facilities, sanctions, guarantees and instruments.',
+  biz_finance: 'Books of account, financial statements, invoices — and the entity\'s bank account statements.',
+  biz_banking: 'Credit and account paperwork the BANK issues to the entity — facilities, sanctions, guarantees and instruments. Not account statements, which are Financial & Accounting.',
   biz_licenses: 'Permission from a REGULATOR to operate or to trade in something. Not the entity registration itself.',
   biz_compliance: 'Periodic statutory FILINGS and returns made to a registrar or a labour authority.',
   biz_contracts: 'An agreement with an OUTSIDE party. Staff paperwork belongs to Human Resources.',
@@ -779,13 +864,14 @@ const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   biz_procurement: 'The BUYING side: orders raised on suppliers and the compliance evidence they provide.',
   biz_sales: 'The SELLING side: what was promised to a customer and the collateral that promised it.',
   biz_operations: 'Physical premises and things the entity OWNS or runs, and the bills for them.',
+  biz_travel: 'Staff business travel: tickets, stay bookings and the expense claims for them. Not premises or assets, which are Operations.',
 };
 
 /**
  * The taxonomy rendered for an AI prompt, grouped by module:
  *
  *   Module 1 — Identity (moduleKey: "identity"):
- *     - "aadhaar_card": Aadhaar Card (all members)
+ *     - "aadhaar_card": Aadhaar Card
  *     …
  *
  * The module key is spelled out in the header so the model can emit both halves
@@ -829,9 +915,13 @@ export interface AiCategoryModule {
  * classifier would start disagreeing about where a document goes — the failure
  * the module-hints comment above warns about, one level up.
  */
-export function renderAiCategoryList(modules: readonly AiCategoryModule[]): string {
+export function renderAiCategoryList(
+  modules: readonly AiCategoryModule[],
+  scope: TaxonomyScope = modules.some((m) => isBusinessModule(m.moduleKey)) ? 'business' : 'personal',
+): string {
+  const fallback = catchAllFor(scope);
   const rendered = modules
-    .filter((m) => m.moduleKey !== UNCATEGORIZED.moduleKey)
+    .filter((m) => !CATCH_ALL_MODULE_KEYS.includes(m.moduleKey))
     .map((m) => {
       const items = m.subCategories
         // A mirror alias is a second ADDRESS for another module's category, not
@@ -855,7 +945,7 @@ export function renderAiCategoryList(modules: readonly AiCategoryModule[]): stri
 
   return [
     ...rendered,
-    `   Fallback (moduleKey: "${UNCATEGORIZED.moduleKey}"):\n     - "${UNCATEGORIZED.documentKey}": use ONLY when the document genuinely fits none of the above.`,
+    `   Fallback (moduleKey: "${fallback.moduleKey}"):\n     - "${fallback.documentKey}": use ONLY when the document genuinely fits none of the above.`,
   ].join('\n');
 }
 
@@ -876,5 +966,6 @@ export function renderAiCategoryList(modules: readonly AiCategoryModule[]): stri
 export function buildAiCategoryList(scope: TaxonomyScope = 'personal'): string {
   return renderAiCategoryList(
     scope === 'business' ? BUSINESS_CATEGORY_MODULES : PERSONAL_CATEGORY_MODULES,
+    scope,
   );
 }

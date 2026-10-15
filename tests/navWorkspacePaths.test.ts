@@ -163,6 +163,22 @@ function clientFiles(): string[] {
   return out;
 }
 
+describe('navModulesFrom keeps Others in the rail (0068)', () => {
+  it('lists the household catch-all last in the personal rail only', () => {
+    const rows = [row('identity', 'pan_card', 1), row('other', 'uncategorized', 15), row('biz_other', 'uncategorized', 116)];
+    const personal = navModulesFrom(rows, NAV_MODULES);
+    expect(personal.map((m) => m.key)).toEqual(['identity', 'other']);
+    expect(personal.at(-1)?.subCategories[0].path).toBe('/modules/other/uncategorized');
+  });
+
+  it('lists the company catch-all in the business rail, prefixed', () => {
+    const rows = [row('biz_tax', 'gst_return', 102), row('other', 'uncategorized', 15), row('biz_other', 'uncategorized', 116)];
+    const business = navModulesFrom(rows, BUSINESS_NAV_MODULES, 'business', PREFIX);
+    expect(business.map((m) => m.key)).toEqual(['biz_tax', 'biz_other']);
+    expect(business.at(-1)?.path).toBe(`${PREFIX}/modules/biz_other`);
+  });
+});
+
 describe('client files that build a module route', () => {
   // `moduleRegistry` and `usePermittedCategories` are where the two builders
   // LIVE — the prefix is their parameter, not something they should mention.

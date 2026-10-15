@@ -94,7 +94,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       db.select({
         records: count(),
         files: sql<number>`count(*) filter (where ${documents.filePath} is not null or ${documents.fileDriveId} is not null)`.mapWith(Number),
-        bytes: sum(documents.fileSize).mapWith(Number),
+        // Photo attachments (0069) included, matching checkStorageLimit.
+        bytes: sql<number>`coalesce(sum(${documents.fileSize}), 0) + coalesce(sum(${documents.attachmentSize}), 0)`.mapWith(Number),
       })
         .from(documents)
         .where(and(eq(documents.tenantId, tenantId), visibleDocument())),

@@ -220,6 +220,40 @@ export async function sendWhatsAppOtp(
 }
 
 /**
+ * Send any approved template with plain text body parameters.
+ *
+ * The generic sibling of `sendWhatsAppOtp`, for templates whose only
+ * components are body `{{n}}` placeholders — the member invite (0071). The
+ * template must exist and be approved in WhatsApp Manager under exactly this
+ * name and language, or Meta refuses the send and the result says so.
+ */
+export async function sendWhatsAppTemplate(
+  phone: string | null | undefined,
+  templateName: string,
+  bodyParams: readonly string[],
+  language = 'en',
+): Promise<SendResult> {
+  const number = toDialString(phone);
+  if (!number) return { success: false, error: 'No usable phone number' };
+
+  const config = await getWhatsAppConfig();
+  if (!config) return { success: false, error: 'WhatsApp not configured' };
+
+  return postToMeta(config, number, {
+    recipient_type: 'individual',
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: language },
+      components: [{
+        type: 'body',
+        parameters: bodyParams.map((text) => ({ type: 'text', text })),
+      }],
+    },
+  });
+}
+
+/**
  * The name to greet someone by.
  *
  * First name only — these messages land in a chat thread that anyone holding

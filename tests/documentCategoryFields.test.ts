@@ -752,8 +752,14 @@ describe('Document category field dictionary', () => {
       // thirty-five migrations, so it can only be expected to state a policy
       // for the categories that existed when it ran — and 0050 retired the
       // `business` module whose rows it did state.
+      //
+      // `travel` (0065) and the locker items (0070) postdate it the same way,
+      // and take their policy from the dictionary exactly as the business
+      // categories below do.
       const expected = DOCUMENT_CATEGORY_ENCRYPTED_FIELDS.filter(
-        (p) => !isBusinessModule(p.moduleKey),
+        (p) => !isBusinessModule(p.moduleKey) && p.moduleKey !== 'travel'
+          // 0070's locker items postdate 0015 too.
+          && !(p.moduleKey === 'bank_investments' && p.documentKey === 'locker_items'),
       );
       expect(stated).toHaveLength(expected.length);
       expect([...stated].sort()).toEqual(
@@ -769,7 +775,8 @@ describe('Document category field dictionary', () => {
       const business = DOCUMENT_CATEGORY_ENCRYPTED_FIELDS.filter(
         (p) => isBusinessModule(p.moduleKey),
       );
-      expect(business).toHaveLength(84);
+      // 90 real categories plus the `biz_other` catch-all (0067).
+      expect(business).toHaveLength(91);
       const unsealed = business.filter((p) => p.encryptedFields.length === 0);
       expect(unsealed.map((p) => `${p.moduleKey}/${p.documentKey}`)).toEqual([]);
       // `reference_number` is the one every business category carries.

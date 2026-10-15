@@ -1,3 +1,4 @@
+import { extractSearchText } from '../search/contentText';
 import { randomUUID } from 'crypto';
 import type { CategoryKey } from '../documentCategories';
 import { db } from '../db';
@@ -106,6 +107,8 @@ export async function storeModuleFile(
     fileName: file.name,
     mimeType: file.type,
     fileSize: file.size,
+    // Its text layer, for keyword search — hashed by the vault, never kept.
+    contentText: await extractSearchText(file),
     metadata: normalized.record,
     searchHashes: normalized.searchHashes,
     masked: normalized.masked,

@@ -127,6 +127,8 @@ vi.mock('@/lib/planGate', () => ({
 let whatsappConfig: any = { apiUrl: 'https://wa.test', apiKey: 'k', instance: 'i' };
 vi.mock('@/lib/whatsapp', () => ({
   getWhatsAppConfig: async () => whatsappConfig,
+  isWhatsAppEnabled: async () => whatsappConfig !== null,
+  sendWhatsAppTemplate: async () => ({ success: true }),
 }));
 
 // Only `writeAudit` touches the database. The action vocabulary and the
@@ -266,9 +268,35 @@ describe('a member is added as a record only, without access', () => {
     expect(inserted).not.toBeNull();
   });
 
-  it('starts with sign-in off until the admin gives access', async () => {
+  it('starts with sign-in off when the member is given no access', async () => {
     await createUser(createRequest(MEMBER));
     expect(inserted.signInDisabledAt).toBeInstanceOf(Date);
+  });
+
+  // 0071: sign-in follows access, and an invited member sets their own password.
+  const VIEW = [{ module: 'identity', documentKey: null, canView: true }];
+
+  it('turns sign-in on and invites when access is given and a channel can reach them', async () => {
+    const { password: _p, ...invited } = MEMBER;
+    const res = await createUser(createRequest({ ...invited, permissions: VIEW }));
+    expect(res.status).toBe(201);
+    expect(inserted.signInDisabledAt).toBeNull();
+    // No admin password: they finish on /activate.
+    expect(inserted.activatedAt).toBeNull();
+    expect((await res.json()).invite).toMatchObject({ whatsapp: 'sent' });
+  });
+
+  it('keeps sign-in off, and says why, when access is given but nothing can reach them', async () => {
+    whatsappConfig = null;
+    const { password: _p, ...invited } = MEMBER;
+    const res = await createUser(createRequest({ ...invited, permissions: VIEW }));
+    expect(inserted.signInDisabledAt).toBeInstanceOf(Date);
+    expect((await res.json()).inviteBlocked).toBe(true);
+  });
+
+  it('treats an admin-chosen password as already set up', async () => {
+    await createUser(createRequest({ ...MEMBER, permissions: VIEW }));
+    expect(inserted.activatedAt).toBeInstanceOf(Date);
   });
 
   it('does not turn off sign-in for a TENANT_ADMIN', async () => {

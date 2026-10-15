@@ -6,8 +6,9 @@
  * pre-selects "Belongs to" — which means a wrong match silently mislabels a
  * record, and the reviewer signs off on it.
  *
- * So the rule is exact-normalised-equality and nothing looser. These tests pin
- * both halves of that: what must match, and what must NOT.
+ * So the rule is exact first, then the CLOSEST member by first and last name
+ * (middle names ignored), and never a guess between two equally close members.
+ * These tests pin both halves of that: what must match, and what must NOT.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -15,6 +16,8 @@ import {
   normalizeName,
   indexMembers,
   matchHolder,
+  findMember,
+  nameTokens,
   readHolderName,
 } from '@/lib/records/holderMatch';
 
@@ -60,10 +63,11 @@ describe('matchHolder', () => {
     expect(matchHolder(doc({ idHolderName: 'Rajesh Kumar (HUF)' }), byName)).toBe('u-rajesh');
   });
 
-  it('does NOT match a near miss', () => {
-    // No fuzzy matching, deliberately. 'Rajesh Kumar' and 'Rajesh Kumari' are
-    // two people, and a levenshtein of 1 would merge them.
-    expect(matchHolder(doc({ idHolderName: 'Rajesh Kumari' }), byName)).toBeNull();
+  it('takes the closest member for a near miss', () => {
+    expect(matchHolder(doc({ idHolderName: 'Rajesh Kumari' }), byName)).toBe('u-rajesh');
+  });
+
+  it('does NOT match a lone first name or a first initial', () => {
     expect(matchHolder(doc({ idHolderName: 'Rajesh' }), byName)).toBeNull();
     expect(matchHolder(doc({ idHolderName: 'R Kumar' }), byName)).toBeNull();
   });
@@ -170,8 +174,8 @@ describe('matchHolder — the universal holderName', () => {
     )).toBe('u-priya');
   });
 
-  it('is still exact — a near miss stays unmatched', () => {
-    expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh Kumari' }, byName)).toBeNull();
+  it('takes the closest member, but never on a lone first name', () => {
+    expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh Kumari' }, byName)).toBe('u-rajesh');
     expect(matchHolder({ category: 'utility_bill', holderName: 'Rajesh' }, byName)).toBeNull();
   });
 
@@ -224,5 +228,67 @@ describe('readHolderName', () => {
     expect(readHolderName({ category: 'utility_bill', extractedData: { providerName: 'MSEB' } })).toBe('');
     expect(readHolderName({ category: 'medical', extractedData: { patientName: '   ' } })).toBe('');
     expect(readHolderName(undefined)).toBe('');
+  });
+});
+
+/**
+ * ── CLOSEST MATCH ───────────────────────────────────────────────────────────
+ *
+ * A member registers as "Supriya Rai"; her documents print a middle name, cut
+ * the surname to an initial, or put the surname first. Every one of those is
+ * her, and none matched while the rule was exact.
+ */
+describe('findMember — the closest member', () => {
+  const SUPRIYA = { id: 'u-supriya', name: 'Supriya Rai' };
+  const index = indexMembers([SUPRIYA, RAJESH, PRIYA]);
+
+  it.each([
+    'Supriya Suresh Rai',
+    'Supriya Aditya Rai',
+    'Supriya Aditya R',
+    'Supriya Suresh R.',
+    'SUPRIYA RAI',
+    'RAI SUPRIYA SURESH',
+    'Mrs. Supriya Rai',
+    'Supriya Rai D/O Suresh Rai',
+    'Supirya Rai',
+  ])('matches %s to Supriya Rai', (name) => {
+    expect(findMember(name, index)).toBe('u-supriya');
+  });
+
+  it('ignores middle names on the member side too', () => {
+    const registered = indexMembers([{ id: 'u-s', name: 'Supriya Aditya Rai' }, RAJESH]);
+    expect(findMember('Supriya Rai', registered)).toBe('u-s');
+    expect(findMember('Supriya Suresh Rai', registered)).toBe('u-s');
+  });
+
+  it('picks nobody when two members are equally close', () => {
+    const twins = indexMembers([SUPRIYA, { id: 'u-rao', name: 'Supriya Rao' }]);
+    expect(findMember('Supriya S R', twins)).toBeNull();
+    // ...but a full surname still tells them apart.
+    expect(findMember('Supriya Suresh Rai', twins)).toBe('u-supriya');
+    expect(findMember('Supriya Suresh Rao', twins)).toBe('u-rao');
+  });
+
+  it('never falls through to a closest match when an exact name is shared', () => {
+    const shared = indexMembers([
+      { id: 'u-1', name: 'Supriya Rai' },
+      { id: 'u-2', name: 'Supriya Rai' },
+    ]);
+    expect(findMember('Supriya Rai', shared)).toBeNull();
+  });
+
+  it('does not match a different first name or surname', () => {
+    expect(findMember('Sunita Rai', index)).toBeNull();
+    expect(findMember('Supriya Sharma', index)).toBeNull();
+    expect(findMember('S Rai', index)).toBeNull();
+    expect(findMember('', index)).toBeNull();
+  });
+});
+
+describe('nameTokens', () => {
+  it('drops titles and everything from a relation marker on', () => {
+    expect(nameTokens('Smt. Supriya Rai W/O Aditya Rai')).toEqual(['supriya', 'rai']);
+    expect(nameTokens('Dr Rajesh Kumar')).toEqual(['rajesh', 'kumar']);
   });
 });

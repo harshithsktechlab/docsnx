@@ -22,6 +22,7 @@ import { recordScopeConfig, scopeForCategory } from '@/lib/records/registry';
 import { categoryDescriptor } from '@/lib/taxonomyRegistry';
 import { identifierFields, ocrFieldKeys } from '@/lib/documentCategoryFields';
 import { serverError } from '@/lib/routeError';
+import { attachmentSlotFor } from '@/lib/records/recordAttachments';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,12 @@ export async function GET(req: Request, { params }: Params) {
         // these are. See categoryDescriptor.
         category: await categoryDescriptor(categoryKey),
         fields,
+        /**
+         * Whether records here take photos beside their document (0069), and
+         * what the document itself is called — "Invoice / bill" for a jewel.
+         * Null for every category without a slot.
+         */
+        attachmentSlot: attachmentSlotFor(categoryKey),
         /**
          * Which fields the server treats as this category's identity, so the
          * form can say so before the user has typed a policy number twice. The

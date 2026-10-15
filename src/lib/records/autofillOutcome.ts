@@ -14,7 +14,9 @@
  *                 there. It sends the category ANYWAY so the message can name
  *                 it — which is not the same as selecting it.
  *   unclassified  the model could not place the document, so it landed in the
- *                 catch-all. Nothing is pre-selected; the user picks.
+ *                 catch-all. Others is pre-selected when the picker offers it
+ *                 (`fallbackCategoryId`), so the document can be saved as it
+ *                 stands; the user changes it if they know better.
  *   failed        no usable answer at all.
  *
  * ── WHY THIS IS A MODULE AND NOT A BRANCH IN THE PAGE ──────────────────────
@@ -35,7 +37,7 @@
  * Pure: no fetch, no React, no DB. The page is a 2,300-line client component;
  * this is the part worth holding to account in a test.
  */
-import { UNCATEGORIZED } from '@/lib/documentCategories';
+import { isCatchAll } from '@/lib/documentCategories';
 
 /** One row of the master category list, as /api/document-categories returns it. */
 export interface CategoryOption {
@@ -97,6 +99,13 @@ export interface AutofillOutcome {
   holderId: string;
   /** The name that was READ, matched or not, so an empty picker can say why. */
   holderName: string;
+  /**
+   * ONLY set on `unclassified`, and only when the picker offers the catch-all:
+   * the Others row to pre-select. Kept apart from `categoryId` because nothing
+   * was READ against it — there are no fields to park, and picking a real
+   * category afterwards must still trigger a read (see autoReadOnPick.ts).
+   */
+  fallbackCategoryId: string;
   /** ONLY populated on `apply`; every other outcome has nothing to fill in. */
   fields: Record<string, unknown>;
   /** What to tell the user. '' on a clean `apply`. */
@@ -105,9 +114,30 @@ export interface AutofillOutcome {
   pagesTotal: number;
 }
 
+/**
+ * The error codes both autofill routes answer a locked PDF with. Here, not in
+ * records/autofillRun.ts, because the page imports them and that module is
+ * server-only.
+ */
+export const PDF_PASSWORD_REQUIRED = 'PDF_PASSWORD_REQUIRED';
+export const PDF_PASSWORD_INCORRECT = 'PDF_PASSWORD_INCORRECT';
+
+/** Does this autofill answer ask for the PDF's password? */
+export function needsPdfPassword(json: { errorCode?: unknown } | null | undefined): boolean {
+  return json?.errorCode === PDF_PASSWORD_REQUIRED || json?.errorCode === PDF_PASSWORD_INCORRECT;
+}
+
+/** Said when the member closes the password prompt without unlocking the PDF. */
+export const PDF_PASSWORD_SKIPPED_MESSAGE =
+  'This PDF is password-protected, so it was not read. Pick its category below and fill the details in, or press Rescan and enter the password.';
+
 /** Said when the model could not place the document at all. */
 export const UNCLASSIFIED_MESSAGE =
   'Could not work out what this document is — pick the category and sub-category below and it will be read against them.';
+
+/** Said when it could not place it, and Others has been selected for it. */
+export const FILED_AS_OTHERS_MESSAGE =
+  'Could not work out what this document is, so it is filed under Others. If you know what it is, pick that category below and it will be read against it.';
 
 /** Said when the classification is real but unusable by this member. */
 export const UNAVAILABLE_CATEGORY_MESSAGE =
@@ -138,6 +168,7 @@ export function resolveAutofillOutcome(
   const base: AutofillOutcome = {
     kind: 'failed',
     categoryId: '',
+    fallbackCategoryId: '',
     moduleName: '',
     documentName: '',
     title: asString(json?.title),
@@ -151,18 +182,33 @@ export function resolveAutofillOutcome(
 
   const categoryId = asString(json?.category?.id);
   if (!json?.success || !categoryId) {
-    return { ...base, message: asString(json?.error) || FAILED_MESSAGE };
+    // A read that failed outright still files the document somewhere: Others,
+    // when the picker offers it, for the user to keep or change — the same
+    // footing as a document the model could not place.
+    const others = categoryOptions?.find((c) => isCatchAll(c));
+    return {
+      ...base,
+      fallbackCategoryId: others?.id ?? '',
+      message: asString(json?.error) || FAILED_MESSAGE,
+    };
   }
 
   // The catch-all is not an answer to "what is this" — it is the model saying
-  // it does not know. Selecting it would file the document in Others behind a
-  // form the user never chose, which is the one outcome nobody asked for.
+  // it does not know. So it is never an `apply`: there are no fields, and the
+  // read the user's own pick triggers must stay armed.
+  //
+  // It IS pre-selected, though, when the picker offers it. A blank picker made
+  // an honest "don't know" look like a broken form, and a guess at the closest
+  // category is worse than either — that is how a flight ticket ended up filed
+  // as a subscription. Others is visible, saveable and changeable.
   if (
     json.unclassified === true
-    || (json.category?.moduleKey === UNCATEGORIZED.moduleKey
-      && json.category?.documentKey === UNCATEGORIZED.documentKey)
+    || isCatchAll(json.category)
   ) {
-    return { ...base, kind: 'unclassified', message: UNCLASSIFIED_MESSAGE };
+    const offered = categoryOptions?.some((c) => c.id === categoryId) ?? false;
+    return offered
+      ? { ...base, kind: 'unclassified', fallbackCategoryId: categoryId, message: FILED_AS_OTHERS_MESSAGE }
+      : { ...base, kind: 'unclassified', message: UNCLASSIFIED_MESSAGE };
   }
 
   // The server already said this member may not file here, and sent the

@@ -118,7 +118,8 @@ describe('no add surface asks for a holder it renders no control for', () => {
   for (const path of SURFACES) {
     it(`${path} gates the holder on holderRequired()`, () => {
       const src = read(path);
-      expect(src).toMatch(/holderRequired\(companyId\) && !holderId/);
+      // `holderIds == null` is the multi-member picker's "untouched" (drizzle/0066).
+      expect(src).toMatch(/holderRequired\(companyId\) && holderIds == null/);
     });
 
     it(`${path} omits the holder rather than sending '' for a company`, () => {
@@ -126,7 +127,9 @@ describe('no add surface asks for a holder it renders no control for', () => {
       // cannot express "send nothing" — and sending '' sets is_global on a
       // record that belongs to the company, not to the household.
       const src = read(path);
-      expect(src).toMatch(/holderForWrite\(companyId,/);
+      // `holdersForWrite` is `holderForWrite` for the multi-member picker: in a
+      // company it applies the same single-holder rules and omits the key.
+      expect(src).toMatch(/holdersForWrite\(companyId,/);
       expect(src).not.toMatch(/holderPayload\(/);
     });
   }
@@ -187,7 +190,8 @@ describe('the handler write path', () => {
   it('validates the holder against the caller\'s tenant before writing', () => {
     // Only /api/documents checked this; the other fourteen took the id from the
     // request body and persisted it, so a uuid from another tenant would stick.
-    expect(handler).toMatch(/if \(holderId\) \{\s*await assertHolderInTenant\(user, holderId\)/);
+    // Every member of the set (drizzle/0066), not just the primary.
+    expect(handler).toMatch(/for \(const id of holderIds\) \{\s*await assertHolderInTenant\(user, id\)/);
     const assert_ = handler.slice(handler.indexOf('async function assertHolderInTenant'));
     expect(assert_).toMatch(/eq\(users\.tenantId, user\.tenantId\)/);
   });
@@ -197,7 +201,7 @@ describe('the handler write path', () => {
     // company record, or a business-only employee's onto a household one — the
     // pickers offer neither, but a request is not the picker. Unconditional:
     // a `companyId &&` guard here once left the household side unchecked.
-    expect(handler).toMatch(/if \(!await isWorkspaceMember\(user\.tenantId, holderId, companyId \?\? null\)\)/);
+    expect(handler).toMatch(/if \(!await isWorkspaceMember\(user\.tenantId, id, companyId \?\? null\)\)/);
     expect(handler).not.toMatch(/companyId && !await isWorkspaceMember/);
   });
 
@@ -277,8 +281,8 @@ describe('bulk scan sends a holder', () => {
     // never populated it, so every scanned record landed with holder_id NULL.
     // Via `rowHolderForWrite`, which is `holderForWrite` plus the row lookup —
     // the grid is the one surface whose answer is per row rather than per form.
-    expect(page).toMatch(/holderId: rowHolderForWrite\(/);
-    expect(page).toMatch(/holderForWrite\(companyId, rowHolder\(record\)\)/);
+    expect(page).toMatch(/\.\.\.rowHolderForWrite\(/);
+    expect(page).toMatch(/holdersForWrite\(companyId, rowHolders\(record\)\)/);
   });
 
   it('takes each row\'s holder from that row alone', () => {
@@ -382,11 +386,12 @@ describe('the scan fills "Belongs to" in, or the form refuses', () => {
     // pickers are a different question — a stored null genuinely means the
     // all members there — so only the add state is pinned.
     const docs = read('src/app/documents/page.js');
-    expect(docs).toMatch(/const \[holderId, setHolderId\] = useState\(''\)/);
+    expect(docs).toMatch(/const \[holderIds, setHolderIds\] = useState\(null\)/);
     // The scan grid has no batch default to open on at all: a row is answered
     // by its own picker, or it reads as unanswered and blocks the save.
     const scan = read('src/app/documents/bulk-scan/page.js');
-    expect(scan).toMatch(/const rowHolder = \(record\) => record\?\.holderId \?\? '';/);
+    expect(scan).toMatch(/if \(!record\?\.holderId\) return null;/);
+    expect(scan).toMatch(/const rowHolder = \(record\) => rowHolders\(record\) != null;/);
   });
 
   it('names the person it could not place, from one shared wording', () => {

@@ -87,7 +87,29 @@ const DATA_TYPES = [
   { id: 'email', value: 'email', label: 'Email address' },
   { id: 'phone', value: 'phone', label: 'Phone number' },
   { id: 'url', value: 'url', label: 'Web address' },
+  // 0069. A workspace member, or a typed name for someone outside the app.
+  { id: 'member', value: 'member', label: 'Member (or a name)' },
+  // Offered ONLY on a field that ships as a link: what it links to is declared
+  // by the dictionary (`linkTarget`) and cannot be set here, so the server
+  // refuses it anywhere else. See `typesFor`.
+  { id: 'record_link', value: 'record_link', label: 'Linked record', linkOnly: true },
 ];
+
+/**
+ * The type menu for one row. A shipped link may stay a link (or be turned into
+ * something else); nothing else may become one.
+ */
+function typesFor(row) {
+  const canLink = row?.default?.dataType === 'record_link';
+  return DATA_TYPES.filter((t) => !t.linkOnly || canLink);
+}
+
+/** "Linked record → Bank lockers", for a shipped link's row. */
+function linkTargetNote(row) {
+  const target = row?.default?.linkTarget;
+  if (!target) return null;
+  return `Links to ${target.moduleKey.replace(/_/g, ' ')} › ${target.documentKey.replace(/_/g, ' ')}`;
+}
 
 /** The menu entry a stored (dataType, display) pair corresponds to. */
 function typeId(dataType, display) {
@@ -929,14 +951,19 @@ function FieldRow({
               >
                 <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {DATA_TYPES.map((t) => (
+                  {typesFor(row).map((t) => (
                     <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {dataType === 'record_link' && linkTargetNote(row) && (
+                <p className="mt-1 text-xs text-muted-foreground">{linkTargetNote(row)}</p>
+              )}
               {row.override?.dataType && (
                 <p className="mt-1 text-xs text-amber-600">
                   Values already saved are not converted.
+                  {(row.default?.dataType === 'member' || row.default?.dataType === 'record_link')
+                    && ' Existing member / linked-record values will show as raw ids.'}
                 </p>
               )}
             </div>
@@ -1387,7 +1414,7 @@ function AddFieldDialog({ open, category, saving, error, onCancel, onCreate }) {
             <Select value={typeKey} onValueChange={setTypeKey}>
               <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {DATA_TYPES.map((t) => (
+                {DATA_TYPES.filter((t) => !t.linkOnly).map((t) => (
                   <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
                 ))}
               </SelectContent>

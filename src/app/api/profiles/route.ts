@@ -70,7 +70,9 @@ export async function GET(req: Request) {
     let idDocuments = null;
     try {
       const plainLegal = decryptJsonKeys(profile.legalDetails || {}, PROFILE_LEGAL_KEYS) as Record<string, any>;
-      const loaded = await loadProfileIdDocuments(user, targetUserId, plainLegal);
+      const loaded = await loadProfileIdDocuments(
+        user, targetUserId, plainLegal, (profile.personalDetails || {}) as Record<string, any>,
+      );
       idDocuments = loaded.idDocuments;
       if (loaded.backfilled) {
         profile = (await db.query.profiles.findFirst({ where: eq(profiles.userId, targetUserId) })) ?? profile;

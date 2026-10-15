@@ -75,11 +75,19 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import HolderSelect, {
-  holderValue, unmatchedHolderError, HOLDER_REQUIRED_MESSAGE,
+  ALL_MEMBERS, holderValues, unmatchedHolderError, HOLDER_REQUIRED_MESSAGE,
 } from '@/app/components/HolderSelect';
-import { holderRequired, holderForWrite } from '@/lib/records/holderScope';
+import { holderRequired, holdersForWrite } from '@/lib/records/holderScope';
+import { isCatchAll } from '@/lib/documentCategories';
+import OthersLabelInput from '@/app/components/OthersLabelInput';
+
+/** A preset single holder ('', 'all' or an id) as the multi-member value. */
+const presetHolders = (id) => (!id ? null : id === ALL_MEMBERS ? [] : [id]);
 import { focusFirstError } from '@/lib/records/focusFirstError';
 import FilePicker from '@/app/components/FilePicker';
+import { RecordPhotos } from '@/app/components/RecordPhotos';
+import { scopeForCategory } from '@/lib/records/registry';
+import { downscaleForScan, makeThumbnail } from '@/lib/records/imageDownscale';
 import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
 /**
  * The inputs themselves live in CategoryFieldInputs, because the Documents
@@ -91,6 +99,7 @@ import CategoryFieldInputs, {
   CustomFieldRows, LinkedCardRows, TITLE_KEY, asInputValue, hasLinkedCards,
   normaliseNumeric, visibleFields,
 } from '@/app/components/CategoryFieldInputs';
+import { withoutReadTitle } from '@/lib/records/autoTitle';
 import {
   CUSTOM_FIELDS_KEY, describeFieldErrors, isValid, validateField, validateRecord,
 } from '@/lib/records/fieldValidation';
@@ -107,6 +116,11 @@ export default function CategoryRecordForm({
   initialHolderId = '',
   /** Editing an existing record rather than adding one. */
   recordId = null,
+  /**
+   * Field values to start a NEW record with — "Add item to this locker"
+   * opens the item form with `{ locker_ref: <locker id> }`. Ignored on edit.
+   */
+  initialValues = null,
   onCreated,
 }) {
   /**
@@ -131,12 +145,25 @@ export default function CategoryRecordForm({
   const [values, setValues] = useState({});
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
-  const [holderId, setHolderId] = useState(initialHolderId);
+  // Several members may share a record (drizzle/0066): `null` is untouched,
+  // `[]` All members, else the chosen ids — see <HolderSelect multiple>.
+  const [holderIds, setHolderIds] = useState(() => presetHolders(initialHolderId));
   const [customRows, setCustomRows] = useState([]);
+  /** The member's label, on the Others form only (0068). */
+  const [label, setLabel] = useState('');
+  const catchAll = isCatchAll({ moduleKey, documentKey });
   /** `{ cards, text }` — see src/lib/records/linkedCards.ts. */
   const [cardsValue, setCardsValue] = useState({ cards: [], text: '' });
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState('');
+  /**
+   * Photo attachments (0069), for categories with a slot. Stored ones come
+   * with the record; new ones wait here and are uploaded after the record
+   * saves, because a photo needs the record's id to belong to.
+   */
+  const [existingPhotos, setExistingPhotos] = useState([]);
+  const [pendingPhotos, setPendingPhotos] = useState([]);
+  const [removedPhotos, setRemovedPhotos] = useState([]);
   /** The AI read of the attached document is in flight. */
   const [autofilling, setAutofilling] = useState(false);
   /** What the read produced, said in one line under the picker. */
@@ -157,6 +184,13 @@ export default function CategoryRecordForm({
    * they have been added.
    */
   const [holderNameFromScan, setHolderNameFromScan] = useState('');
+  /**
+   * Words the scan read off the attached document, posted back with the save
+   * as `searchText` so the record can be found by them. The server hashes them
+   * into the keyword index and keeps no text. Tied to the file it was read
+   * from, so a new attachment clears it.
+   */
+  const [searchTextFromScan, setSearchTextFromScan] = useState('');
   /**
    * Field keys currently holding an AI-suggested value rather than a typed one.
    *
@@ -232,9 +266,14 @@ export default function CategoryRecordForm({
     setErrors({});
     setTouched({});
     setCustomRows([]);
+    setLabel('');
     setCardsValue({ cards: [], text: '' });
     setFile(null);
+    setSearchTextFromScan('');
     setFileError('');
+    setExistingPhotos([]);
+    setPendingPhotos([]);
+    setRemovedPhotos([]);
     setAutofilling(false);
     setAutofillNote('');
     setAutofillError('');
@@ -243,7 +282,16 @@ export default function CategoryRecordForm({
     setFormError('');
     setDuplicate(null);
     setSeedFailed(false);
-    setHolderId(initialHolderId);
+    setHolderIds(presetHolders(initialHolderId));
+    // A new record may start pre-filled (an item added from its locker's card).
+    if (!recordId && initialValues) {
+      setValues(Object.fromEntries(
+        Object.entries(initialValues).map(([k, v]) => [k, asInputValue(v)]),
+      ));
+    }
+    // `initialValues` is read when the form OPENS, not tracked — a caller's
+    // fresh object literal on every render must not wipe what the user typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialHolderId, moduleKey, documentKey, recordId]);
 
   /**
@@ -293,7 +341,9 @@ export default function CategoryRecordForm({
         // still gets it from there, because that is what every list shows.
         if (json.record?.title) next[TITLE_KEY] = String(json.record.title);
         setValues(next);
-        setHolderId(holderValue(json.record?.holderId));
+        setHolderIds(holderValues(json.record));
+        setLabel(json.record?.customSubcategory || '');
+        setExistingPhotos(Array.isArray(json.record?.attachments) ? json.record.attachments : []);
 
         // Stored as JSON text under one sealed key — see the POST route.
         const rawCustom = stored[CUSTOM_FIELDS_KEY];
@@ -348,6 +398,38 @@ export default function CategoryRecordForm({
    */
   const cards = useMemo(() => hasLinkedCards(spec?.fields), [spec]);
 
+  /** This category's photo slot, or null — see src/lib/records/recordAttachments.ts. */
+  const photoSlot = spec?.attachmentSlot || null;
+  const recordScope = useMemo(
+    () => scopeForCategory({ moduleKey, documentKey }),
+    [moduleKey, documentKey],
+  );
+
+  /**
+   * Send the queued photo changes for a saved record: removals first (they free
+   * slots), then additions one at a time. Returns how many failed — the record
+   * itself is already saved, so a failure here is a warning, not a rollback.
+   */
+  const syncPhotos = async (savedId) => {
+    let failed = 0;
+    const base = `/api/modules/${moduleKey}/${documentKey}/${savedId}/attachments`;
+    for (const id of removedPhotos) {
+      const outcome = await apiRequest(
+        scoped(`${base}?attachmentId=${encodeURIComponent(id)}`), { method: 'DELETE' });
+      if (!outcome.ok) failed += 1;
+    }
+    for (const original of pendingPhotos) {
+      const photo = await downscaleForScan(original);
+      const thumb = await makeThumbnail(photo);
+      const body = new FormData();
+      body.append('photo', photo);
+      if (thumb) body.append('thumb', thumb);
+      const outcome = await postUpload(scoped(base), body, { method: 'POST' });
+      if (!outcome.ok) failed += 1;
+    }
+    return failed;
+  };
+
   const setValue = (key, value) => {
     setValues((prev) => ({ ...prev, [key]: value }));
     // Typed over an AI answer: it is the user's value now, so it loses the
@@ -389,6 +471,7 @@ export default function CategoryRecordForm({
    */
   const pickFile = (chosen) => {
     setFile(chosen);
+    setSearchTextFromScan('');
     setAutofillNote('');
     setAutofillError('');
     // The holder the LAST document named is no more current than the values it
@@ -462,12 +545,22 @@ export default function CategoryRecordForm({
         return;
       }
 
+      setSearchTextFromScan(typeof json.searchText === 'string' ? json.searchText : '');
+
       const specByKey = new Map(fields.map((f) => [f.fieldKey, f]));
       const nextValues = { ...values };
       const nextErrors = {};
       const applied = [];
 
-      for (const [key, value] of Object.entries(json.fields || {})) {
+      // The title is the route's `title` — sub-category and holder, "PAN Card
+      // - Ravi Kumar" — never a value read off the page, where the model copies
+      // the heading printed at the top. Same rule as every other key below:
+      // into a blank, or over an earlier AI answer. Not on edit: a stored
+      // title is the record's name and a re-read does not rename it.
+      const incoming = { ...withoutReadTitle(json.fields) };
+      if (!editing && json.title) incoming[TITLE_KEY] = json.title;
+
+      for (const [key, value] of Object.entries(incoming)) {
         const fieldSpec = specByKey.get(key);
         // A key with no input to land in is dropped rather than kept in state,
         // where it would be posted as a field this category does not have.
@@ -504,9 +597,9 @@ export default function CategoryRecordForm({
       // error: the record belongs to the company unless a member is picked.
       // The picker shows the name read, with "Use as company name" and "Add as
       // member", instead of a red box.
-      if (!holderId) {
+      if (holderIds == null) {
         if (json.holderId) {
-          setHolderId(json.holderId);
+          setHolderIds([json.holderId]);
           setHolderFromScan(true);
           setHolderNameFromScan('');
           setErrors((prev) => ({ ...prev, holderId: undefined }));
@@ -571,7 +664,7 @@ export default function CategoryRecordForm({
     // never set and this refused every business record with "1 field needs
     // attention" — over a form with nothing marked, because `holderId` is not a
     // spec field and owns no input to mark.
-    if (holderRequired(companyId) && !holderId) {
+    if (holderRequired(companyId) && holderIds == null) {
       clientErrors.holderId = errors.holderId || HOLDER_REQUIRED_MESSAGE;
     }
     if (!String(record[TITLE_KEY] ?? '').trim()) {
@@ -601,12 +694,15 @@ export default function CategoryRecordForm({
     }
     if (custom.length > 0) body.append(CUSTOM_FIELDS_KEY, JSON.stringify(custom));
     body.append('title', String(record[TITLE_KEY] ?? '').trim());
+    if (catchAll) body.append('customSubcategory', label);
     // Omitted entirely in a company workspace — see `holderForWrite`. Sending
     // '' there would read as an explicit "All members" and set is_global on a
     // record that belongs to the company, not to the household.
-    const holder = holderForWrite(companyId, holderId);
-    if (holder !== undefined) body.append('holderId', holder);
+    const holder = holdersForWrite(companyId, holderIds);
+    if (holder.holderId !== undefined) body.append('holderId', holder.holderId);
+    if (holder.holderIds) body.append('holderIds', JSON.stringify(holder.holderIds));
     if (file) body.append('file', file);
+    if (file && searchTextFromScan) body.append('searchText', searchTextFromScan);
     if (force) body.append('forceSave', 'true');
     if (keepBoth) body.append('keepBoth', 'true');
 
@@ -665,7 +761,15 @@ export default function CategoryRecordForm({
         return;
       }
 
-      toast.success(editing ? 'Record updated' : 'Record saved');
+      const savedId = json.record?.id || recordId;
+      const photoFailures = photoSlot && savedId && (pendingPhotos.length || removedPhotos.length)
+        ? await syncPhotos(savedId)
+        : 0;
+      if (photoFailures > 0) {
+        toast.warning(`Saved, but ${photoFailures} photo change${photoFailures === 1 ? '' : 's'} failed — try again from Edit.`);
+      } else {
+        toast.success(editing ? 'Record updated' : 'Record saved');
+      }
       onCreated?.(json.record);
       onClose();
     } catch (err) {
@@ -731,7 +835,9 @@ export default function CategoryRecordForm({
                 <FilePicker
                   file={file}
                   onChange={pickFile}
-                  label={editing ? 'Replace the attached document' : 'Upload the document'}
+                  label={photoSlot
+                    ? `${editing ? 'Replace the' : 'Upload the'} ${photoSlot.primaryFileLabel.toLowerCase()}`
+                    : editing ? 'Replace the attached document' : 'Upload the document'}
                   hint={editing
                     ? 'Optional — leave this empty and the record keeps the file it already has.'
                     : 'Optional — attach it and the fields below can be filled in for you.'}
@@ -789,6 +895,21 @@ export default function CategoryRecordForm({
                 )}
               </div>
 
+              {photoSlot && (
+                <RecordPhotos
+                  slot={photoSlot}
+                  scope={recordScope}
+                  recordId={recordId}
+                  existing={existingPhotos}
+                  pending={pendingPhotos}
+                  removed={removedPhotos}
+                  disabled={saving}
+                  onAdd={(files) => setPendingPhotos((prev) => [...prev, ...files])}
+                  onRemovePending={(i) => setPendingPhotos((prev) => prev.filter((_, j) => j !== i))}
+                  onRemoveExisting={(id) => setRemovedPhotos((prev) => [...prev, id])}
+                />
+              )}
+
               <CategoryFieldInputs
                 fields={fields}
                 values={values}
@@ -803,13 +924,26 @@ export default function CategoryRecordForm({
                 }}
               />
 
+              {catchAll && (
+                <OthersLabelInput
+                  id="record-label"
+                  value={label}
+                  onChange={(v) => {
+                    setLabel(v);
+                    setErrors((prev) => ({ ...prev, customSubcategory: undefined }));
+                  }}
+                  error={errors.customSubcategory}
+                />
+              )}
+
               {/* Belongs to — mandatory. A record filed against nobody in
                   particular is one nobody goes looking for. */}
               <div className="flex flex-col gap-1">
                 <HolderSelect
-                  value={holderId}
+                  multiple
+                  value={holderIds}
                   onChange={(next) => {
-                    setHolderId(next);
+                    setHolderIds(next);
                     setErrors((prev) => ({ ...prev, holderId: undefined }));
                     // Chosen by hand outranks — and stops claiming to be — a
                     // match the scan made.

@@ -38,6 +38,10 @@ export async function clientLogin(identifier: string, password: string): Promise
           error: data.error,
         };
       }
+      if (data.requireActivation) {
+        // An invited member who has not chosen a password yet (0071).
+        return { success: false, requireActivation: true, error: data.error };
+      }
       if (data.accountErased) {
         // 410: the account existed and was erased. The page shows the date
         // and a way to start over instead of a "check your password" toast.

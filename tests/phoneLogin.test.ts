@@ -172,7 +172,7 @@ describe('POST /api/auth/login — the identifier survives validation', () => {
   });
 
   it('signs in the account the number resolves to', async () => {
-    foundUser = { ...ASHA, tenantId: 'tenant-1', role: 'STANDARD', emailVerified: true, phoneVerified: true, passwordHash: 'x', tenant: { isActive: true } };
+    foundUser = { ...ASHA, tenantId: 'tenant-1', role: 'STANDARD', emailVerified: true, phoneVerified: true, passwordHash: 'x', activatedAt: new Date('2026-01-01'), tenant: { isActive: true } };
     const res = await login(loginRequest({ identifier: '9876543210', password: 'hunter2' }));
     const body = await res.json();
 
@@ -203,6 +203,7 @@ describe('POST /api/auth/login — the identifier survives validation', () => {
       emailVerified: true,
       phoneVerified: true,
       passwordHash: 'x',
+      activatedAt: new Date('2026-01-01'),
       tenant: { isActive: true },
     };
     const res = await login(loginRequest({ identifier: '9876543210', password: 'hunter2' }));
@@ -217,7 +218,7 @@ describe('POST /api/auth/login — the identifier survives validation', () => {
   });
 
   it('never sends a password hash back to the client', async () => {
-    foundUser = { ...ASHA, tenantId: 'tenant-1', role: 'STANDARD', emailVerified: true, phoneVerified: true, passwordHash: 'bcrypt$secret', tenant: { isActive: true } };
+    foundUser = { ...ASHA, tenantId: 'tenant-1', role: 'STANDARD', emailVerified: true, phoneVerified: true, passwordHash: 'bcrypt$secret', activatedAt: new Date('2026-01-01'), tenant: { isActive: true } };
     const res = await login(loginRequest({ identifier: '9876543210', password: 'hunter2' }));
 
     expect(JSON.stringify(await res.json())).not.toContain('bcrypt$secret');

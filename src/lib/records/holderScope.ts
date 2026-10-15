@@ -33,6 +33,7 @@
  */
 
 import { normalizeName } from './holderMatch';
+import { wordScore } from './nameSimilarity';
 
 /** The "no particular member" sentinel <Select> shows, mirrored from HolderSelect. */
 const ALL_MEMBERS = 'all';
@@ -111,9 +112,10 @@ export function holderForWrite(
  * and, before the inline rename, with no way to say so. Answering the scanned
  * name lets the picker show the disagreement and offer it as the new name.
  *
- * Compared through `normalizeName`, so case and punctuation ("ACME PVT. LTD."
- * vs "Acme Pvt Ltd") are not a disagreement. `null` when the scan read nothing,
- * when the company name has not loaded yet, or when the two agree.
+ * Compared through `companyNamesMatch`, so case, punctuation, the legal form
+ * and a shortened word ("Redpluto A Pvt" vs "Redpluto Analytics PVT") are not
+ * a disagreement. `null` when the scan read nothing, when the company name has
+ * not loaded yet, or when the two agree.
  */
 export function companyNameMismatch(
   companyName: string | null | undefined,
@@ -123,5 +125,68 @@ export function companyNameMismatch(
   const key = normalizeName(scanned);
   const current = normalizeName(companyName);
   if (!key || !current) return null;
-  return key === current ? null : scanned;
+  return companyNamesMatch(companyName, scanned) ? null : scanned;
+}
+
+/** Words that name a company's legal form, not the company. */
+const LEGAL_FORM_WORDS = new Set([
+  'pvt', 'private', 'ltd', 'limited', 'llp', 'opc', 'inc', 'incorporated',
+  'corp', 'corporation', 'co', 'company', 'the', 'and',
+]);
+
+/** How closely two words must agree for a company name to match. */
+const COMPANY_WORD_THRESHOLD = 0.88;
+
+/** A company name's words without its legal form: "Redpluto A Pvt" → redpluto, a. */
+export function companyTokens(value: unknown): string[] {
+  return normalizeName(value).split(' ').filter((w) => w && !LEGAL_FORM_WORDS.has(w));
+}
+
+/**
+ * Do two company names name the same company?
+ *
+ * The first word — the brand — must agree as a word (an OCR slip forgiven).
+ * Every later word of the shorter name must then agree, in order, with a later
+ * word of the longer one, where an initial counts: "Redpluto A" is "Redpluto
+ * Analytics", "Redpluto" is "Redpluto Analytics Pvt Ltd", and "Tata Steel" is
+ * not "Tata Motors". A name that is nothing but legal form compares exactly.
+ */
+export function companyNamesMatch(a: unknown, b: unknown): boolean {
+  const left = companyTokens(a);
+  const right = companyTokens(b);
+  if (left.length === 0 || right.length === 0) {
+    const ka = normalizeName(a);
+    return Boolean(ka) && ka === normalizeName(b);
+  }
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  if (shorter[0].length < 2 || longer[0].length < 2) return false;
+  if (wordScore(shorter[0], longer[0]) < COMPANY_WORD_THRESHOLD) return false;
+
+  let j = 1;
+  for (let i = 1; i < shorter.length; i++) {
+    while (j < longer.length && wordScore(shorter[i], longer[j]) < COMPANY_WORD_THRESHOLD) j++;
+    if (j >= longer.length) return false;
+    j++;
+  }
+  return true;
+}
+
+/**
+ * `holderForWrite` for a MULTI-member picker (`<HolderSelect multiple>`), whose
+ * value is `null` (untouched), `[]` (All members / the company) or member ids.
+ *
+ * Returns the body fields to send:
+ *   · in a company, the single-holder rules above — one optional member, and
+ *     an untouched picker sends nothing;
+ *   · in the household, `holderIds` — `[]` is All members (drizzle/0066).
+ */
+export function holdersForWrite(
+  companyId: string | null | undefined,
+  values: readonly string[] | null | undefined,
+): { holderId?: string; holderIds?: string[] } {
+  if (!holderRequired(companyId)) {
+    const holder = holderForWrite(companyId, values == null ? '' : (values[0] || COMPANY_HOLDER));
+    return holder === undefined ? {} : { holderId: holder };
+  }
+  return { holderIds: [...(values ?? [])] };
 }

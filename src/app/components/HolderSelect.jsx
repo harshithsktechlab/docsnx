@@ -33,7 +33,7 @@
  *     back. A same-tab navigation loses the file, and a File cannot be stashed
  *     and restored.
  *   • the real dialog rather than a cut-down copy because adding a member means
- *     a temporary password and a permission matrix, and a second, simpler,
+ *     an invite and a permission matrix, and a second, simpler,
  *     subtly-different add form is how those two drift apart.
  *
  * Admins only: `POST /api/users` is TENANT_ADMIN-gated, so for anyone else the
@@ -46,11 +46,12 @@
  * record from anyone.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, Pencil, Plus, X } from 'lucide-react';
+import { Building2, Check, ChevronDown, Pencil, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -60,7 +61,7 @@ import {
 import { useParams } from 'next/navigation';
 import { useMembers } from '@/hooks/useMembers';
 import { apiCall } from '@/lib/net/apiRequest';
-import { indexMembers, normalizeName } from '@/lib/records/holderMatch';
+import { findMember, indexMembers } from '@/lib/records/holderMatch';
 import { companyNameMismatch, COMPANY_HOLDER } from '@/lib/records/holderScope';
 
 /** The "no particular member" sentinel. `<Select>` cannot hold an empty value. */
@@ -77,6 +78,24 @@ export function holderValue(holderId) {
 /** Turn the control's value into what the API expects. */
 export function holderPayload(value) {
   return value === ALL_MEMBERS ? '' : value;
+}
+
+/**
+ * ── SEVERAL MEMBERS (`multiple`) ───────────────────────────────────────────
+ * A marriage certificate belongs to two people, a family policy to three of
+ * five. With `multiple` the value is an ARRAY (drizzle/0066):
+ *
+ *   null / undefined  → nothing chosen yet (an untouched required picker)
+ *   []                → All members
+ *   [id, …]           → those members; the first is the primary holder
+ *
+ * Seed an edit form from a record with `holderValues(record)`.
+ */
+export function holderValues(record) {
+  if (!record) return [];
+  const ids = (record.holders || []).map((h) => h.id).filter(Boolean);
+  if (ids.length > 0) return ids;
+  return record.holderId ? [record.holderId] : [];
 }
 
 /** Said when the control is empty and the form has been asked to save. */
@@ -149,8 +168,11 @@ export default function HolderSelect({
    * of the name being corrected — and the scan hint uses its short form.
    */
   compact = false,
+  /** Allow several members — see `holderValues`. The value becomes an array. */
+  multiple = false,
 }) {
   const { members, canAddMembers } = useMembers();
+  const [pickerOpen, setPickerOpen] = useState(false);
   /**
    * ── "BELONGS TO" MEANS SOMETHING ELSE IN A COMPANY ───────────────────────
    *
@@ -229,17 +251,16 @@ export default function HolderSelect({
    * sent them there is the one that fills itself in. Guarded on an EMPTY value:
    * a choice already made, by hand or by the scan, is never overwritten.
    *
-   * `indexMembers` maps a name two members share to `null`, and that is the
-   * right answer to act on — pick nobody rather than file a passport under the
-   * wrong sibling.
+   * The same rule the server matched with (`findMember`): exact, else the
+   * closest member, and a tie answers `null` — pick nobody rather than file a
+   * passport under the wrong sibling.
    */
+  const untouched = multiple ? value == null : !value;
   useEffect(() => {
-    if (!suggestedName || value) return;
-    const key = normalizeName(suggestedName);
-    if (!key) return;
-    const matched = indexMembers(members).get(key);
-    if (matched) onChangeRef.current(matched);
-  }, [members, suggestedName, value]);
+    if (!suggestedName || !untouched) return;
+    const matched = findMember(suggestedName, indexMembers(members));
+    if (matched) onChangeRef.current(multiple ? [matched] : matched);
+  }, [members, suggestedName, untouched, multiple]);
 
   const openAddMember = () => {
     const params = new URLSearchParams({ add: '1', close: '1' });
@@ -311,6 +332,105 @@ export default function HolderSelect({
       <Plus size={16} />
     </Button>
   );
+
+  if (companyId && multiple) {
+    // A company record keeps ONE optional member (the company is the owner),
+    // so the multi-member value is adapted to the single picker below:
+    // [] is the company, [id] that member.
+    const single = value == null ? '' : (value[0] || COMPANY_HOLDER);
+    return (
+      <HolderSelect
+        value={single}
+        onChange={(v) => onChange(!v || v === COMPANY_HOLDER || v === ALL_MEMBERS ? [] : [v])}
+        disabled={disabled} id={id} label={label} className={className}
+        required={required} error={error} suggestedName={suggestedName} compact={compact}
+      />
+    );
+  }
+
+  if (multiple) {
+    const chosen = Array.isArray(value) ? value : [];
+    const nameOf = new Map(members.map((m) => [m.id, m.name]));
+    const named = chosen.map((memberId) => nameOf.get(memberId)).filter(Boolean);
+    let summary = '';
+    if (value != null && chosen.length === 0) summary = 'All members';
+    else if (chosen.length > 0) {
+      // Names the members list knows; anyone else (still loading, or since
+      // removed) is counted rather than shown as an id.
+      summary = named.slice(0, 2).join(', ');
+      const extra = chosen.length - Math.min(named.length, 2);
+      if (extra > 0) summary = summary ? `${summary} +${extra}` : `${chosen.length} members`;
+    }
+    const toggle = (memberId, on) => {
+      const next = on
+        ? [...chosen.filter((x) => x !== memberId), memberId]
+        : chosen.filter((x) => x !== memberId);
+      // Unticking the last member is "nothing chosen" on a required picker,
+      // never a silent switch to All members.
+      onChange(next.length === 0 && required ? null : next);
+    };
+    return (
+      <div className={`flex flex-col gap-1.5 ${className}`}>
+        {label ? (
+          <Label htmlFor={id}>
+            {label}
+            {required && <span className="text-danger-text ml-0.5">*</span>}
+          </Label>
+        ) : null}
+        <div className="flex items-center gap-1.5">
+          <Button
+            // Not a submit: this sits inside record forms.
+            type="button"
+            id={id}
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setPickerOpen(true)}
+            title={summary || undefined}
+            className={`h-10 flex-1 min-w-0 justify-between px-3 font-normal ${error ? 'border-destructive' : ''}`}
+          >
+            <span className={`truncate ${summary ? '' : 'text-muted-foreground'}`}>
+              {summary || 'Select members'}
+            </span>
+            <ChevronDown size={16} className="shrink-0 opacity-50" />
+          </Button>
+          {addMemberButton}
+        </div>
+        {error ? <p className="text-xs font-medium text-danger-text">{error}</p> : null}
+        <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{label || 'Belongs to'}</DialogTitle>
+            </DialogHeader>
+            <div className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+              <label className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted">
+                <Checkbox
+                  checked={value != null && chosen.length === 0}
+                  onCheckedChange={(on) => onChange(on ? [] : (required ? null : []))}
+                />
+                <span className="text-sm font-medium">All members</span>
+              </label>
+              <div className="my-1 border-t" />
+              {members.map((m) => (
+                <label
+                  key={m.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-muted"
+                >
+                  <Checkbox
+                    checked={chosen.includes(m.id)}
+                    onCheckedChange={(on) => toggle(m.id, Boolean(on))}
+                  />
+                  <span className="truncate text-sm">{m.name}</span>
+                </label>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button type="button" onClick={() => setPickerOpen(false)}>Done</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
 
   if (companyId) {
     // `canAddMembers` is `role === 'TENANT_ADMIN'` — the same gate the rename

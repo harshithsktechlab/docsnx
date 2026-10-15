@@ -46,6 +46,7 @@ import { createHash, randomUUID } from 'crypto';
 import type { CategoryKey } from '@/lib/documentCategories';
 import { checkStorageLimit } from '@/lib/storage';
 import { processUpload } from '@/lib/documentProcessor';
+import { extractSearchText } from '@/lib/search/contentText';
 import { type NormalizedRecord, toTaxonomyRecord } from './normalize';
 import { resolveModuleCategory } from '@/lib/vault/moduleCategoryMap';
 import {
@@ -146,6 +147,12 @@ export interface UploadSourceFile {
    * releases is taken by `sweepStaleScanDirs` within the hour.
    */
   keepScratch?: boolean;
+  /**
+   * Words the AI read off the document (a scan has no text layer), for the
+   * keyword index. Joined here with whatever text the file itself carries —
+   * see `extractSearchText` — and hashed by `storeRecordInVault`. Never stored.
+   */
+  contentText?: string | null;
 }
 
 export interface UploadedRecord {
@@ -466,6 +473,11 @@ export async function uploadRecords(input: UploadInput): Promise<UploadedRecord[
     const title = source.title || titleFromFileName(source.file.name);
     const fileSize = pages.reduce((n, p) => n + p.bytes.length, 0);
 
+    // The document's own words for keyword search: its text layer, read here,
+    // plus anything the AI read off a scan. Hashed by the vault, never kept.
+    const contentText = [source.contentText, await extractSearchText(source.file)]
+      .filter(Boolean).join('\n');
+
     // ── 4. Seal and file. One Drive object per page.
     const vault = await storeRecordInVault({
       scope,
@@ -489,6 +501,7 @@ export async function uploadRecords(input: UploadInput): Promise<UploadedRecord[
       reminders: normalized.reminders,
       mustSeal: normalized.mustSeal,
       existingFileId: source.existingFileId ?? null,
+      contentText,
     });
 
     // The plaintext copies exist only to get bytes to Drive. Once sealed they

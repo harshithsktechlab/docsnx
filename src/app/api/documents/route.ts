@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { loadRefLookups, pointerValues } from '@/lib/records/fieldRefsServer';
 import { db, withTenant } from '@/lib/db';
 import { documents, documentCategories, users, companyAccess } from '@/db/schema';
 import { eq, and, desc, count, isNull, inArray, ilike, or } from 'drizzle-orm';
@@ -33,7 +34,8 @@ import {
 } from '@/lib/records/handler';
 import { keepBothAllowed } from '@/lib/records/duplicateMatch';
 import type { DuplicateMatch } from '@/lib/records/duplicateMatch';
-import { holderFrom } from '@/lib/recordRequest';
+import { holderFrom, holderIdsFrom } from '@/lib/recordRequest';
+import { heldByAny, loadHolderSets } from '@/lib/records/documentHolders';
 import {
   documentDisplay, documentFieldList, readDocMetadata, withDocMetadata,
 } from '@/lib/records/docMetadata';
@@ -46,6 +48,7 @@ import {
 import { refreshUploadLimit } from '@/lib/records/uploadLimitLoader';
 import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
 import { buildTaxonomyRecord } from '@/lib/records/categoryFormBody';
+import { customSubcategoryError, readCustomSubcategory } from '@/lib/records/customSubcategory';
 import { serverError } from '@/lib/routeError';
 
 /**
@@ -115,6 +118,7 @@ export async function GET(req: Request) {
     const { limit, offset, orderBy, searchFilter } = buildListQueryHelper(documents, params, [
       documents.title,
       documents.fileName,
+      documents.customSubcategory,
     ]);
 
     // `pending` rows are uploads whose Drive write never finished — the row
@@ -188,7 +192,9 @@ export async function GET(req: Request) {
       // holderId simply matches zero rows.
       const holderConditions = [
         wantsUnassigned ? isNull(documents.holderId) : null,
-        memberIds.length > 0 ? inArray(documents.holderId, memberIds) : null,
+        // The primary holder OR any member the document is shared with, so a
+        // marriage certificate shows under each spouse (drizzle/0066).
+        memberIds.length > 0 ? heldByAny(user.tenantId, memberIds) : null,
       ].filter(Boolean);
       const holderFilter = or(...holderConditions);
       if (holderFilter) baseConditions.push(holderFilter);
@@ -285,6 +291,9 @@ export async function GET(req: Request) {
     // `documents.metadata` column instead and never opened Drive at all — the
     // last reader of a projection that no longer exists.
     const { records, unreadable } = await loadRecords(user, docs);
+    const holderSets = await withTenant(user.tenantId, (tx) =>
+      loadHolderSets(tx as any, user.tenantId,
+        docs.map((d: any) => ({ id: d.id, holderId: d.holderId, holderName: d.holder?.name }))));
 
     // ── What the Number and Holder columns show ───────────────────────────
     // This page lists every sub-category at once, so neither column can be one
@@ -306,15 +315,22 @@ export async function GET(req: Request) {
     // `identifierSpecs`, shared with /api/documents/<id>, so the field this
     // column reads and the field the edit modal seeds from are the same one.
     const identifiersFor = (d: any) => identifierSpecs(specFor(d));
+    // Names for the pointer fields (0069), resolved in one pass over the page.
+    const refs = await loadRefLookups(user.tenantId, docs.flatMap((d: any) => {
+      const meta = readDocMetadata(records.get(d.id));
+      return pointerValues({ ...(meta.open ?? {}), ...(meta.masked ?? {}) }, specFor(d));
+    }));
 
     return NextResponse.json({
       success: true,
       // A list read: open tier plus display masks, never a sealed value.
       documents: docs.map((d) => {
         const meta = readDocMetadata(records.get(d.id));
+        const holders = holderSets.get(d.id) ?? [];
         return {
           ...withDocMetadata(d, meta),
-          display: documentDisplay(d, meta, identifiersFor(d)),
+          holders,
+          display: documentDisplay({ ...d, holders }, meta, identifiersFor(d)),
           /**
            * The row's own fields, labelled — what Share, Print and the exported
            * PDF describe the document with.
@@ -328,7 +344,7 @@ export async function GET(req: Request) {
            *
            * A list read, so sealed values are masks. Sharing does not decrypt.
            */
-          fields: documentFieldList(meta, specFor(d)),
+          fields: documentFieldList(meta, specFor(d), refs),
         };
       }),
       filterOptions: { holders },
@@ -437,12 +453,33 @@ export async function POST(req: Request) {
 
     const title = formData.get('title') as string;
     const categoryId = formData.get('categoryId') as string | null;
+    // The member's label under Others (0068). Absent stays `undefined` so a
+    // replace that did not send it keeps the stored one; createRecord drops it
+    // for any category that is not a catch-all.
+    const customSubcategory = formData.has('customSubcategory')
+      ? readCustomSubcategory(formData.get('customSubcategory'))
+      : undefined;
+    const labelError = customSubcategoryError(customSubcategory);
+    if (labelError) {
+      return NextResponse.json(
+        { error: labelError, fieldErrors: { customSubcategory: labelError } },
+        { status: 400 },
+      );
+    }
     const targetUserId = (formData.get('userId') as string) || user.id;
     // `holderFrom`, not `formData.get(...) || null`: a field that was never
     // sent must stay `undefined` so `resolveHolder` can fall back to the
     // module default, and `|| null` collapsed that into an explicit
     // "All members". Every other module route reads the holder this way.
     const holderId = holderFrom(formData);
+    // Every member the document belongs to, when the picker allowed several
+    // (drizzle/0066). Wins over `holderId`; `[]` is "All members".
+    let holderIds: string[] | undefined;
+    try {
+      holderIds = holderIdsFrom(formData);
+    } catch {
+      return NextResponse.json({ error: 'Invalid holder ID' }, { status: 400 });
+    }
 
     // `documents` is the document manager, so this route takes N files. `file`
     // is the long-standing singular field the quick-add form posts; `files` is
@@ -522,14 +559,19 @@ export async function POST(req: Request) {
     // with a 400 the upload form already renders, so the check stays here too.
     // The sentinels mean "no particular member" and name no user to look up.
     let holderName: string | null = null;
-    if (holderId && holderId !== 'all' && holderId !== 'none') {
-      const holderUser = await db.query.users.findFirst({
-        where: (table, { eq, and }) => and(eq(table.id, holderId), eq(table.tenantId, user.tenantId))
+    const namedHolders = holderIds
+      ?? (holderId && holderId !== 'all' && holderId !== 'none' ? [holderId] : []);
+    if (namedHolders.length > 0) {
+      const holderUsers = await db.query.users.findMany({
+        where: (table, { and, eq, inArray }) => and(
+          inArray(table.id, namedHolders), eq(table.tenantId, user.tenantId)),
+        columns: { id: true, name: true },
       });
-      if (!holderUser) {
+      if (holderUsers.length !== namedHolders.length) {
         return NextResponse.json({ error: 'Invalid holder ID' }, { status: 400 });
       }
-      holderName = holderUser.name ?? null;
+      const byId = new Map(holderUsers.map((u) => [u.id, u.name ?? '']));
+      holderName = namedHolders.map((id) => byId.get(id)).filter(Boolean).join(', ') || null;
     }
 
     const metadataStr = (formData.get('metadata') as string) || '{}';
@@ -771,6 +813,15 @@ export async function POST(req: Request) {
     // bug: it told `createRecord` to resolve any match it found on its own and
     // write straight onto it, which is how a duplicate identifier was applied
     // silently. Nothing in this route can now overwrite without having asked.
+    // Words the AI read off the document at autofill, for the keyword index.
+    // A scan reads ONE file, so it is only honoured for a one-file upload — in
+    // a batch there is no saying which file the words came from. Hashed by the
+    // vault and never stored.
+    const scanText = formData.get('searchText');
+    const contentText = plan.length === 1 && typeof scanText === 'string'
+      ? scanText.slice(0, 20_000)
+      : null;
+
     const created: any[] = [];
     for (const { file, fileTitle, targetId, revivedTitle, keepBoth } of plan) {
       let record: any;
@@ -779,14 +830,17 @@ export async function POST(req: Request) {
           writeCtx,
           {
             title: fileTitle,
+            customSubcategory,
             categoryId: resolvedCategory.id,
             ownerId: targetUserId,
             holderId,
+            holderIds,
             file,
             splitPages,
             replaceId: targetId,
             record: metadata,
             taxonomyFields,
+            contentText,
           },
           // `overwrite` stays off for every file: one already resolved above is
           // either new, or names its target through `replaceId`. `keepBoth` is

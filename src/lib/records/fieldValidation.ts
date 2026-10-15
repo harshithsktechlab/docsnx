@@ -35,6 +35,8 @@ import { ALERT_DAYS_FIELD_KEY, categoryRaisesReminder } from './reminderPolicy';
 // Also a leaf module with no imports, for the same reason and under the same
 // rule — see the header of ./linkedCards.ts.
 import { LINKED_CARDS_KEY, linkedCardsError } from './linkedCards';
+// Leaf too (0069): the pointer types' shape rules.
+import { memberRefError, recordLinkError } from './fieldRefs';
 
 /** `fieldKey → message`. Empty object means the record is valid. */
 export type FieldErrors = Record<string, string>;
@@ -336,13 +338,30 @@ export function validateField(spec: FieldSpec, value: unknown): string | null {
         return `${spec.fieldLabel} must be a time like 14:30`;
       }
       break;
+    /**
+     * Pointers (0069). Only the SHAPE is judged here — this runs in the browser
+     * too, which cannot know who is a member. Membership and the link target's
+     * tenancy are checked by src/lib/records/fieldRefsServer.ts on write.
+     */
+    case 'member': {
+      const problem = memberRefError(spec.fieldLabel, text);
+      if (problem) return problem;
+      break;
+    }
+    case 'record_link': {
+      const problem = recordLinkError(spec.fieldLabel, text);
+      if (problem) return problem;
+      break;
+    }
     default:
       break;
   }
 
   // Not for a multiselect: `text` is the JSON array, so a pattern written for a
   // value would be tested against `["a","b"]` and fail every time.
-  if (rule.pattern && spec.dataType !== 'multiselect') {
+  // Nor for a pointer: a pattern written for a typed name would judge an id.
+  if (rule.pattern && spec.dataType !== 'multiselect'
+    && spec.dataType !== 'member' && spec.dataType !== 'record_link') {
     const regex = compile(rule.pattern);
     if (regex && !regex.test(text)) {
       return rule.message ?? `${spec.fieldLabel} is not in the expected format`;

@@ -74,7 +74,11 @@ vi.mock('@/lib/audit', async (importOriginal) => ({
 // The gateway preflight. A member's first-login code has no channel but
 // WhatsApp, so the route refuses outright without one — and every case below
 // would be that 503 rather than the thing it is about.
-vi.mock('@/lib/whatsapp', () => ({ getWhatsAppConfig: async () => ({ url: 'http://x', key: 'k' }) }));
+vi.mock('@/lib/whatsapp', () => ({
+  getWhatsAppConfig: async () => ({ url: 'http://x', key: 'k' }),
+  isWhatsAppEnabled: async () => true,
+  sendWhatsAppTemplate: async () => ({ success: true }),
+}));
 
 vi.mock('@/lib/db', () => {
   const makeTx = () => {

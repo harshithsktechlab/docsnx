@@ -4,6 +4,7 @@ import { discountCodes } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
+import { parseRestrictionIds } from '@/lib/discountPricing';
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -13,10 +14,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const { id } = await params;
+    const body = await req.json();
     const { 
       code, type, discountAmount, maxUses, maxUsesPerTenant, 
-      expiresAt, planId, addonId, billingCycle, isActive 
-    } = await req.json();
+      expiresAt, billingCycle, isActive 
+    } = body;
+
+    const restrictions = await parseRestrictionIds(body);
+    if (!restrictions.ok) {
+      return NextResponse.json({ error: restrictions.error }, { status: 400 });
+    }
 
     const [existingCode] = await db.select().from(discountCodes).where(eq(discountCodes.id, id));
     if (!existingCode) {
@@ -39,8 +46,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       maxUses: maxUses !== undefined ? (maxUses ? Number(maxUses) : null) : undefined,
       maxUsesPerTenant: maxUsesPerTenant !== undefined ? (maxUsesPerTenant ? Number(maxUsesPerTenant) : null) : undefined,
       expiresAt: expiresAt !== undefined ? (expiresAt ? new Date(expiresAt) : null) : undefined,
-      planId: planId !== undefined ? (planId || null) : undefined,
-      addonId: addonId !== undefined ? (addonId || null) : undefined,
+      // Writing the arrays retires the legacy single columns for this row.
+      planIds: restrictions.planIds,
+      addonIds: restrictions.addonIds,
+      planId: restrictions.planIds !== undefined ? null : undefined,
+      addonId: restrictions.addonIds !== undefined ? null : undefined,
       billingCycle: billingCycle !== undefined ? (billingCycle || null) : undefined,
       isActive: isActive !== undefined ? isActive : undefined,
       updatedAt: new Date(),

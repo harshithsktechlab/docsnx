@@ -139,6 +139,58 @@ export async function sendVerificationOtpEmail(email: string, name: string, otp:
 }
 
 
+/** Escape a person-supplied string for the HTML half of a message. */
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c] as string));
+}
+
+/**
+ * "<inviter> added you as a member" — the member invite (0071). The link is
+ * the /activate page; it carries no secret, the code sent there proves the
+ * address is theirs.
+ */
+export async function sendMemberInviteEmail(
+  email: string,
+  name: string,
+  inviterName: string,
+  activateLink: string,
+) {
+  try {
+    const mailer = await getMailer();
+    if (!mailer) {
+      console.warn('No email provider configured in systemConfig. Cannot send member invite.');
+      return { success: false, message: 'Email provider not configured' };
+    }
+    const { send, from, platformName } = mailer;
+    const who = escapeHtml(inviterName);
+    const info = await send({
+      from,
+      to: email,
+      subject: `${inviterName} added you as a member in ${platformName}`,
+      text: `Hello ${name},\n\n${inviterName} added you as a member in ${platformName}.\n\nOpen this link, enter your registered mobile number or email, and we will send you a code to set your password:\n\n${activateLink}\n`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <h2 style="color: #0f172a; margin-top: 0;">You're invited to ${platformName}</h2>
+          <p style="color: #475569; font-size: 15px;">Hello <strong>${escapeHtml(name)}</strong>,</p>
+          <p style="color: #475569; font-size: 15px;"><strong>${who}</strong> added you as a member in ${platformName}.</p>
+          <div style="margin: 24px 0; text-align: center;">
+            <a href="${activateLink}" style="display: inline-block; padding: 12px 24px; font-size: 15px; font-weight: bold; color: #ffffff; background-color: #7c3aed; border-radius: 8px; text-decoration: none;">Set up my account</a>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">Enter your registered mobile number or email on that page and we will send you a code to set your own password.</p>
+          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">If you weren't expecting this, you can ignore this email.</p>
+        </div>
+      `,
+    });
+    console.log('Member invite email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error: any) {
+    console.error('Failed to send member invite email via the email provider:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * Prove the transport works, and say exactly why when it does not.
  *

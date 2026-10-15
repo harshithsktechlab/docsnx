@@ -36,6 +36,7 @@
  *   · `mode: 'finalize'`: releases the pages once the whole batch has landed.
  */
 import { NextResponse } from 'next/server';
+import { normalizeHolderIds } from '@/lib/records/holderIds';
 import { and, eq } from 'drizzle-orm';
 import { db, withTenant } from '@/lib/db';
 import { documents, todos, emergencyContacts } from '@/db/schema';
@@ -92,6 +93,7 @@ import type { ResolvedCategory } from '@/lib/documentCategoryResolver';
 import { belongsToWorkspace, categoryLabel } from '@/lib/documentCategories';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { serverError } from '@/lib/routeError';
+import { readCustomSubcategory } from '@/lib/records/customSubcategory';
 
 /**
  * A bulk commit is minutes of Drive round trips, not milliseconds of SQL, and
@@ -277,7 +279,7 @@ export async function POST(req: Request) {
     for (const [index, record] of records.entries()) {
       try {
         const {
-          title, fileIndices, extractedData, holderId, isGlobal, assigneeId,
+          title, fileIndices, extractedData, holderId, holderIds, isGlobal, assigneeId,
           // Set only on a re-submit, by the review screen, after the user chose
           // to update the record this one duplicates.
           replaceId,
@@ -346,7 +348,7 @@ export async function POST(req: Request) {
             task: extracted.task || title || 'Scanned Task',
             dueDate: extracted.dueDate ? new Date(extracted.dueDate) : null,
             status: extracted.status || 'PENDING',
-            assigneeId: assigneeId || holderId || null,
+            assigneeId: assigneeId || holderId || (Array.isArray(holderIds) ? holderIds[0] : null) || null,
             creatorId: user.id,
             pushNotification: false,
           }).returning();
@@ -412,9 +414,15 @@ export async function POST(req: Request) {
           await contextForScope(mod),
           {
             title: titleFor(extracted, title, mod),
+            // The member's label for a row left under Others (0068), typed on
+            // the review grid. Clipped and dropped off a catch-all by createRecord.
+            customSubcategory: readCustomSubcategory(extracted.customSubcategory),
             // Resolved above, once per distinct category for the whole batch.
             categoryId: resolved!.id,
             holderId: holderId ?? null,
+            // Every member the row's picker named (drizzle/0066); validated in
+            // the pre-check below and again inside createRecord.
+            holderIds: Array.isArray(holderIds) ? normalizeHolderIds(holderIds) : undefined,
             isGlobal: isGlobal === undefined ? undefined : Boolean(isGlobal),
             // The scanner already split these into pages at review time; the
             // upload service reads them back rather than splitting again, which
@@ -423,6 +431,10 @@ export async function POST(req: Request) {
               filePath: f.filePath, mimeType: f.mimeType, pageNumber: f.pageNumber,
             })),
             sourceFileName: recordFiles[0]?.originalName || recordFiles[0]?.fileName || null,
+            // The scan's keywords, for the keyword index — hashed, never kept.
+            contentText: typeof extracted.searchText === 'string'
+              ? extracted.searchText.slice(0, 20_000)
+              : null,
             /**
              * ── ONE VOCABULARY NOW ──────────────────────────────────────
              *
@@ -642,7 +654,7 @@ async function checkBatch({
       candidates.push(null);
     };
     try {
-      const { title, fileIndices, extractedData, holderId, replaceId, keepBoth } = record ?? {};
+      const { title, fileIndices, extractedData, holderId, holderIds, replaceId, keepBoth } = record ?? {};
       const { scope: mod, resolved } = placements[index];
 
       if (!mod) { fail({ error: 'Could not resolve a document category — pick one for this record.' }); continue; }
@@ -659,24 +671,39 @@ async function checkBatch({
         continue;
       }
       // The sentinels mean "no particular member" and name nobody to look up.
-      if (typeof holderId === 'string' && holderId && holderId !== 'all' && holderId !== 'none') {
+      // A row may name several members (drizzle/0066); each is checked.
+      let named: string[];
+      try {
+        named = Array.isArray(holderIds)
+          ? normalizeHolderIds(holderIds) ?? []
+          : (typeof holderId === 'string' && holderId && holderId !== 'all' && holderId !== 'none'
+            ? [holderId] : []);
+      } catch (error) {
+        if (!(error instanceof InvalidHolderError)) throw error;
+        fail({ error: 'Pick who this record belongs to again.' });
+        continue;
+      }
+      let holderProblem: string | null = null;
+      for (const memberId of named) {
         try {
-          await assertHolderInTenant(user, holderId);
+          await assertHolderInTenant(user, memberId);
         } catch (error) {
           if (!(error instanceof InvalidHolderError)) throw error;
-          fail({ error: 'The member this record belongs to is no longer in your account — pick someone else.' });
-          continue;
+          holderProblem = 'The member this record belongs to is no longer in your account — pick someone else.';
+          break;
         }
         // The holder must be a member of THIS workspace — the same list the
         // row's picker offered. See src/lib/records/workspaceMembers.ts.
-        if (!await isWorkspaceMember(user.tenantId, holderId, companyId ?? null)) {
-          fail({
-            error: companyId
-              ? 'That member does not work on this company — pick one of its members, or the company itself.'
-              : 'That member is not part of your household — pick someone else.',
-          });
-          continue;
+        if (!await isWorkspaceMember(user.tenantId, memberId, companyId ?? null)) {
+          holderProblem = companyId
+            ? 'That member does not work on this company — pick one of its members, or the company itself.'
+            : 'That member is not part of your household — pick someone else.';
+          break;
         }
+      }
+      if (holderProblem) {
+        fail({ error: holderProblem });
+        continue;
       }
 
       // Tasks and contacts own no category, no pages and no duplicate rule.

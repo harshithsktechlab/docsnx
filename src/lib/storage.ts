@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { tenants, subscriptionPlans, addons, tenantAddons, documents } from '@/db/schema';
-import { eq, sum, and, or, isNull, gt } from 'drizzle-orm';
+import { eq, and, or, isNull, gt, sql } from 'drizzle-orm';
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import type { StorageStatus } from '@/lib/storagePressure';
 import { getDefaultPlan } from '@/lib/planProvisioning';
@@ -146,7 +146,9 @@ export async function checkStorageLimit(
     // forever. `file_size` stays ON the row as a retained fact for the admin;
     // this predicate is what stops it being charged for.
     const [{ total }] = await db
-      .select({ total: sum(documents.fileSize) })
+      // Photo attachments (0069) are counted beside the primary file — see
+      // `documents.attachment_size`.
+      .select({ total: sql<string>`coalesce(sum(${documents.fileSize}), 0) + coalesce(sum(${documents.attachmentSize}), 0)` })
       .from(documents)
       .where(and(eq(documents.tenantId, tenantId), visibleDocument()));
 

@@ -77,7 +77,6 @@ export async function POST(req: Request) {
     let finalPrice = 0;
     let itemName = '';
     let plan = null;
-    let planPrice = 0;
     let fetchedAddons = [];
 
     /**
@@ -109,7 +108,6 @@ export async function POST(req: Request) {
       plan = priced.primary.plan;
       planId = plan.id;
       planBillingCycle = priced.primary.billingCycle;
-      planPrice = priced.primary.price;
     }
 
     // Calculate Addons Cost
@@ -192,8 +190,7 @@ export async function POST(req: Request) {
 
       const priced = computeAmountSaved(discount, {
         subtotal: finalPrice,
-        planId,
-        planPrice: plan ? planPrice : 0,
+        plans: cart.map(line => ({ planId: line.planId, price: line.amount ?? 0 })),
         addons: fetchedAddons.map(a => ({ id: a.id, price: a.purchasedPrice })),
       });
 

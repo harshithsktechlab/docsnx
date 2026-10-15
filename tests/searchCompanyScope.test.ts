@@ -109,8 +109,10 @@ describe('search across workspaces', () => {
     const json = await search();
 
     expect(json.results).toHaveLength(1);
+    // Filtered by the record's own title, not the query — a multi-word query
+    // would leave the list page's single-substring filter empty.
     expect(json.results[0].link)
-      .toBe(`/business/${COMPANY_A}/modules/biz_tax/gst_returns?search=quarterly`);
+      .toBe(`/business/${COMPANY_A}/modules/biz_tax/gst_returns?search=Quarterly%20return`);
   });
 
   it('opens the COMPANY vault for a company hit', async () => {

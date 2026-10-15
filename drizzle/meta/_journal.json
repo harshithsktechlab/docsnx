@@ -456,6 +456,62 @@
       "when": 1786061451000,
       "tag": "0064_email_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1786061452000,
+      "tag": "0065_travel_tickets_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1786061453000,
+      "tag": "0066_document_holders",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1786061454000,
+      "tag": "0067_business_others_catch_all",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1786061455000,
+      "tag": "0068_document_custom_subcategory",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1786061456000,
+      "tag": "0069_wealth_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1786061457000,
+      "tag": "0070_fold_wealth_into_bank",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786061458000,
+      "tag": "0071_member_activation",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786061459000,
+      "tag": "0072_discount_multi_restrict",
+      "breakpoints": true
     }
   ]
 }

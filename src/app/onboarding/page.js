@@ -188,7 +188,7 @@ export default function OnboardingWizard() {
   const [members, setMembers] = useState([]);
   // `phoneNumber` is the mandatory one: it is what a member signs in with and
   // the only channel their verification code goes to. `email` is optional.
-  const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', password: '' });
+  const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '' });
   const [isAddingMember, setIsAddingMember] = useState(false);
   // Access at creation time — same matrix MembersScreen uses post-onboarding.
   // Left uninitialized here and seeded by the effect below, since the right
@@ -445,8 +445,8 @@ export default function OnboardingWizard() {
   };
 
   const handleAddMember = async () => {
-    if (!newMember.name || !newMember.phoneNumber || !newMember.password) {
-      toast.error('Name, Mobile Number and Temporary Password are required.', { id: 'onboarding-member' });
+    if (!newMember.name || !newMember.phoneNumber) {
+      toast.error('Name and Mobile Number are required.', { id: 'onboarding-member' });
       return;
     }
 
@@ -471,11 +471,18 @@ export default function OnboardingWizard() {
       });
 
       if (data.success) {
-        toast.success(`${newMember.name} was added to ${chosenDestination.label}.`, { id: 'onboarding-member' });
+        // Invited to set their own password (0071) — say where it went.
+        const sentOn = [data.invite?.whatsapp === 'sent' && 'WhatsApp', data.invite?.email === 'sent' && 'email']
+          .filter(Boolean).join(' and ');
+        toast.success(
+          `${newMember.name} was added to ${chosenDestination.label}.`
+            + (sentOn ? ` Invite sent on ${sentOn}.` : data.invite ? ' The invite could not be delivered — resend it from Members.' : ''),
+          { id: 'onboarding-member' },
+        );
         // The destination is kept on the row: "Added Members" was as silent
         // about where these people went as the form above it was.
         setMembers([...members, { ...newMember, destination: chosenDestination.label }]);
-        setNewMember({ name: '', email: '', phoneNumber: '', password: '' });
+        setNewMember({ name: '', email: '', phoneNumber: '' });
         setMemberPermissions(defaultPermissionsFor(chosenDestination?.scope === 'business' ? 'business' : 'personal'));
         setShowAccessEditor(false);
         hasEditedPermissionsRef.current = false;
@@ -1019,13 +1026,11 @@ export default function OnboardingWizard() {
                   <div className="space-y-2">
                     <Label>Email <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <Input type="email" placeholder="john@example.com" value={newMember.email} onChange={e => setNewMember({...newMember, email: e.target.value})} />
-                    <p className="text-xs text-muted-foreground">Not required, and not verified — the member signs in and verifies with their mobile number.</p>
+                    <p className="text-xs text-muted-foreground">Optional — if given, the invite and their sign-in code are emailed too.</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Temporary Password</Label>
-                    <Input type="text" placeholder="Set a temporary password" value={newMember.password} onChange={e => setNewMember({...newMember, password: e.target.value})} />
-                    <p className="text-xs text-muted-foreground">They will be forced to change this upon their first login.</p>
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    We&apos;ll send them an invite on WhatsApp (and email, if given) to set their own password.
+                  </p>
 
                   {/*
                     Access, set now or left for later. Collapsed by default —

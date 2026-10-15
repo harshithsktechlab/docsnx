@@ -45,6 +45,7 @@ import {
 import {
   CARD_NETWORKS, CARD_TYPES, LINKED_CARDS_KEY, normaliseExpiry,
 } from '@/lib/records/linkedCards';
+import { MemberRefInput, RecordLinkInput } from './FieldRefInputs';
 
 /** The title field is rendered first and drives the record's name. */
 export const TITLE_KEY = 'document_title';
@@ -303,7 +304,17 @@ function FieldInput({
         )}
       </Label>
 
-      {isChoice(dataType) ? (
+      {dataType === 'member' ? (
+        <MemberRefInput
+          spec={spec} value={value} disabled={disabled} invalid={invalid}
+          onChange={onChange} onBlur={onBlur} registerRef={registerRef}
+        />
+      ) : dataType === 'record_link' ? (
+        <RecordLinkInput
+          spec={spec} value={value} disabled={disabled} invalid={invalid}
+          onChange={onChange} onBlur={onBlur} registerRef={registerRef}
+        />
+      ) : isChoice(dataType) ? (
         <ChoiceInput
           spec={spec}
           value={value}

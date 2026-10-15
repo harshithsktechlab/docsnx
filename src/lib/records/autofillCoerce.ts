@@ -169,6 +169,11 @@ function asNumber(value: string): string | null {
  * `CategoryRecordForm` holds a string — booleans included, as `'true'`/`'false'`.
  */
 export function coerceExtracted(spec: FieldSpec, raw: unknown): string | null {
+  // A pointer is never read off a page — a model asked for a member id or a
+  // locker id can only invent one. `ocr_fields` already leaves them out; this
+  // is the second lock for an answer that arrives anyway.
+  if (spec.dataType === 'member' || spec.dataType === 'record_link') return null;
+
   // A multiselect is the ONE field whose answer is legitimately a list, so it
   // is asked about before objects and arrays are refused below.
   if (spec.dataType === 'multiselect') return asChoices(spec, raw);

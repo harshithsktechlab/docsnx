@@ -32,6 +32,7 @@ import { renewalAction, renewalActionLabel } from './followUpActions';
 import { visibleDocument } from './documentVisibility';
 import { inCompanyOf } from './companyScope';
 import { workspaceMembers } from './workspaceMembers';
+import { loadHolderSets } from './documentHolders';
 
 /**
  * Days ahead that counts as "coming up" when NOTHING else answers.
@@ -596,6 +597,7 @@ export async function collectGaps(user: any): Promise<FollowUpGaps> {
   const idDocs = visibleIdKeys.length
     ? await withTenant(user.tenantId, async (tx) =>
       tx.select({
+        id: documents.id,
         holderId: documents.holderId,
         isGlobal: documents.isGlobal,
         documentKey: documents.categoryDocumentKey,
@@ -611,9 +613,18 @@ export async function collectGaps(user: any): Promise<FollowUpGaps> {
         )),
     )
     : [];
-  /** Held by one named member. */
+  // EVERY member a document names (drizzle/0066), not just the primary: a
+  // passport is one person's, but a policy filed for three covers all three.
+  const holdersOf = async (rows: any[]) => (rows.length
+    ? withTenant(user.tenantId, (tx) => loadHolderSets(tx as any, user.tenantId, rows))
+    : new Map<string, { id: string }[]>());
+  const idHolders = await holdersOf(idDocs);
+  /** Held by a named member. */
+  const membersOf = (row: any, sets: Map<string, { id: string }[]>) => [
+    ...new Set([row.holderId, ...(sets.get(row.id) ?? []).map((h) => h.id)].filter(Boolean)),
+  ];
   const held = new Set(
-    idDocs.filter((d: any) => d.holderId).map((d: any) => `${d.holderId}/${d.documentKey}`),
+    idDocs.flatMap((d: any) => membersOf(d, idHolders).map((id) => `${id}/${d.documentKey}`)),
   );
   /** Filed for all members, so every member holds it. */
   const heldByAll = new Set(
@@ -652,6 +663,7 @@ export async function collectGaps(user: any): Promise<FollowUpGaps> {
   const policies = mayJudgeCover
     ? await withTenant(user.tenantId, async (tx) =>
       tx.select({
+        id: documents.id,
         holderId: documents.holderId,
         isGlobal: documents.isGlobal,
         documentKey: documents.categoryDocumentKey,
@@ -673,7 +685,10 @@ export async function collectGaps(user: any): Promise<FollowUpGaps> {
   // way an Indian household holds health cover, and the case that made this
   // tab report a gap for every member of a fully-insured tenant.
   const familyFloater = personalCover.some((p: any) => p.isGlobal);
-  const covered = new Set(personalCover.map((p: any) => p.holderId).filter(Boolean));
+  const coverHolders = await holdersOf(personalCover);
+  const covered = new Set(
+    personalCover.flatMap((p: any) => membersOf(p, coverHolders)),
+  );
   const insuranceGaps: GapItem[] = (!mayJudgeCover || familyFloater) ? [] : members
     .filter((m: any) => !covered.has(m.id))
     .map((m: any) => ({

@@ -9,7 +9,7 @@ import OpenAI from 'openai';
 import { maskSensitiveText, prepareAiPayload } from './aiPrivacyMasker';
 import { getAIProfile } from './aiProfiles';
 import { thinkingConfigFor } from './aiModels';
-import { categoryLabel, isBusinessModule, UNCATEGORIZED } from './documentCategories';
+import { catchAllFor, categoryLabel, isBusinessModule, isCatchAll } from './documentCategories';
 import { buildLiveAiCategoryList, knownCategory } from './taxonomyRegistry';
 import { ocrFieldKeys } from './documentCategoryFields';
 import { coerceExtracted } from './records/autofillCoerce';
@@ -320,13 +320,13 @@ Your tasks are:
    - Every uploaded file must be assigned to exactly one record. Do not drop or miss any file.
 
 2. FILE EACH RECORD AGAINST THE MASTER TAXONOMY BELOW.
-   Read the record itself, in this order: the heading or form number printed at the top, the authority, department or company that issued it, any logo or seal, then the body. Those four say what a document IS; the presence of a name or a number does not.
+   Read the record itself, in this order: the heading or form number printed at the top, the authority, department or company that issued it, any logo or seal, then the body. Those four say what a document IS; the presence of a name or a number does not. File it by its PRIMARY PURPOSE: ignore advertisements, promotional banners, offers, cashback or reward-point mentions, and generic terms, cancellation or refund boilerplate printed alongside it.
 
    Return "candidates": the taxonomy pairs this record could be filed under, BEST FIRST, at most three. Each is { "moduleKey": "...", "documentKey": "..." }, where "moduleKey" is the value shown in a module heading below and "documentKey" is one of the quoted keys listed UNDER that same heading. The two MUST come from the same module. Copy both verbatim — do not invent, abbreviate, pluralise or reword them, and never pair a key with a module that does not list it.
 
-   Give a second and third choice whenever the record could reasonably go elsewhere. A near miss is far more useful than the fallback, and answering with two entries is the right response to being unsure between them.
+   Give a second and third choice whenever the record could reasonably go elsewhere; answering with two entries is the right response to being unsure between two that both fit.
 
-   Use "moduleKey": "${UNCATEGORIZED.moduleKey}", "documentKey": "${UNCATEGORIZED.documentKey}" ONLY when the record genuinely fits nothing below — an unreadable page, a blank scan, a personal letter. A recognisable document always belongs somewhere.
+   Use "moduleKey": "${catchAllFor(scope).moduleKey}", "documentKey": "${catchAllFor(scope).documentKey}" as the first candidate when the record's primary purpose matches nothing below — an unreadable page, a blank scan, a personal letter, or any document no entry describes. Never stretch an entry to fit: the user files an unplaced record themselves, and a wrong category hides it where nobody will look.
 
    Do NOT read the record's fields. A second pass reads them against the field list of the exact sub-category you choose here, so choosing well is the whole job.
 
@@ -446,6 +446,28 @@ function inTaxonomy(moduleKey, scope) {
 }
 
 /**
+ * Pairs the model reliably spells wrong, mapped to the pair it meant.
+ *
+ * A bank statement is the commonest case: the personal key is
+ * `bank_statements_passbooks`, the business one is `bank_statements` under
+ * Financial & Accounting — and the model answers `bank_investments/bank_statements`
+ * or files the business one under Banking & Credit. It knew what the document
+ * was; refusing the pair sent it to Others. Keyed `module/document`.
+ */
+const KNOWN_PAIR_ALIASES = {
+  'bank_investments/bank_statements': { moduleKey: 'bank_investments', documentKey: 'bank_statements_passbooks' },
+  'bank_investments/bank_statement': { moduleKey: 'bank_investments', documentKey: 'bank_statements_passbooks' },
+  'bank_investments/passbook': { moduleKey: 'bank_investments', documentKey: 'bank_statements_passbooks' },
+  'biz_banking/bank_statements': { moduleKey: 'biz_finance', documentKey: 'bank_statements' },
+  'biz_banking/bank_statement': { moduleKey: 'biz_finance', documentKey: 'bank_statements' },
+  'biz_finance/bank_statement': { moduleKey: 'biz_finance', documentKey: 'bank_statements' },
+};
+
+function withKnownAlias(c) {
+  return KNOWN_PAIR_ALIASES[`${c.moduleKey}/${c.documentKey}`] ?? c;
+}
+
+/**
  * Turn one record's proposed pairs into a filed category and a scan category.
  *
  * Mutates `rec.extractedData.moduleKey` / `.documentKey` and returns the scan
@@ -469,7 +491,7 @@ async function resolveScanCategory(rec, scope = 'personal') {
     { moduleKey: rec.moduleKey, documentKey: rec.documentKey },
   ]
     .filter((c) => c && typeof c === 'object')
-    .map((c) => ({
+    .map((c) => withKnownAlias({
       moduleKey: typeof c.moduleKey === 'string' ? c.moduleKey.trim() : '',
       documentKey: typeof c.documentKey === 'string' ? c.documentKey.trim() : '',
     }))
@@ -498,36 +520,25 @@ async function resolveScanCategory(rec, scope = 'personal') {
   if (refused.length > 0) {
     const outcome = hit
       ? `using ${categoryLabel(hit)}`
-      : `falling back to ${categoryLabel(UNCATEGORIZED)}`;
+      : `falling back to ${categoryLabel(catchAllFor(scope))}`;
     console.warn(`[AI] Bulk scan proposed unknown categor${refused.length === 1 ? 'y' : 'ies'} ${refused.map((r) => `"${r}"`).join(', ')} — ${outcome}.`);
   }
 
   /**
-   * ── THE CATCH-ALL IS PERSONAL, SO A COMPANY HAS NONE ─────────────────────
+   * ── EACH TAXONOMY HAS ITS OWN CATCH-ALL ──────────────────────────────────
    *
-   * `other/uncategorized` is a household module. Falling back to it inside a
-   * company would build a record with a personal category and a company id —
-   * a pair the write gate refuses, per record, at the very end of the scan.
-   *
-   * So a company's unplaceable page is returned with NO category at all, which
-   * is the path an unresolvable pair has always taken: the review grid shows
-   * its "pick a category" placeholder and the member says where it goes. An
-   * honest question beats a record filed where nobody will look for it.
+   * `other/uncategorized` is a household module; a company's unplaceable page
+   * goes to `biz_other/uncategorized` (0067) instead, so it never carries a
+   * personal category with a company id — a pair the write gate refuses. The
+   * review grid shows it as Others for the member to re-file.
    */
-  const key = hit ?? (scope === 'business' ? null : UNCATEGORIZED);
-  if (!key) {
-    rec.extractedData.moduleKey = '';
-    rec.extractedData.documentKey = '';
-    delete rec.candidates;
-    return '';
-  }
-
+  const key = hit ?? catchAllFor(scope);
   rec.extractedData.moduleKey = key.moduleKey;
   rec.extractedData.documentKey = key.documentKey;
   delete rec.candidates;
 
-  // `other/uncategorized` belongs to the `documents` scope, so an unclassified
-  // household page still lands somewhere a member can see and re-file it.
+  // `other/uncategorized` belongs to the `documents` scope and `biz_other` to
+  // its own, so an unclassified page still lands somewhere a member can see.
   return scanCategoryForKey(key) || 'document';
 }
 
@@ -630,11 +641,13 @@ RULES
 6. Identifiers (card numbers, policy numbers, registration numbers) must be copied EXACTLY as printed, with spaces removed.
 7. Do not translate or reformat names. Copy them as printed.
 8. "holderName" is the person the document is about, as printed on it. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name.
+9. "searchKeywords" helps the owner find this document later by search. List up to 60 short words or phrases printed on it that someone might search for: names of people and organisations (bank, insurer, merchant, hospital), full postal addresses, cities and localities, every date and period shown (e.g. "April 2025", "15 May 2025"), and what the document is (e.g. "electricity bill", "bank statement"). Do NOT include account, card, policy or ID numbers, amounts, passwords or OTPs.
 
 Return ONLY raw JSON in exactly this shape, with no markdown fences and no commentary:
 {
   "fields": { "<fieldKey>": "<value read from the document>" },
-  "holderName": "<the person this document is about, or an empty string>"
+  "holderName": "<the person this document is about, or an empty string>",
+  "searchKeywords": ["<word or phrase>"]
 }`;
 
   const result = await executeTenantWithRotation(tenantId, 'BULK_SCAN', async (clientInfo) => {
@@ -669,10 +682,18 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
     }
 
     const holderName = typeof parsed?.holderName === 'string' ? parsed.holderName.trim() : '';
+    // For the keyword index only: hashed at save time, never stored as text.
+    const searchKeywords = Array.isArray(parsed?.searchKeywords)
+      ? parsed.searchKeywords
+        .filter((k) => typeof k === 'string' && k.trim())
+        .map((k) => k.trim().slice(0, 120))
+        .slice(0, 80)
+      : [];
 
     return {
       fields: out,
       holderName,
+      searchKeywords,
       // Read by executeTenantWithRotation for per-tenant usage accounting.
       promptTokens: res.promptTokens,
       completionTokens: res.completionTokens,
@@ -722,19 +743,19 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
  * seeded. Same call, same document, same tokens — the second and third cost
  * nothing but a few output tokens and they turn a near miss into a filing.
  *
- * ── AND IF IT STILL DOES NOT PLACE IT, IT ASKS AGAIN — ONCE ────────────────
- * Landing in the catch-all is not a filing decision, it is a failed one: the
- * upload form shows a blank sub-category and fills in nothing, and what users
- * then did was press the button a second time and get the right answer. That
- * second press cost a fresh upload, a fresh rasterisation and a fresh billed
- * classify to ask the identical question. So the retry happens HERE instead,
- * inside one `executeTenantWithRotation` — one billed DOC_CLASSIFY, at most two
- * model calls, and only ever on the path that was about to fail.
+ * ── IF EVERY PAIR IS UNUSABLE, IT ASKS AGAIN — ONCE ────────────────────────
+ * A model that spelt every pair wrong knew what the document was; pressing the
+ * button again used to get the right answer at the cost of a fresh upload,
+ * rasterisation and billed classify. So the retry happens HERE instead, inside
+ * one `executeTenantWithRotation` — one billed DOC_CLASSIFY, at most two model
+ * calls. The second ask names the refused pairs, so it cannot repeat them.
  *
- * BOTH ways of reaching the catch-all earn it, because they are the same blank
- * form to the user: every proposal refused, and the fallback chosen outright.
- * The second ask names which of the two it is correcting, so it cannot spend
- * the call repeating a pair that was already refused.
+ * The fallback chosen OUTRIGHT does not earn a retry any more. It once did, with
+ * the prompt insisting every readable document had a closest entry — and that
+ * is how a flight e-ticket, before there was a travel category, was filed under
+ * Subscription receipts on the strength of a convenience fee and a card-offer
+ * banner. A wrong category hides a document; Others, which the upload form now
+ * pre-selects for the user to change, does not.
  *
  * ── IT IS TOLD THE FILENAME, LIKE THE BATCH SCANNER IS ─────────────────────
  * `scanMultipleFiles` ends its prompt with a manifest naming every file, and
@@ -760,14 +781,15 @@ The user has uploaded ONE document. Every page attached belongs to that single d
 
 HOW TO READ IT
 Work from the document itself, in this order: the heading or form number printed at the top, the authority, department or company that issued it, any logo or seal, then the body. Those four say what a document IS; the presence of a name or a number does not. The filename listed after the pages is a hint, not the answer — trust the document over it when they disagree.
+File it by its PRIMARY PURPOSE. Ignore advertisements, promotional banners, offers, cashback or reward-point mentions, and generic terms, cancellation or refund boilerplate printed alongside it — a booking confirmation that carries a hotel offer and a cancellation policy is still a booking confirmation, not a subscription or a contract.
 
 Return:
-1. "candidates" — the master taxonomy pairs this document could be filed under, BEST FIRST, at most three. Each is { "moduleKey": "...", "documentKey": "..." }, where "moduleKey" is the value shown in a module heading below and "documentKey" is one of the quoted keys listed UNDER that same heading. The two MUST come from the same module. Copy both verbatim — do not invent, abbreviate, pluralise or reword them, and never pair a key with a module that does not list it. Give a second and third choice whenever the document could reasonably go elsewhere — a near miss is far more useful to the user than the fallback. The FIRST candidate must be a real entry from the list below: a document you can read at all has a closest entry, and naming it is the job. Do not answer with the fallback because you are unsure BETWEEN two entries; answer with both.
+1. "candidates" — the master taxonomy pairs this document could be filed under, BEST FIRST, at most three. Each is { "moduleKey": "...", "documentKey": "..." }, where "moduleKey" is the value shown in a module heading below and "documentKey" is one of the quoted keys listed UNDER that same heading. The two MUST come from the same module. Copy both verbatim — do not invent, abbreviate, pluralise or reword them, and never pair a key with a module that does not list it. Give a second and third choice whenever the document could reasonably go elsewhere. Do not answer with the fallback because you are unsure BETWEEN two entries that both fit; answer with both. But pick an entry only when the document's primary purpose genuinely matches that entry's description — when none does, the FIRST candidate must be the fallback. The user files it themselves from there, and a wrong category is worse than the fallback: it hides the document where nobody will look for it.
 2. "title" — a clean, concise name for this document (e.g. exactly 'PAN Card' or 'Passport'). No index suffixes like 'PAN Card - 1'.
 3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan. Never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
 
 ${categoryList}
-   The fallback above is for pages that are blank, unreadable, or genuinely nothing on this list — a personal letter. It is never the answer for a document you were able to read.
+   The fallback above is for pages that are blank or unreadable, and for any document whose purpose matches nothing on this list. Never stretch an entry to fit: a document is not a subscription because it shows a fee, nor a contract because it prints terms.
 
 Return ONLY raw JSON in exactly this shape, with no markdown fences and no commentary:
 { "candidates": [{ "moduleKey": "...", "documentKey": "..." }], "title": "...", "holderName": "..." }`;
@@ -827,7 +849,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
         { moduleKey: parsed?.moduleKey, documentKey: parsed?.documentKey },
       ]
         .filter((c) => c && typeof c === 'object')
-        .map((c) => ({
+        .map((c) => withKnownAlias({
           moduleKey: typeof c.moduleKey === 'string' ? c.moduleKey.trim() : '',
           documentKey: typeof c.documentKey === 'string' ? c.documentKey.trim() : '',
         }))
@@ -858,32 +880,29 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
      * Did this answer FILE the document, or only decline to?
      *
      * The catch-all is a real seeded pair, so it validates like any other and
-     * arrives as a `hit` — but it is not a filing decision, it is the model
-     * saying it does not know, and the upload form shows it as a blank
-     * sub-category with nothing filled in. Both ways of reaching it — every
-     * proposal refused, and the fallback chosen outright — are the same failure
-     * to the user, so both earn the retry.
+     * arrives as a `hit` — but it is the model saying it does not know, and the
+     * upload form pre-selects Others for the user to change.
      */
-    const placed = (c) => Boolean(c)
-      && !(c.moduleKey === UNCATEGORIZED.moduleKey && c.documentKey === UNCATEGORIZED.documentKey);
+    const placed = (c) => Boolean(c) && !isCatchAll(c);
 
     /**
      * Ask once more rather than handing the user a blank form — see the header.
      * `contents` is reused as it stands, so the pages are not rasterised,
      * re-uploaded or re-sent from disk; only the correction is new.
      */
-    if (!placed(out.hit)) {
+    /**
+     * ONLY when the answer was unusable — a misspelt or mismatched pair, or no
+     * pair at all. A model that chose the fallback outright is taken at its
+     * word: re-asking it for "the closest entry" is exactly how a flight ticket,
+     * with no travel category to go to, was pushed into Subscription receipts.
+     */
+    if (!out.hit) {
       retried = true;
-      let named;
-      if (refused.length > 0) {
-        named = `${refused.map((r) => `"${r}"`).join(', ')}, which ${refused.length === 1 ? 'is not a category' : 'are not categories'} in the list`;
-      } else if (out.hit) {
-        named = 'the fallback — you said this document fits nothing on the list';
-      } else {
-        named = 'not a usable pair at all';
-      }
+      const named = refused.length > 0
+        ? `${refused.map((r) => `"${r}"`).join(', ')}, which ${refused.length === 1 ? 'is not a category' : 'are not categories'} in the list`
+        : 'not a usable pair at all';
       const second = await ask(
-        `Your previous answer was ${named}. Look at the pages again and answer with the closest entry that IS listed above, copying its moduleKey and documentKey verbatim from the same module heading. Use the fallback ONLY if the pages are blank or unreadable. Return the same JSON shape.`,
+        `Your previous answer was ${named}. Look at the pages again and answer with the entry that IS listed above, copying its moduleKey and documentKey verbatim from the same module heading — or the fallback if nothing listed matches this document's purpose. Return the same JSON shape.`,
       );
 
       // Summed, not replaced: `recordTenantAiUsage` reads these off the return
@@ -899,12 +918,11 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
       if (placed(second.hit)) out = second;
     }
 
-    // A company has no catch-all — `other/uncategorized` is a household module
-    // — so an unplaced document comes back with no pair and the caller asks the
-    // member to choose. See the same reasoning in `resolveScanCategory`.
-    const noPair = scope === 'business';
-    const moduleKey = out.hit?.moduleKey ?? (noPair ? '' : UNCATEGORIZED.moduleKey);
-    const documentKey = out.hit?.documentKey ?? (noPair ? '' : UNCATEGORIZED.documentKey);
+    // Unplaced → the scope's own catch-all (`other`, or `biz_other` for a
+    // company). The upload form pre-selects it and the member changes it.
+    const fallback = catchAllFor(scope);
+    const moduleKey = out.hit?.moduleKey ?? fallback.moduleKey;
+    const documentKey = out.hit?.documentKey ?? fallback.documentKey;
 
     /**
      * The outcome of every classify, in one line.
@@ -924,7 +942,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
     if (placed(out.hit)) {
       console.log(`[AI] Classify → ${categoryLabel(out.hit)}${retried ? ' on retry' : ''}${trail}.`);
     } else {
-      console.warn(`[AI] Classify did not place "${files[0]?.fileName || 'document'}"${retried ? ', asked twice' : ''} — ${noPair ? 'leaving it for the member to place' : `filing as ${categoryLabel(UNCATEGORIZED)}`}${trail}.`);
+      console.warn(`[AI] Classify did not place "${files[0]?.fileName || 'document'}"${retried ? ', asked twice' : ''} — filing as ${categoryLabel(fallback)}${trail}.`);
     }
 
     // The same suffix rule the batch scanner applies, through the same helper —

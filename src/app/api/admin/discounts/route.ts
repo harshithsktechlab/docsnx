@@ -4,6 +4,7 @@ import { discountCodes, discountUsages } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
 import { eq, desc, count, countDistinct, sum, max } from 'drizzle-orm';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
+import { parseRestrictionIds } from '@/lib/discountPricing';
 
 export async function GET(req: Request) {
   try {
@@ -56,13 +57,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Access denied. Super Admin only.' }, { status: 403 });
     }
 
+    const body = await req.json();
     const { 
       code, type, discountAmount, maxUses, maxUsesPerTenant, 
-      expiresAt, planId, addonId, billingCycle, isActive 
-    } = await req.json();
+      expiresAt, billingCycle, isActive 
+    } = body;
 
     if (!code || discountAmount === undefined || discountAmount === null) {
       return NextResponse.json({ error: 'code and discountAmount are required.' }, { status: 400 });
+    }
+
+    const restrictions = await parseRestrictionIds(body);
+    if (!restrictions.ok) {
+      return NextResponse.json({ error: restrictions.error }, { status: 400 });
     }
 
     // Check uniqueness
@@ -79,8 +86,8 @@ export async function POST(req: Request) {
       maxUses: maxUses ? Number(maxUses) : null,
       maxUsesPerTenant: maxUsesPerTenant ? Number(maxUsesPerTenant) : null,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
-      planId: planId || null,
-      addonId: addonId || null,
+      planIds: restrictions.planIds ?? [],
+      addonIds: restrictions.addonIds ?? [],
       billingCycle: billingCycle || null,
       isActive: isActive !== undefined ? isActive : true,
     }).returning();

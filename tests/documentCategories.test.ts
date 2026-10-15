@@ -6,6 +6,7 @@ import {
   DOCUMENT_CATEGORY_SEED,
   MODULE_COLORS,
   UNCATEGORIZED,
+  CATCH_ALL_MODULE_KEYS,
   buildAiCategoryList,
   isSeededCategory,
   taxonomyOf,
@@ -34,17 +35,28 @@ import { maskSensitiveText } from '../src/lib/aiPrivacyMasker';
  * plus module 15 `other` holding the single global catch-all. 0023 retired the
  * 15 per-module `miscellaneous` buckets 0017 had added.
  */
-/** Personal modules 1..13 then the catch-all. `business` (16) left in 0050. */
-const EXPECTED_PERSONAL_COUNTS = [8, 10, 6, 8, 4, 6, 4, 4, 5, 2, 2, 3, 4, 1];
-/** Business modules 101..114, added by 0050. */
-const EXPECTED_BUSINESS_COUNTS = [8, 7, 8, 7, 7, 6, 7, 7, 5, 5, 5, 4, 4, 4];
+/**
+ * Personal modules 1..14 then the catch-all. `business` (16) left in 0050;
+ * `travel` (14) arrived in 0065. Bank & Investments gained `locker_items` in
+ * 0070, which also removed the one-day `wealth` module 0069 had added.
+ */
+const EXPECTED_PERSONAL_COUNTS = [8, 11, 6, 8, 4, 6, 4, 4, 5, 2, 2, 3, 4, 6, 1];
+/**
+ * Business modules 101..114, added by 0050, 115 `biz_travel` by 0065, and the
+ * company catch-all 116 `biz_other` by 0067.
+ */
+const EXPECTED_BUSINESS_COUNTS = [8, 7, 8, 7, 7, 6, 7, 7, 5, 5, 5, 4, 4, 4, 6, 1];
 const EXPECTED_MODULE_COUNTS = [...EXPECTED_PERSONAL_COUNTS, ...EXPECTED_BUSINESS_COUNTS];
-const TOTAL_PERSONAL = 67;
-const TOTAL_BUSINESS = 84;
+const TOTAL_PERSONAL = 74;
+const TOTAL_BUSINESS = 91;
 const TOTAL_SUBCATEGORIES = TOTAL_PERSONAL + TOTAL_BUSINESS;
 
 const MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0023_master_taxonomy_realignment.sql');
 const BUSINESS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0050_business_accounts.sql');
+const TRAVEL_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0065_travel_tickets_module.sql');
+const BIZ_OTHER_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0067_business_others_catch_all.sql');
+const WEALTH_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0069_wealth_module.sql');
+const FOLD_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0070_fold_wealth_into_bank.sql');
 
 /**
  * 0036 reaped the 15 tombstones 0023 left behind, once 0035 had removed their
@@ -63,11 +75,11 @@ const DROP_BUSINESS_PATH = join(
 
 describe('Document category taxonomy', () => {
   describe('Module structure', () => {
-    it('has 28 modules — 14 personal (1..15, less the retired 14) and 14 business (101..114)', () => {
-      expect(DOCUMENT_CATEGORY_MODULES).toHaveLength(28);
+    it('has 31 modules — 15 personal (1..15) and 16 business (101..116)', () => {
+      expect(DOCUMENT_CATEGORY_MODULES).toHaveLength(31);
       expect(DOCUMENT_CATEGORY_MODULES.map((m) => m.moduleNo)).toEqual([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15,
-        ...Array.from({ length: 14 }, (_, i) => 101 + i),
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+        ...Array.from({ length: 16 }, (_, i) => 101 + i),
       ]);
     });
 
@@ -77,7 +89,7 @@ describe('Document category taxonomy', () => {
       );
     });
 
-    it('has 151 sub-categories in total', () => {
+    it('has 165 sub-categories in total', () => {
       const total = DOCUMENT_CATEGORY_MODULES.reduce((n, m) => n + m.subCategories.length, 0);
       expect(total).toBe(TOTAL_SUBCATEGORIES);
       expect(EXPECTED_MODULE_COUNTS.reduce((a, b) => a + b, 0)).toBe(TOTAL_SUBCATEGORIES);
@@ -131,7 +143,7 @@ describe('Document category taxonomy', () => {
   });
 
   describe('Seed rows', () => {
-    it('is the 82 master-table rows plus the catch-all', () => {
+    it('is the master-table rows plus the catch-all', () => {
       expect(DOCUMENT_CATEGORY_SEED).toHaveLength(TOTAL_SUBCATEGORIES);
       expect(DOCUMENT_CATEGORY_SEED.some(
         (r) => r.moduleKey === UNCATEGORIZED.moduleKey
@@ -162,7 +174,7 @@ describe('Document category taxonomy', () => {
     });
   });
 
-  describe('Migration parity (drizzle/0023 then drizzle/0050)', () => {
+  describe('Migration parity (drizzle/0023, 0050, then 0065)', () => {
     // 0023 carries one row per category: the OLD (module_key, document_key) it is
     // matched on, and the NEW module_no / module_key / module_name /
     // document_key / sort_order it is rewritten to. Those new values ARE the
@@ -204,6 +216,16 @@ describe('Document category taxonomy', () => {
       sortOrder: Number(m[6]),
     }));
 
+    /** 0065 adds the two travel modules in the same row shape as 0050. */
+    const travelSql = readFileSync(TRAVEL_MIGRATION_PATH, 'utf8');
+    const travelRows = Array.from(travelSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
     it('accounts for all 98 pre-0023 rows', () => {
       // 83 survivors + the 15 miscellaneous buckets it retires. A row missing
       // here keeps a dead module_key and vanishes from every dropdown, which is
@@ -223,12 +245,78 @@ describe('Document category taxonomy', () => {
       expect(businessSql).not.toMatch(/DELETE\s+FROM\s+"?document_categories/i);
     });
 
+    /** 0067 adds the company catch-all, same row shape again. */
+    const bizOtherSql = readFileSync(BIZ_OTHER_MIGRATION_PATH, 'utf8');
+    const bizOtherRows = Array.from(bizOtherSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
+    it('adds the company catch-all additively in 0067', () => {
+      expect(bizOtherRows).toEqual([{
+        moduleNo: 116, moduleKey: 'biz_other', moduleName: 'Others',
+        documentKey: 'uncategorized', sortOrder: 116001,
+      }]);
+      expect(bizOtherSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(bizOtherSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
+    });
+
+    /** 0069 adds Wealth & Valuables, same row shape again. */
+    const wealthSql = readFileSync(WEALTH_MIGRATION_PATH, 'utf8');
+    const wealthRows = Array.from(wealthSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
+    /** 0070 deletes 0069's two rows and adds the item category under Bank. */
+    const foldSql = readFileSync(FOLD_MIGRATION_PATH, 'utf8');
+    const foldRows = Array.from(foldSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
+    it('folds the wealth module into Bank & Investments in 0070, guarded', () => {
+      expect(foldRows).toEqual([{
+        moduleNo: 2, moduleKey: 'bank_investments', moduleName: 'Bank & Investments',
+        documentKey: 'locker_items', sortOrder: 2011,
+      }]);
+      // The delete is refused while anything is filed there — 0055's standard.
+      expect(foldSql).toMatch(/RAISE EXCEPTION[\s\S]*?wealth module/);
+      expect(foldSql).toContain(`DELETE FROM "document_categories" WHERE "module_key" = 'wealth'`);
+    });
+
+    it('adds the wealth module additively in 0069', () => {
+      expect(wealthRows.map((r) => r.documentKey)).toEqual(['bank_lockers', 'locker_items']);
+      expect(wealthSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(wealthSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
+    });
+
+    it('adds the two travel modules additively in 0065', () => {
+      expect(travelRows).toHaveLength(12);
+      expect([...new Set(travelRows.map((r) => r.moduleKey))]).toEqual(['travel', 'biz_travel']);
+      expect(travelSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(travelSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
+    });
+
     it('re-keys every surviving category exactly as the TS constant states', () => {
       const actual = [
         // 0023's survivors, less the module 0050 retires...
         ...surviving.filter((r) => r.moduleKey !== 'business'),
-        // ...plus the business taxonomy it inserts.
+        // ...plus the business taxonomy it inserts, and 0065's travel modules.
         ...businessRows,
+        ...travelRows,
+        ...bizOtherRows,
+        // 0069's rows were deleted by 0070, which adds its own.
+        ...foldRows,
       ]
         .map((r) => ({
           moduleNo: r.moduleNo,
@@ -402,7 +490,7 @@ describe('Document category taxonomy', () => {
       // `other` is deliberately absent as a numbered module — it is rendered as
       // a Fallback stanza so the model reads it as a last resort, not a peer.
       for (const m of DOCUMENT_CATEGORY_MODULES) {
-        if (m.moduleKey === UNCATEGORIZED.moduleKey) {
+        if (CATCH_ALL_MODULE_KEYS.includes(m.moduleKey)) {
           expect(list).not.toContain(`Module ${m.moduleNo} —`);
           continue;
         }
@@ -419,20 +507,18 @@ describe('Document category taxonomy', () => {
     });
 
     it('renders every category line as - "<documentKey>": <documentName>', () => {
-      // Asserted per list, not over the concatenation: the catch-all renders as
-      // a Fallback stanza in BOTH lists — correctly, since a scan of either kind
-      // can fail to classify — so a combined count would double it.
+      // Asserted per list, not over the concatenation: each list renders its OWN
+      // catch-all as a Fallback stanza — `other` for a household, `biz_other`
+      // for a company (0067).
       for (const [scope, text] of [
         ['personal', personalList],
         ['business', businessList],
       ] as const) {
         const lines = text.split('\n').filter((l) => l.trim().startsWith('- '));
-        // Every seeded row of THIS taxonomy, less the mirror addresses (which
-        // are not destinations), plus the shared catch-all.
+        // Every seeded row of THIS taxonomy, its catch-all included, less the
+        // mirror addresses (which are not destinations).
         const expected = DOCUMENT_CATEGORY_SEED.filter(
-          (r) => !isMirrorAlias(r)
-            && (taxonomyOf(r.moduleKey) === scope
-              || r.moduleKey === UNCATEGORIZED.moduleKey),
+          (r) => !isMirrorAlias(r) && taxonomyOf(r.moduleKey) === scope,
         ).length;
         expect(lines, scope).toHaveLength(expected);
         for (const line of lines) {
@@ -455,7 +541,7 @@ describe('Document category taxonomy', () => {
         // plus the single Fallback stanza that stands in for it.
         const numbered = DOCUMENT_CATEGORY_MODULES.filter(
           (m) => taxonomyOf(m.moduleKey) === scope
-            && m.moduleKey !== UNCATEGORIZED.moduleKey,
+            && !CATCH_ALL_MODULE_KEYS.includes(m.moduleKey),
         ).length;
         expect(headings, scope).toHaveLength(numbered + 1);
         for (const line of headings) {

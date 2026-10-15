@@ -31,19 +31,27 @@ import {
   validateRecord,
 } from '@/lib/records/fieldValidation';
 import { LINKED_CARDS_KEY, normaliseLinkedCards } from '@/lib/records/linkedCards';
-import { readRecordRequest, holderFrom } from '@/lib/recordRequest';
+import { readRecordRequest, holderFrom, holderIdsFrom } from '@/lib/recordRequest';
 import {
   isAcceptedUpload, isWithinUploadSize, uploadSizeError, uploadTypeError,
 } from '@/lib/records/uploadTypes';
 import { refreshUploadLimit } from '@/lib/records/uploadLimitLoader';
+import { customSubcategoryError, readCustomSubcategory } from '@/lib/records/customSubcategory';
 
 export interface CategoryFormBody {
   /** The record's name. Empty only when `fieldErrors` already says so. */
   title: string;
+  /**
+   * The member's label under Others (0068); `undefined` when not sent.
+   * `createRecord` drops it for any category that is not a catch-all.
+   */
+  customSubcategory: string | null | undefined;
   /** Taxonomy keys the category declares, blanks dropped. */
   record: Record<string, unknown>;
   /** `undefined` means the form sent no holder at all — a bug in the form. */
   holderId: string | null | undefined;
+  /** Every member, when the form's picker allowed several (drizzle/0066). */
+  holderIds: string[] | undefined;
   file: File | null;
   /**
    * The caller answered the duplicate prompt with "keep the new one". It means
@@ -67,6 +75,13 @@ export interface CategoryFormBody {
   fieldErrors: Record<string, string>;
   /** `userId` as posted, for routes that let an admin file on someone's behalf. */
   ownerId: string | null;
+  /**
+   * Words the AI read off the attached document (autofill's `searchText`), for
+   * the keyword index. Not a field — the spec allowlist above never sees it —
+   * and never stored: the vault hashes it into tokens. Only honoured alongside
+   * a file, since it describes that file.
+   */
+  contentText: string | null;
 }
 
 /**
@@ -151,7 +166,13 @@ export async function readCategoryFormBody(
   // field at all, which for this page is a bug in the form, not a record that
   // belongs to nobody.
   const holderId = holderFrom(fields);
-  if (holderId === undefined) {
+  let holderIds: string[] | undefined;
+  try {
+    holderIds = holderIdsFrom(fields);
+  } catch {
+    fieldErrors.holderId = 'Choose who this record belongs to';
+  }
+  if (holderId === undefined && holderIds === undefined) {
     fieldErrors.holderId = 'Choose who this record belongs to';
   }
 
@@ -159,6 +180,10 @@ export async function readCategoryFormBody(
   if (!title) {
     fieldErrors.document_title = fieldErrors.document_title ?? 'Give this record a title';
   }
+
+  const customSubcategory = readCustomSubcategory(fields.customSubcategory);
+  const labelError = customSubcategoryError(customSubcategory);
+  if (labelError) fieldErrors.customSubcategory = labelError;
 
   // A refused type is a field error rather than a bare 400 so it lands on the
   // file control instead of arriving as a banner with no obvious cause.
@@ -173,13 +198,18 @@ export async function readCategoryFormBody(
 
   return {
     title,
+    customSubcategory,
     record,
     holderId,
+    holderIds,
     file,
     overwrite: fields.forceSave === 'true' || fields.forceSave === true,
     keepBoth: fields.keepBoth === 'true' || fields.keepBoth === true,
     splitPages: fields.splitPages === 'true' || fields.splitPages === true,
     fieldErrors,
     ownerId: typeof fields.userId === 'string' ? fields.userId : null,
+    contentText: file && typeof fields.searchText === 'string'
+      ? fields.searchText.slice(0, 20_000)
+      : null,
   };
 }

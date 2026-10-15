@@ -32,6 +32,8 @@ export async function POST(req: Request) {
       resetToken: null,
       resetTokenExpiry: null,
       requiresPasswordChange: false,
+      // A password chosen from a link sent to them is their own (0071).
+      activatedAt: user.activatedAt ?? new Date(),
     }).where(and(eq(users.id, user.id), eq(users.tenantId, user.tenantId)));
 
     // Write audit log

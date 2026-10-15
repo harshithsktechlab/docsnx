@@ -159,19 +159,18 @@ describe('classifyDocument', () => {
     expect(out.documentKey).toBe('trade_license');
   });
 
-  it('leaves a company\u2019s unplaceable document unplaced, not in the catch-all', async () => {
+  it('files a company\u2019s unplaceable document in the COMPANY catch-all', async () => {
     // `other/uncategorized` is a HOUSEHOLD module, so it is not a destination a
-    // company can use. An empty pair is what makes the upload form ask the
-    // member to choose — see `/api/documents/autofill`, which turns it into a
-    // 422 saying exactly that.
+    // company can use. `biz_other/uncategorized` (0067) is the company's own;
+    // the upload form pre-selects it as Others for the member to change.
     modelAnswer = JSON.stringify({
       candidates: [{ moduleKey: 'identity', documentKey: 'pan_card' }],
     });
 
     const out: any = await classifyInCompany();
 
-    expect(out.moduleKey).toBe('');
-    expect(out.documentKey).toBe('');
+    expect(out.moduleKey).toBe('biz_other');
+    expect(out.documentKey).toBe('uncategorized');
   });
 
   it('still accepts the older single-pair answer shape', async () => {
@@ -184,6 +183,33 @@ describe('classifyDocument', () => {
     const out: any = await classify();
 
     expect(out.documentKey).toBe('passport');
+  });
+
+  it('files a personal bank statement under the passbooks key it was misspelt as', async () => {
+    // The real key is `bank_statements_passbooks`; the model's habit of
+    // answering `bank_statements` used to refuse the pair and land in Others.
+    modelAnswer = JSON.stringify({
+      candidates: [{ moduleKey: 'bank_investments', documentKey: 'bank_statements' }],
+    });
+
+    const out: any = await classify();
+
+    expect(out.moduleKey).toBe('bank_investments');
+    expect(out.documentKey).toBe('bank_statements_passbooks');
+    expect(modelAnswers).toEqual([]);
+  });
+
+  it('files a company bank statement under Financial & Accounting, where it lives', async () => {
+    // Banking & Credit sounds right and has no statements key; Financial &
+    // Accounting owns `bank_statements` for a company.
+    modelAnswer = JSON.stringify({
+      candidates: [{ moduleKey: 'biz_banking', documentKey: 'bank_statements' }],
+    });
+
+    const out: any = await classifyInCompany();
+
+    expect(out.moduleKey).toBe('biz_finance');
+    expect(out.documentKey).toBe('bank_statements');
   });
 
   it('falls back to Uncategorized only when NO candidate is seeded', async () => {
@@ -229,7 +255,11 @@ describe('classifyDocument', () => {
    * for a whole second upload, rasterisation and classify to ask the identical
    * question. It earns the same in-call retry a refused pair does.
    */
-  it('asks again when the model answers the fallback, and takes a real second answer', async () => {
+  it('takes a fallback answered outright at its word, without asking again', async () => {
+    // Re-asking for "the closest entry" is how a flight e-ticket, with no
+    // travel category to go to, was filed as a subscription receipt. A model
+    // that says it does not know files the document under Others, which the
+    // upload form pre-selects for the user to change.
     modelAnswers = [
       JSON.stringify({ candidates: [{ moduleKey: 'other', documentKey: 'uncategorized' }], title: 'Scan' }),
       JSON.stringify({
@@ -240,14 +270,10 @@ describe('classifyDocument', () => {
 
     const out: any = await classify();
 
-    expect(generateContent).toHaveBeenCalledTimes(2);
-    expect(out.moduleKey).toBe('health_medical');
-    expect(out.documentKey).toBe('records_prescriptions');
-    expect(out.title).toBe('Prescription');
-    // The correction says what it is correcting, without naming a pair as
-    // unknown — the fallback is not a misspelling.
-    const second = (generateContent.mock.calls[1][0] as any).contents as any[];
-    expect(second[second.length - 1]).toContain('the fallback');
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(out.moduleKey).toBe('other');
+    expect(out.documentKey).toBe('uncategorized');
+    expect(out.title).toBe('Scan');
   });
 
   it('appends the HUF suffix to a name the document carries it with', async () => {
@@ -273,8 +299,13 @@ describe('classifyDocument', () => {
     // The fallback is stated as a last resort in substance rather than as a
     // headed paragraph naming its keys before the list — a named escape hatch
     // is one the model reaches for.
-    expect(prompt).toContain('The FIRST candidate must be a real entry');
-    expect(prompt).toContain('never the answer for a document you were able to read');
+    // Unsure BETWEEN two that fit → both; matching nothing → the fallback
+    // first, never the nearest entry stretched to fit.
+    expect(prompt).toContain('answer with both');
+    expect(prompt).toContain('the FIRST candidate must be the fallback');
+    expect(prompt).toContain('Never stretch an entry to fit');
+    // Adverts and boilerplate do not decide what a document is.
+    expect(prompt).toContain('Ignore advertisements');
     // The boundary statements that separate neighbouring modules — one source,
     // rendered into both prompts. This is the personal list, so assert a
     // personal hint; `REGISTERED ENTITY` belonged to the `business` module 0050

@@ -19,7 +19,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import JSZip from 'jszip';
-import { processUpload, rasterisationTooling } from '@/lib/documentProcessor';
+import PDFDocument from 'pdfkit';
+import { PdfPasswordError, processUpload, rasterisationTooling } from '@/lib/documentProcessor';
 
 const tooling = rasterisationTooling();
 let dir: string;
@@ -200,4 +201,47 @@ describe('a file nothing can read', () => {
     expect(pages[0].mimeType).toBe('image/jpeg');
     expect(pages[0].unreadable).toBeUndefined();
   }, 120_000);
+});
+
+describe('a password-protected PDF', () => {
+  /** A one-page PDF locked with a user password, as banks send statements. */
+  const lockedPdf = (): Promise<Buffer> => new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ userPassword: 'secret', ownerPassword: 'owner', pdfVersion: '1.7' });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    doc.text('Statement of Account');
+    doc.end();
+  });
+
+  it('asks for the password instead of sending the encrypted bytes', async () => {
+    if (!tooling.pdftoppm) return;
+    const pdf = await lockedPdf();
+    const err = await processUpload(fileFrom(pdf, 'statement.pdf', 'application/pdf'))
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(PdfPasswordError);
+    expect(err.incorrect).toBe(false);
+  }, 60_000);
+
+  it('says so when the password is wrong', async () => {
+    if (!tooling.pdftoppm) return;
+    const pdf = await lockedPdf();
+    const err = await processUpload(
+      fileFrom(pdf, 'statement.pdf', 'application/pdf'), { pdfPassword: 'wrong' },
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(PdfPasswordError);
+    expect(err.incorrect).toBe(true);
+  }, 60_000);
+
+  it('rasterises it with the right password', async () => {
+    if (!tooling.pdftoppm) return;
+    const pdf = await lockedPdf();
+    const pages = await processUpload(
+      fileFrom(pdf, 'statement.pdf', 'application/pdf'), { pdfPassword: 'secret' },
+    );
+    expect(pages).toHaveLength(1);
+    expect(pages[0].mimeType).toBe('image/jpeg');
+    expect(pages[0].rasterised).not.toBe(false);
+  }, 60_000);
 });

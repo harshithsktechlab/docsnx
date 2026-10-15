@@ -240,6 +240,8 @@ function configurationError(
     display?: string | null;
     isReminder?: boolean | null;
     alertDaysBefore?: number | null;
+    /** The dictionary declares where this field links to (0069). */
+    hasLinkTarget?: boolean;
   },
   isCustom: boolean,
 ): string | null {
@@ -315,6 +317,25 @@ function configurationError(
    * both deliberate, so a half-built field does not lock a category — but an
    * operator SAVING one is telling us they think it is finished, and it is not.
    */
+  /**
+   * ── POINTERS (0069) ─────────────────────────────────────────────────────
+   * A `record_link` is only meaningful where the dictionary says what it links
+   * TO; the picker and the server check both read `linkTarget` off the spec,
+   * and this screen has no way to set one. So an operator cannot turn a field
+   * into a link — they can only keep or relabel the ones that ship.
+   *
+   * Neither pointer can identify a record: two jewels gifted by the same aunt,
+   * or kept in the same locker, are two jewels.
+   */
+  // Only an EXPLICIT type in the patch is judged: a patch that says nothing
+  // about the type leaves the dictionary's, which the tests hold to the rule.
+  if (f.dataType === 'record_link' && (isCustom || !f.hasLinkTarget)) {
+    return `"${key}" cannot be a linked-record field — only fields that ship as one can.`;
+  }
+  if ((f.dataType === 'record_link' || f.dataType === 'member') && f.isIdentifier === true) {
+    return `"${key}" points at a member or a record, so it cannot identify a record.`;
+  }
+
   const choice = CHOICE_DATA_TYPES.includes(f.dataType as never);
   if (choice) {
     const count = Array.isArray(f.options) ? f.options.length : 0;
@@ -479,6 +500,9 @@ export async function GET(req: Request) {
         default: {
           fieldLabel: d.fieldLabel,
           dataType: d.dataType,
+          // Where a shipped link points (0069), for the screen's note. Absent
+          // on every other field.
+          ...('linkTarget' in d && d.linkTarget ? { linkTarget: d.linkTarget } : {}),
           isPii: d.isPii,
           isRequired: !!d.isRequired,
           isPrinted: d.isPrinted !== false,
@@ -650,9 +674,10 @@ export async function PUT(req: Request) {
        * Judging the patch alone would let "clear the options" past the
        * two-choices rule simply because the patch says nothing about the type.
        */
+      const shipped = fieldsFor(categoryKey).find((d) => d.fieldKey === f.fieldKey);
       const effective = isCustom
         ? { ...(await customRow(category.id, f.fieldKey)), ...stripUndefined(f) }
-        : f;
+        : { ...f, hasLinkTarget: Boolean(shipped?.linkTarget) };
       const message = configurationError(f.fieldKey, effective, isCustom);
       if (message) return NextResponse.json({ error: message }, { status: 400 });
     }

@@ -44,13 +44,15 @@ import { canonicalCategory } from '@/lib/categoryMirrors';
 import { db } from '@/lib/db';
 import { withCategory } from '@/lib/records/handler';
 import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
+import { resolveCategory } from '@/lib/documentCategoryResolver';
+import { subCategoryTitle, withoutReadTitle } from '@/lib/records/autoTitle';
 import { isAcceptedUpload, uploadTypeError } from '@/lib/records/uploadTypes';
 import { refreshUploadLimit } from '@/lib/records/uploadLimitLoader';
 import { AI_ERROR_CODES, AI_ERROR_MESSAGES } from '@/lib/aiKeyManager';
 import { driveReauthResponse, storageLimitResponse } from '@/lib/uploadErrors';
 import {
-  AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, runAutofill,
-  UNREADABLE_FILE_MESSAGE,
+  AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, pdfPasswordFrom,
+  pdfPasswordResponse, runAutofill, UNREADABLE_FILE_MESSAGE,
 } from '@/lib/records/autofillRun';
 
 export const dynamic = 'force-dynamic';
@@ -93,7 +95,9 @@ export async function POST(req: Request, { params }: Params) {
         return NextResponse.json({ error: 'This category has no fields to fill' }, { status: 400 });
       }
 
-      const { aiFiles, pagesTotal, unreadable } = await pagesForAi(upload);
+      const { aiFiles, pagesTotal, unreadable } = await pagesForAi(upload, {
+        pdfPassword: pdfPasswordFrom(form),
+      });
       if (aiFiles.length === 0) {
         return NextResponse.json({
           // See the sibling route: a file with nothing readable in it gets the
@@ -108,10 +112,20 @@ export async function POST(req: Request, { params }: Params) {
         aiFiles, categoryKey, spec, tenantId: user.tenantId, userId: user.id, companyId,
       });
 
+      // The sub-category's display name, for the title. Looked up rather than
+      // taken from the URL: an operator may have renamed it.
+      const category = await resolveCategory(db, null, categoryKey);
+
       return NextResponse.json({
         success: true,
-        /** fieldKey → value, keyed exactly as the form's inputs are. */
-        fields: result.fields,
+        /**
+         * fieldKey → value, keyed exactly as the form's inputs are. Without
+         * `document_title`: the read copies it off the page heading
+         * ("INCOME TAX DEPARTMENT"), and `title` below is the document's name.
+         */
+        fields: withoutReadTitle(result.fields),
+        /** "<Sub-category> - <Holder>", for the title input if it is empty. */
+        title: subCategoryTitle(category?.documentName, result.holderName),
         /**
          * Pre-selects "Belongs to" when the name on the document is one
          * member's, unambiguously. '' means the user chooses.
@@ -126,6 +140,11 @@ export async function POST(req: Request, { params }: Params) {
         /** How many pages were actually sent, so the UI can say a long PDF was truncated. */
         pagesRead: aiFiles.length,
         pagesTotal,
+        /**
+         * Words read off the document, for the keyword index. The form posts it
+         * back with the save; the vault hashes it and keeps no text.
+         */
+        searchText: result.searchText,
       });
     } catch (error: any) {
       // An unusable Google Drive grant is the tenant's to fix, not a fault here.
@@ -133,6 +152,10 @@ export async function POST(req: Request, { params }: Params) {
       if (outOfSpace) return outOfSpace;
       const reauth = driveReauthResponse(error);
       if (reauth) return reauth;
+
+      // A locked PDF: the form asks for its password and sends the file again.
+      const locked = pdfPasswordResponse(error);
+      if (locked) return NextResponse.json(locked.body, { status: locked.status });
 
       // A model that returned something other than JSON is a failed read, not a
       // 500 — the form still works, the user just types the fields in.

@@ -89,14 +89,16 @@ describe('a company scan', () => {
 
     const [rec] = (await scan('business')).proposedRecords;
 
-    expect(rec.extractedData.moduleKey).toBe('');
-    expect(rec.extractedData.documentKey).toBe('');
-    expect(rec.category).toBe('');
+    // Filed under the company's own catch-all, never the household's.
+    expect(rec.extractedData.moduleKey).toBe('biz_other');
+    expect(rec.extractedData.documentKey).toBe('uncategorized');
+    expect(rec.category).toBe('biz_other');
   });
 
-  it('does NOT fall back to the household catch-all', async () => {
+  it('falls back to the company catch-all, NOT the household one', async () => {
     // The failure this exists to stop: `other/uncategorized` is personal, so a
     // company record filed there is refused on save, at the end of the scan.
+    // `biz_other/uncategorized` (0067) is the company's own.
     modelReply = reply([{
       kind: 'record',
       fileIndices: [0],
@@ -107,8 +109,8 @@ describe('a company scan', () => {
     const [rec] = (await scan('business')).proposedRecords;
 
     expect(rec.extractedData.moduleKey).not.toBe('other');
-    expect(rec.extractedData.moduleKey).toBe('');
-    expect(rec.category).toBe('');
+    expect(rec.extractedData.moduleKey).toBe('biz_other');
+    expect(rec.category).toBe('biz_other');
   });
 
   it('skips a personal candidate to reach a business one listed after it', async () => {

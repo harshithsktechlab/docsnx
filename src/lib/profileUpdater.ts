@@ -2,7 +2,9 @@ import { db } from './db';
 import { profiles } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { encryptField, decryptField } from './fieldCrypto';
-import { normaliseBloodGroup } from './profileValues';
+import {
+  bloodGroupFromText, normaliseBloodGroup, normaliseDob, normaliseGender,
+} from './profileValues';
 
 // Legal identifiers stored in profiles.legalDetails are encrypted at rest.
 const LEGAL_ENCRYPTED_KEYS = ['panNumber', 'aadhaarNumber', 'passportNumber'];
@@ -71,6 +73,76 @@ export async function applyIdNumberToProfile(userId: string, kind: ProfileIdKind
 }
 
 /**
+ * Fill a member's date of birth, gender and blood group from a document, each
+ * only where the profile has none yet — what the member typed always wins.
+ * Creates the profile if needed. Returns the keys it wrote.
+ */
+export async function applyPersonalDetailsToProfile(
+  userId: string,
+  values: { dob?: unknown; gender?: unknown; bloodGroup?: unknown },
+): Promise<string[]> {
+  if (!userId) return [];
+  const found = {
+    dob: normaliseDob(values.dob),
+    gender: normaliseGender(values.gender),
+    bloodGroup: normaliseBloodGroup(values.bloodGroup),
+  };
+  if (!found.dob && !found.gender && !found.bloodGroup) return [];
+
+  const profile = await db.query.profiles.findFirst({
+    where: (profiles, { eq }) => eq(profiles.userId, userId),
+  });
+  const personalDetails = { ...((profile?.personalDetails as object) || {}) } as any;
+  const written: string[] = [];
+  for (const [key, value] of Object.entries(found)) {
+    if (value && !String(personalDetails[key] ?? '').trim()) {
+      personalDetails[key] = value;
+      written.push(key);
+    }
+  }
+  if (written.length === 0) return [];
+
+  if (profile) {
+    await db.update(profiles)
+      .set({ personalDetails, updatedAt: new Date() })
+      .where(eq(profiles.userId, userId));
+  } else {
+    await db.insert(profiles).values({
+      userId,
+      personalDetails,
+      educationDetails: {},
+      shoppingDetails: {},
+      legalDetails: {},
+    });
+  }
+  return written;
+}
+
+/**
+ * The personal details a saved document carries for its holder, read off the
+ * category's own field keys. Date of birth and gender come only from identity
+ * documents — elsewhere a "date of birth" may be a nominee's. Blood group from
+ * any document that has the field, or, for a medical record without it, from
+ * a "blood group" line in its results or diagnosis.
+ */
+export function personalDetailsFromDocument(
+  moduleKey: string | null | undefined,
+  meta: Record<string, any>,
+): { dob?: unknown; gender?: unknown; bloodGroup?: unknown } {
+  const out: { dob?: unknown; gender?: unknown; bloodGroup?: unknown } = {};
+  if (moduleKey === PROFILE_ID_MODULE_KEY) {
+    out.dob = meta.date_of_birth;
+    out.gender = meta.gender;
+  }
+  out.bloodGroup = normaliseBloodGroup(meta.blood_group);
+  if (!out.bloodGroup && moduleKey === 'health_medical') {
+    out.bloodGroup = bloodGroupFromText(meta.test_results) || bloodGroupFromText(meta.diagnosis)
+      || bloodGroupFromText(meta.treatment_summary);
+  }
+  return out;
+}
+
+/**
  * Automatically update user profile details based on structured inputs
  * and document metadata.
  * 
@@ -88,17 +160,26 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
     // vocabulary. The number lands on the HOLDER's profile: an Aadhaar filed for
     // a spouse is the spouse's. A global ("all members") or company record is
     // nobody's in particular, so it updates no profile.
-    if (category === 'document') {
-      const kind = profileIdKindFor(data?.categoryModuleKey, data?.categoryDocumentKey);
-      if (kind) {
-        if (!data.companyId && !data.isGlobal) {
-          const meta = data.metadata || {};
+    // Keyed on the record's category pair, not on `category`: an AI Scan save
+    // reports a lab report as 'medical', a manual upload as 'document'.
+    const kind = profileIdKindFor(data?.categoryModuleKey, data?.categoryDocumentKey);
+    if (data?.categoryModuleKey) {
+      if (!data.companyId && !data.isGlobal) {
+        const meta = data.metadata || {};
+        const holderId = data.holderId || userId;
+        if (kind) {
           const number = meta[PROFILE_ID_DOCUMENTS[kind].fieldKey] ?? meta.documentNumber;
-          const changed = await applyIdNumberToProfile(data.holderId || userId, kind, number);
+          const changed = await applyIdNumberToProfile(holderId, kind, number);
           if (changed) console.log(`Auto-updated profile ${kind} number from a saved document.`);
         }
-        return;
+        // Date of birth, gender and blood group ride along on the same record —
+        // an Aadhaar's DOB, a lab report's blood group — and fill only blanks.
+        const written = await applyPersonalDetailsToProfile(
+          holderId, personalDetailsFromDocument(data.categoryModuleKey, meta),
+        );
+        if (written.length) console.log(`Auto-updated profile ${written.join(', ')} from a saved document.`);
       }
+      if (kind) return;
     }
 
     // 1. Fetch current profile or create an empty one
@@ -119,7 +200,6 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
 
     const personalDetails = { ...(profile.personalDetails as object || {}) } as any;
     const educationDetails = { ...(profile.educationDetails as object || {}) } as any;
-    const shoppingDetails = { ...(profile.shoppingDetails as object || {}) } as any;
     const legalDetails = { ...(profile.legalDetails as object || {}) } as any;
 
     // Work with plaintext legal IDs internally; they are re-encrypted before save.
@@ -163,10 +243,6 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
             setIfNew(educationDetails, 'college', val);
           } else if (lbl.includes('passing year') || lbl.includes('year of passing') || lbl.includes('graduated')) {
             setIfNew(educationDetails, 'yearOfPassing', val);
-          } else if (lbl.includes('shirt') || lbl.includes('clothing') || lbl.includes('tshirt')) {
-            setIfNew(shoppingDetails, 'clothingSize', val);
-          } else if (lbl.includes('shoe')) {
-            setIfNew(shoppingDetails, 'shoeSize', val);
           }
         }
       }
@@ -231,7 +307,6 @@ export async function autoUpdateProfile(userId: string, category: string, data: 
         .set({
           personalDetails,
           educationDetails,
-          shoppingDetails,
           legalDetails: legalDetailsToSave
         })
         .where(eq(profiles.userId, userId));

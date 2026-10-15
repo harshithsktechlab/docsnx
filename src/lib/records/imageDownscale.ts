@@ -190,3 +190,56 @@ export async function downscaleBatch(
   }
   return out;
 }
+
+/**
+ * A small JPEG preview of a photo, for list thumbnails (0069 — record photos).
+ *
+ * Null rather than the original on any failure: a thumbnail is a convenience,
+ * and the list falls back to the full photo when a record has none.
+ */
+export async function makeThumbnail(file: File, edge = 320): Promise<File | null> {
+  if (typeof window === 'undefined' || typeof createImageBitmap !== 'function') return null;
+  if (!file || !isDownscalable(file)) return null;
+  const bitmap = await decode(file);
+  if (!bitmap) return null;
+  try {
+    const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const blob = await encode(bitmap, width, height);
+    if (!blob || blob.size === 0) return null;
+    return new File([blob], `thumb-${asJpegName(file.name)}`, { type: 'image/jpeg' });
+  } catch {
+    return null;
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+/**
+ * One photo as a JPEG page for `buildPdfFromImages` (multi-page camera capture).
+ *
+ * Unlike `downscaleForScan` this ALWAYS re-encodes: a PDF can only embed JPEG
+ * here, so a PNG or HEIC page has to become one. Same long edge and the same
+ * EXIF-aware decode, so a page in the PDF reads exactly as a lone photo would.
+ * Null when the browser cannot decode the file (HEIC on Android Chrome).
+ */
+export async function toJpegPage(
+  file: File,
+): Promise<{ bytes: Uint8Array; width: number; height: number } | null> {
+  if (typeof window === 'undefined' || typeof createImageBitmap !== 'function') return null;
+  const bitmap = await decode(file);
+  if (!bitmap) return null;
+  try {
+    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const blob = await encode(bitmap, width, height);
+    if (!blob || blob.size === 0) return null;
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), width, height };
+  } catch {
+    return null;
+  } finally {
+    bitmap.close?.();
+  }
+}

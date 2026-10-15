@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogBody } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -26,10 +27,65 @@ const EMPTY_FORM = {
   maxUses: '',
   maxUsesPerTenant: '',
   expiresAt: '',
-  planId: '',
-  addonId: '',
+  planIds: [],
+  addonIds: [],
   isActive: true,
 };
+
+/** The restriction a code carries — the arrays, or the legacy single column. */
+const restrictedPlanIds = (d) => (d.planIds?.length ? d.planIds : d.planId ? [d.planId] : []);
+const restrictedAddonIds = (d) => (d.addonIds?.length ? d.addonIds : d.addonId ? [d.addonId] : []);
+
+/** Personal, then Business, then Personal + Business. */
+const APPLIES_TO_ORDER = { personal: 0, business: 1, both: 2 };
+
+/**
+ * Retired and trial plans are inactive, so only the sellable plans are offered —
+ * plus any inactive one an existing code already targets, so editing shows it.
+ */
+const planOptions = (plans, selected) =>
+  plans
+    .filter((p) => p.isActive || selected.includes(p.id))
+    .sort((a, b) => (APPLIES_TO_ORDER[a.appliesTo] ?? 9) - (APPLIES_TO_ORDER[b.appliesTo] ?? 9))
+    .map((p) => ({ id: p.id, label: p.name }));
+
+/** An add-on has no type column; what it grants is what it is. */
+const addonLabel = (a) => {
+  if (Number(a.extraCompanies) > 0) return 'Additional Company';
+  if (Number(a.extraMembersPerCompany) > 0) return 'Additional user per Company';
+  if (Number(a.extraMembers) > 0) return 'Additional users for Personal';
+  return a.name;
+};
+const ADDON_ORDER = ['Additional Company', 'Additional user per Company', 'Additional users for Personal'];
+const addonOptions = (addons, selected) =>
+  addons
+    .filter((a) => a.isActive || selected.includes(a.id))
+    .map((a) => ({ id: a.id, label: addonLabel(a) }))
+    .sort((a, b) => {
+      const ia = ADDON_ORDER.indexOf(a.label), ib = ADDON_ORDER.indexOf(b.label);
+      return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib);
+    });
+
+/**
+ * "All" plus one checkbox per option. Nothing ticked means All (no
+ * restriction); ticking All clears the rest, ticking anything clears All.
+ */
+function RestrictionChecklist({ idPrefix, options, selected, onChange, disabled }) {
+  const toggle = (id, checked) =>
+    onChange(checked ? [...selected, id] : selected.filter((s) => s !== id));
+  const rows = [{ id: '__all__', label: 'All', checked: selected.length === 0, onCheckedChange: (c) => c && onChange([]) },
+    ...options.map((o) => ({ ...o, checked: selected.includes(o.id), onCheckedChange: (c) => toggle(o.id, c === true) }))];
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-input bg-field px-3 py-3">
+      {rows.map((row) => (
+        <div key={row.id} className="flex items-center gap-2.5">
+          <Checkbox id={`${idPrefix}-${row.id}`} checked={row.checked} onCheckedChange={row.onCheckedChange} disabled={disabled} />
+          <label htmlFor={`${idPrefix}-${row.id}`} className="text-sm cursor-pointer select-none">{row.label}</label>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** A code the API returned without stats (it always sends them) reads as unused. */
 const NO_USAGE = { totalUses: 0, uniqueAccounts: 0, totalSaved: 0, lastUsedAt: null };
@@ -116,8 +172,8 @@ export default function DiscountsPage() {
       maxUses: discount.maxUses?.toString() || '',
       maxUsesPerTenant: discount.maxUsesPerTenant?.toString() || '',
       expiresAt: discount.expiresAt ? new Date(discount.expiresAt).toISOString().slice(0, 16) : '',
-      planId: discount.planId || '',
-      addonId: discount.addonId || '',
+      planIds: restrictedPlanIds(discount),
+      addonIds: restrictedAddonIds(discount),
       isActive: discount.isActive ?? true,
     });
     setEditDiscount(discount);
@@ -143,8 +199,8 @@ export default function DiscountsPage() {
         maxUses: formData.maxUses ? Number(formData.maxUses) : null,
         maxUsesPerTenant: formData.maxUsesPerTenant ? Number(formData.maxUsesPerTenant) : null,
         expiresAt: formData.expiresAt ? new Date(formData.expiresAt).toISOString() : null,
-        planId: formData.planId.trim() || null,
-        addonId: formData.addonId.trim() || null,
+        planIds: formData.planIds,
+        addonIds: formData.addonIds,
         isActive: formData.isActive,
       };
 
@@ -302,31 +358,23 @@ export default function DiscountsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Restrict to Plan</Label>
-                  <select 
-                    className="flex h-11 w-full rounded-xl border border-input bg-field px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    value={formData.planId} 
-                    onChange={e => setFormData(prev => ({ ...prev, planId: e.target.value }))}
+                  <RestrictionChecklist
+                    idPrefix="restrict-plan"
+                    options={planOptions(plans, formData.planIds)}
+                    selected={formData.planIds}
+                    onChange={(planIds) => setFormData(prev => ({ ...prev, planIds }))}
                     disabled={saving}
-                  >
-                    <option value="">No restriction (All Plans)</option>
-                    {plans.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Restrict to Addon</Label>
-                  <select 
-                    className="flex h-11 w-full rounded-xl border border-input bg-field px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    value={formData.addonId} 
-                    onChange={e => setFormData(prev => ({ ...prev, addonId: e.target.value }))}
+                  <RestrictionChecklist
+                    idPrefix="restrict-addon"
+                    options={addonOptions(addons, formData.addonIds)}
+                    selected={formData.addonIds}
+                    onChange={(addonIds) => setFormData(prev => ({ ...prev, addonIds }))}
                     disabled={saving}
-                  >
-                    <option value="">No restriction (All Add-ons)</option>
-                    {addons.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
               </div>
 

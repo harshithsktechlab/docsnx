@@ -20,7 +20,8 @@ import {
   Save,
   FileDown,
   Sparkles,
-  UploadCloud
+  UploadCloud,
+  Camera
 } from 'lucide-react';
 import { shareRecord, printRecord, downloadRecord, shareRecords, printRecords, getFileUrl, warmShare } from '@/lib/sharePrintHelper';
 import { reportShareResult } from '@/lib/shareToast';
@@ -32,6 +33,8 @@ import { Card, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import OthersLabelInput from '@/app/components/OthersLabelInput';
+import { categoryDisplayName } from '@/lib/records/customSubcategory';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -43,18 +46,21 @@ import { DataTable, parseFilterValues } from '@/components/ui/data-table';
 import RowActionsMenu from '@/components/ui/row-actions-menu';
 import { MODULE_COLORS, DEFAULT_MODULE_COLOR } from '@/lib/documentCategories';
 import HolderSelect, {
-  ALL_MEMBERS, holderValue, unmatchedHolderError, HOLDER_REQUIRED_MESSAGE,
+  holderValues, unmatchedHolderError, HOLDER_REQUIRED_MESSAGE,
 } from '@/app/components/HolderSelect';
-import { holderRequired, holderForWrite } from '@/lib/records/holderScope';
+import { holderRequired, holdersForWrite } from '@/lib/records/holderScope';
 import { describeFieldErrors } from '@/lib/records/fieldValidation';
 import { docField, docCustomFields } from '@/lib/records/docFieldsClient';
-import { resolveAutofillOutcome } from '@/lib/records/autofillOutcome';
+import {
+  needsPdfPassword, PDF_PASSWORD_INCORRECT, PDF_PASSWORD_SKIPPED_MESSAGE, resolveAutofillOutcome,
+} from '@/lib/records/autofillOutcome';
 import { autoReadFor } from '@/lib/records/autoReadOnPick';
 import { decidePendingAutofill } from '@/lib/records/pendingAutofillDecision';
 import CategorySelect from '@/app/components/CategorySelect';
 import CategoryFieldInputs, {
   CustomFieldRows, LinkedCardRows, TITLE_KEY,
 } from '@/app/components/CategoryFieldInputs';
+import { subCategoryTitle, withoutReadTitle } from '@/lib/records/autoTitle';
 import { LINKED_CARDS_KEY } from '@/lib/records/linkedCards';
 import useCategoryFields from '@/app/components/useCategoryFields';
 import { usePermittedCategories } from '@/lib/usePermittedCategories';
@@ -68,10 +74,11 @@ import {
 import { prepareUploadFile } from '@/lib/records/fileSnapshot';
 import { postUpload, uploadErrorMessage } from '@/lib/records/uploadRequest';
 import PageContainer from '@/app/components/PageContainer';
-import MobileActionFab from '@/app/components/MobileActionFab';
+import MultiPageCapture from '@/app/components/MultiPageCapture';
+import { stashPendingFiles, takePendingFiles, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
 import { apiDownload } from '@/lib/net/apiRequest';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
-import { belongsToWorkspace } from '@/lib/documentCategories';
+import { belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
 import { utilityNavPath } from '@/lib/moduleRegistry';
 import { toastApiError } from '@/lib/net/toastApiError';
 
@@ -177,6 +184,10 @@ export default function DocumentsPage() {
   // button away. Several documents are /documents/bulk-scan's job; this form is
   // the single-document path and keeps everything that only works for one.
   const [file, setFile] = useState(null);
+  // Pages in `file` when it is a camera scan combined into one PDF — shown on
+  // the file row, since the generic `scan.pdf` name says nothing.
+  const [capturedPages, setCapturedPages] = useState(0);
+  const captureRef = useRef(null);
   /** A refused file type, shown against the dropzone. */
   const [fileError, setFileError] = useState('');
   /** A file is being dragged over the dropzone, so it lights up. */
@@ -190,7 +201,9 @@ export default function DocumentsPage() {
   // away in the dropdown. The EDIT form is unchanged: there a stored null
   // genuinely means all members, and demanding a re-choice would reassign
   // records on save.
-  const [holderId, setHolderId] = useState('');
+  // Several members may share a document (a marriage certificate, a family
+  // policy): `null` is untouched, `[]` All members, else the chosen ids.
+  const [holderIds, setHolderIds] = useState(null);
   /** Red under the picker: nothing chosen, or a scanned name that matched nobody. */
   const [holderError, setHolderError] = useState('');
   /**
@@ -199,6 +212,26 @@ export default function DocumentsPage() {
    * member exists.
    */
   const [holderNameFromScan, setHolderNameFromScan] = useState('');
+  /**
+   * The last title a scan gave this document — "PAN Card - Ravi Kumar" — so a
+   * later scan, or a change of sub-category, may replace it. Anything else in
+   * the title input (typed, or seeded from the file's name) is left alone.
+   */
+  const autoTitleRef = useRef('');
+  /** The holder the last scan read, so a new sub-category can re-name it. */
+  const scanHolderRef = useRef('');
+  /**
+   * Words the last scan read off a file, for the keyword index — posted back
+   * as `searchText` with the save. Keyed by the File it was read from, so a
+   * different attachment never carries another document's words.
+   */
+  const scanSearchTextRef = useRef({ file: null, text: '' });
+  const rememberScanText = (scannedFile, json) => {
+    scanSearchTextRef.current = {
+      file: scannedFile,
+      text: typeof json?.searchText === 'string' ? json.searchText : '',
+    };
+  };
 
   // Master category list — the 82 seeded rows plus Uncategorized, identical for
   // every tenant. There are no custom categories; adding one means editing
@@ -235,6 +268,20 @@ export default function DocumentsPage() {
    * missing, instead of leaving a second button for them to find.
    */
   const [scanNeedsCategory, setScanNeedsCategory] = useState(false);
+  /**
+   * The password prompt for a locked PDF — bank statements usually are.
+   * `retry` re-runs the read that was refused; `incorrect` says the last
+   * password was wrong. null while closed.
+   */
+  const [pdfPrompt, setPdfPrompt] = useState(null);
+  const [pdfPasswordInput, setPdfPasswordInput] = useState('');
+  /**
+   * The password that opened a PDF, held against the File it opened so a
+   * different file never inherits it. Kept for the session of this upload only
+   * — the category-pick re-read needs it too — and never stored or sent with
+   * the save.
+   */
+  const pdfPasswordRef = useRef({ file: null, password: '' });
   /** The OCR picked the holder, so the field says so rather than looking chosen. */
   const [holderFromScan, setHolderFromScan] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -261,6 +308,10 @@ export default function DocumentsPage() {
   // Edit state
   const [editingDoc, setEditingDoc] = useState(null);
   const [editCategoryId, setEditCategoryId] = useState('');
+  // The member's label under Others (0068), for both forms. Sent only while
+  // the chosen category is a catch-all; the server drops it anywhere else.
+  const [uploadLabel, setUploadLabel] = useState('');
+  const [editLabel, setEditLabel] = useState('');
   const [editFile, setEditFile] = useState(null);
   const [editSaving, setEditSaving] = useState(false);
   // The modal opens immediately and fills in once the reveal GET lands, so
@@ -268,7 +319,7 @@ export default function DocumentsPage() {
   // "not loaded yet" would be saved as an empty value.
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
-  const [editHolderId, setEditHolderId] = useState(ALL_MEMBERS);
+  const [editHolderIds, setEditHolderIds] = useState([]);
 
   const fetchDocuments = async () => {
     setLoading(true);
@@ -403,6 +454,11 @@ export default function DocumentsPage() {
     () => categoryOptions.find((c) => c.id === categoryId) ?? null,
     [categoryOptions, categoryId],
   );
+  /** The edit modal's chosen category is Others — show and send its label. */
+  const editIsCatchAll = useMemo(
+    () => isCatchAll(categoryOptions.find((c) => c.id === editCategoryId)),
+    [categoryOptions, editCategoryId],
+  );
   /**
    * ╔══════════════════════════════════════════════════════════════════════╗
    * ║  THE FIELDS THIS PAGE ASKS FOR ARE NOT WRITTEN HERE                  ║
@@ -452,16 +508,39 @@ export default function DocumentsPage() {
    * point of naming it is that the user can add that member, or pick the right
    * one, while they are still looking at the document.
    */
+  /**
+   * Name the document after its sub-category and holder — never the heading
+   * printed at the top of the page, which is what the read used to copy. Only
+   * over a blank title or one this function wrote itself.
+   */
+  const applyAutoTitle = (title) => {
+    const next = String(title ?? '').trim();
+    if (!next) return;
+    const current = String(uploadFields.values[TITLE_KEY] ?? '').trim();
+    if (current && current !== autoTitleRef.current) return;
+    autoTitleRef.current = next;
+    if (current !== next) uploadFields.setValue(TITLE_KEY, next);
+  };
+
+  // A different sub-category re-names a document the scan named — "PAN Card -
+  // Ravi Kumar" picked as an Aadhaar becomes "Aadhaar Card - Ravi Kumar" — even
+  // before the re-read the pick triggers comes back. A typed title is kept.
+  useEffect(() => {
+    if (editingDoc || !autoTitleRef.current || !uploadCategory?.documentName) return;
+    applyAutoTitle(subCategoryTitle(uploadCategory.documentName, scanHolderRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadCategory?.id]);
+
   const applyScannedHolder = (json) => {
     if (json.holderId) {
-      setHolderId(holderValue(json.holderId));
+      setHolderIds([json.holderId]);
       setHolderFromScan(true);
       setHolderError('');
       setHolderNameFromScan('');
       return;
     }
     // Never over a choice the user has already made.
-    if (holderId) return;
+    if (holderIds != null) return;
     // In a company an unmatched name is not an error — the record belongs to
     // the company unless a member is picked. The picker says what the document
     // read and offers "Use as company name" / "Add as member" instead.
@@ -490,12 +569,59 @@ export default function DocumentsPage() {
    * nowhere — and what makes the super admin's Field Configuration mean
    * something here.
    */
+  const pdfPasswordFor = (f) => (
+    f && pdfPasswordRef.current.file === f ? pdfPasswordRef.current.password : ''
+  );
+
+  /** Open the password prompt when the route says the PDF is locked. */
+  const askForPdfPassword = (json, retry) => {
+    if (!needsPdfPassword(json)) return false;
+    setPdfPasswordInput('');
+    setPdfPrompt({ incorrect: json.errorCode === PDF_PASSWORD_INCORRECT, retry });
+    setAiError('');
+    setAiMessage('');
+    return true;
+  };
+
+  const submitPdfPassword = (e) => {
+    e?.preventDefault?.();
+    if (!pdfPrompt || !pdfPasswordInput) return;
+    const selectedFile = editingDoc ? editFile : file;
+    pdfPasswordRef.current = { file: selectedFile, password: pdfPasswordInput };
+    const { retry } = pdfPrompt;
+    setPdfPrompt(null);
+    setPdfPasswordInput('');
+    retry();
+  };
+
+  /**
+   * A read that ended without a category still files the document: Others,
+   * when nothing is chosen yet and the picker offers it. Changeable like any
+   * other pick. Never on the edit modal — that record already has a category.
+   */
+  const selectOthersIfBlank = () => {
+    if (editingDoc || categoryId) return;
+    const others = categoryOptions.find((c) => isCatchAll(c));
+    if (others) setCategoryId(others.id);
+  };
+
+  /** Closed without a password: filed under Others, every field editable. */
+  const skipPdfPassword = () => {
+    setPdfPrompt(null);
+    setPdfPasswordInput('');
+    setAiMessage('');
+    setAiError(PDF_PASSWORD_SKIPPED_MESSAGE);
+    selectOthersIfBlank();
+  };
+
   const runCategoryAutofill = async (selectedFile, categoryRef, fieldsApi) => {
     if (!categoryRef?.moduleKey || !categoryRef?.documentKey) return;
     setAiMessage('Reading this document against the category\u2019s fields...');
     try {
       const body = new FormData();
       body.append('file', selectedFile);
+      const pdfPassword = pdfPasswordFor(selectedFile);
+      if (pdfPassword) body.append('pdfPassword', pdfPassword);
       // `postUpload`: this posts a file, so a 413 from nginx is on the table
       // and the AI wait can outrun any short client timeout.
       //
@@ -513,6 +639,11 @@ export default function DocumentsPage() {
       }
       const res = { ok: upload.ok, status: upload.status };
       const json = upload.json;
+      if (askForPdfPassword(json, () => {
+        setAiScanning(true);
+        return runCategoryAutofill(selectedFile, categoryRef, fieldsApi)
+          .finally(() => setAiScanning(false));
+      })) return;
       if (!res.ok || !json.success) {
         // Advisory, never blocking — the fields stay editable and the document
         // is still savable by hand. A member with `edit` but not `add` is
@@ -527,7 +658,15 @@ export default function DocumentsPage() {
       // record's own stored values are never overwritten by a re-read — they
       // are reviewed values, which deserve more protection than typing, not
       // less.
-      const applied = fieldsApi.applyAutofill(json.fields);
+      // `document_title` dropped even if a route still sends it: the read
+      // copies the page heading into it. The add form takes `json.title`
+      // (sub-category + holder) instead; the edit modal keeps its stored title.
+      const applied = fieldsApi.applyAutofill(withoutReadTitle(json.fields));
+      rememberScanText(selectedFile, json);
+      if (!editingDoc) {
+        scanHolderRef.current = json.holderName || '';
+        applyAutoTitle(json.title || subCategoryTitle(categoryRef.documentName, json.holderName));
+      }
 
       // The route answers with the member it read off the document, exactly as
       // the classify route does — and this was the one caller that threw it
@@ -705,7 +844,7 @@ export default function DocumentsPage() {
       return;
     }
 
-    const applied = uploadFields.applyAutofill(job.fields);
+    const applied = uploadFields.applyAutofill(withoutReadTitle(job.fields));
     const truncated = job.pagesTotal > job.pagesRead
       ? ` Read the first ${job.pagesRead} of ${job.pagesTotal} pages.`
       : '';
@@ -773,6 +912,8 @@ export default function DocumentsPage() {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      const pdfPassword = pdfPasswordFor(selectedFile);
+      if (pdfPassword) formData.append('pdfPassword', pdfPassword);
 
       // ONE request: it classifies AND reads the fields, off one upload and one
       // rasterisation. This used to be `/api/ai/scan` followed by a second
@@ -785,9 +926,14 @@ export default function DocumentsPage() {
       if (!upload.ok && (upload.kind !== 'http' || !upload.json)) {
         setAiError(uploadErrorMessage(upload, 'document'));
         setAiMessage('');
+        selectOthersIfBlank();
         return;
       }
       const json = upload.json;
+
+      // A locked PDF: ask for its password, then run this same read again.
+      if (askForPdfPassword(json, () => handleAiScan())) return;
+      rememberScanText(selectedFile, json);
 
       /**
        * ╔══════════════════════════════════════════════════════════════════╗
@@ -816,9 +962,11 @@ export default function DocumentsPage() {
       // to: a document the user has to file by hand still names itself and
       // still names a person. The title is a spec field like any other, so it
       // goes in through the same door — and only if nothing is typed there.
-      if (outcome.title && !String(uploadFields.values[TITLE_KEY] ?? '').trim()) {
-        uploadFields.setValue(TITLE_KEY, outcome.title);
-      }
+      // Named after the sub-category it was filed under and the person it
+      // belongs to (the route builds it); only the classifier's own name when
+      // it could not place the document.
+      scanHolderRef.current = outcome.holderName || '';
+      applyAutoTitle(outcome.title);
       if (outcome.kind !== 'failed') applyScannedHolder(outcome);
 
       if (outcome.kind === 'apply') {
@@ -853,6 +1001,10 @@ export default function DocumentsPage() {
       // now picks, the effect above reads the file against it. Armed for every
       // non-apply outcome, `failed` included — a model call that fell over is
       // worth retrying against a category the user has since named.
+      // An unclassified document starts in Others when the picker offers it —
+      // saveable as it is, and still re-read against whatever the user picks
+      // instead (autoReadFor never reads against the catch-all itself).
+      if (outcome.fallbackCategoryId) setCategoryId(outcome.fallbackCategoryId);
       setScanNeedsCategory(true);
       setAiError(outcome.message);
       setAiMessage('');
@@ -888,23 +1040,40 @@ export default function DocumentsPage() {
    * while the grant is fresh, or fails HERE with a message that names the file
    * and what to do about it.
    */
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const picked = Array.from(e.target.files || []);
     // Reset the input so re-picking the SAME file after removing it still fires
     // a change event — otherwise the control looks dead on the second try.
     // Synchronous, before any await: clearing `value` discards `files`.
     e.target.value = '';
+    attachPickedFiles(picked);
+  };
+
+  /**
+   * The form's own picker, its dropzone, and the one Upload button (header or
+   * the bottom nav's `+`, via `takePendingFiles`) all land here.
+   */
+  const attachPickedFiles = async (picked) => {
     if (picked.length === 0) return;
+
+    // Several files is Power Scan's job — hand them ALL over rather than keep
+    // the first and make the user pick the rest again over there.
+    if (picked.length > 1) {
+      router.push(utilityNavPath('/documents/bulk-scan', companyId));
+      stashPendingFiles(picked);
+      return;
+    }
 
     const result = await prepareUploadFile(picked[0]);
     if (!result.ok) {
       setFileError(result.error);
-      return;
+      return false;
     }
     const chosen = result.file;
 
     setFileError('');
     setFile(chosen);
+    setCapturedPages(0);
     // A new file invalidates whatever the last one's scan filled in — including
     // the complaint that its name matched nobody, and any pending auto-read
     // armed for the file being replaced.
@@ -928,19 +1097,28 @@ export default function DocumentsPage() {
         chosen.name.substring(0, chosen.name.lastIndexOf('.')) || chosen.name,
       );
     }
-
-    // Several files is Power Scan's job, and it is one click away — so keep the
-    // first and say where the rest belong, rather than silently discarding them.
-    if (picked.length > 1) {
-      toast('One document at a time here — kept the first.', {
-        description: `${picked.length - 1} more not attached. Power Scan reads them all at once.`,
-        action: {
-          label: 'Power Scan',
-          onClick: () => router.push(utilityNavPath('/documents/bulk-scan', companyId)),
-        },
-      });
-    }
   };
+
+  // Files picked with the one Upload button on another page (or on this one,
+  // already mounted) arrive here. Only a single file is ours to take — several
+  // were routed to Power Scan and are left for it.
+  // Rebuilt every render so it calls this render's helpers, not the first's.
+  const addFormRef = useRef(null);
+  const receivePendingRef = useRef(null);
+  receivePendingRef.current = () => {
+    if (pendingFileCount() !== 1) return;
+    const picked = takePendingFiles();
+    // No reset: the same as re-picking in the form's own dropzone.
+    setShowAddForm(true);
+    attachPickedFiles(picked);
+    requestAnimationFrame(() =>
+      addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    );
+  };
+  useEffect(() => {
+    receivePendingRef.current();
+    return onPendingFiles(() => receivePendingRef.current());
+  }, []);
 
   /**
    * The replacement file on the edit modal. Same allowlist as the add form —
@@ -1001,7 +1179,7 @@ export default function DocumentsPage() {
     // `onChange`, so `holderId` stays '' however long the user looks at it —
     // and this refused every business upload with a message pointing at a
     // control that had already answered it.
-    if (holderRequired(companyId) && !holderId) {
+    if (holderRequired(companyId) && holderIds == null) {
       setHolderError(HOLDER_REQUIRED_MESSAGE);
       setFormError('Please choose who this document belongs to.');
       return;
@@ -1088,15 +1266,20 @@ export default function DocumentsPage() {
     // path for every module, so the field name is its contract, not a count.
     // One uploaded file becomes one record, and its pages become that record's.
     if (file) formData.append('files', file);
+    if (file && scanSearchTextRef.current.file === file && scanSearchTextRef.current.text) {
+      formData.append('searchText', scanSearchTextRef.current.text);
+    }
     formData.append('title', name);
     formData.append('categoryId', categoryId);
+    if (isCatchAll(uploadCategory)) formData.append('customSubcategory', uploadLabel);
     // Appended only where a member can own the record. `holderForWrite` answers
     // undefined in a company workspace, and OMITTING the key is not the same as
     // sending '': `holderFrom` keeps the two apart so `resolveHolder` can fall
     // back to the module default rather than reading an empty string as an
     // explicit "All members" and setting is_global on every business row.
-    const uploadHolder = holderForWrite(companyId, holderId);
-    if (uploadHolder !== undefined) formData.append('holderId', uploadHolder);
+    const uploadHolder = holdersForWrite(companyId, holderIds);
+    if (uploadHolder.holderId !== undefined) formData.append('holderId', uploadHolder.holderId);
+    if (uploadHolder.holderIds) formData.append('holderIds', JSON.stringify(uploadHolder.holderIds));
 
     // Taxonomy-keyed, because the inputs above were rendered from this
     // category's spec. The flag is what tells the route to treat that spec as
@@ -1213,7 +1396,10 @@ export default function DocumentsPage() {
 
   const resetAddForm = () => {
     setCategoryId('');
+    setUploadLabel('');
     setFile(null);
+    setCapturedPages(0);
+    pdfPasswordRef.current = { file: null, password: '' };
     setFileError('');
     setAiError('');
     setAiMessage('');
@@ -1230,16 +1416,26 @@ export default function DocumentsPage() {
     // Values, errors, touched and the AI badges together — the title is one of
     // them now, so there is nothing left to clear by hand.
     uploadFields.reset();
-    setHolderId('');
+    autoTitleRef.current = '';
+    scanHolderRef.current = '';
+    setHolderIds(null);
     setDuplicateDoc(null);
   };
 
-  // One definition of "closed", shared by the header toggle, the mobile FAB and
-  // the Cancel button, so none of them can leave a half-filled upload — a
+  // One definition of "closed", shared by the header toggle and the Cancel
+  // button, so none of them can leave a half-filled upload — a
   // picked file, a scanned category, a parked autofill — behind in state.
   const closeAddForm = () => {
     resetAddForm();
     setShowAddForm(false);
+  };
+
+  /** Opens the form on its dropzone, where a file can be dropped or picked. */
+  const openAddForm = () => {
+    setShowAddForm(true);
+    requestAnimationFrame(() =>
+      addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    );
   };
 
   /** "Keep the new one" / "Keep both" — the same submit, a different answer. */
@@ -1260,7 +1456,8 @@ export default function DocumentsPage() {
   const openEditModal = async (doc) => {
     setEditingDoc(doc);
     setEditCategoryId(doc.categoryId || '');
-    setEditHolderId(holderValue(doc.holderId));
+    setEditLabel(doc.customSubcategory || '');
+    setEditHolderIds(holderValues(doc));
     setEditFile(null);
     setEditError('');
     // The scan notices are shared with the add form; a stale one must not open
@@ -1352,14 +1549,16 @@ export default function DocumentsPage() {
         // 'title', not 'name' — POST /api/documents rejects a missing title.
         uploadFormData.append('title', title);
         uploadFormData.append('categoryId', editCategoryId);
+        if (editIsCatchAll) uploadFormData.append('customSubcategory', editLabel);
         uploadFormData.append('file', editFile);
         uploadFormData.append('replaceId', editingDoc.id);
         // Omitted in a company workspace, as on the add form above — see
         // `holderForWrite`. An edit that omits it leaves the stored holder and
         // is_global exactly as they were, which is the right answer for a
         // record whose owner was never in question.
-        const editHolder = holderForWrite(companyId, editHolderId);
-        if (editHolder !== undefined) uploadFormData.append('holderId', editHolder);
+        const editHolder = holdersForWrite(companyId, editHolderIds);
+        if (editHolder.holderId !== undefined) uploadFormData.append('holderId', editHolder.holderId);
+        if (editHolder.holderIds) uploadFormData.append('holderIds', JSON.stringify(editHolder.holderIds));
         uploadFormData.append('metadata', JSON.stringify(record));
         uploadFormData.append('taxonomyFields', 'true');
         // `postUpload`, not `apiCall`: this is a multipart write. It carries the
@@ -1385,7 +1584,7 @@ export default function DocumentsPage() {
       }
 
       // Update metadata only
-      const metadataHolder = holderForWrite(companyId, editHolderId);
+      const metadataHolder = holdersForWrite(companyId, editHolderIds);
       const { json } = await api(`/api/documents/${editingDoc.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1394,11 +1593,15 @@ export default function DocumentsPage() {
         // rename sent as `name` is silently discarded.
         title,
         categoryId: editCategoryId,
+        // Moving out of Others clears it server-side whatever is sent here.
+        customSubcategory: editIsCatchAll ? editLabel : null,
         // `undefined` in a company workspace, and `JSON.stringify` drops the key
         // — the omission `holderFrom` reads as "not sent". The personal branch
         // keeps its `|| null`: '' means "All members", which the route spells
         // as a null holder.
-        holderId: metadataHolder === undefined ? undefined : (metadataHolder || null),
+        holderId: metadataHolder.holderId === undefined ? undefined : (metadataHolder.holderId || null),
+        // Every member, in the household (drizzle/0066); `[]` is All members.
+        holderIds: metadataHolder.holderIds,
         metadata: record,
         taxonomyFields: true,
         }),
@@ -1788,7 +1991,8 @@ export default function DocumentsPage() {
    * Display name / module for a document. `categoryRef` is hydrated by
    * /api/documents; the fallbacks cover a row written by an older client.
    */
-  const docCategoryName = (doc) => doc.categoryRef?.documentName || doc.category || 'Uncategorized';
+  const docCategoryName = (doc) =>
+    categoryDisplayName(doc.categoryRef, doc.customSubcategory) || doc.category || 'Uncategorized';
   const docColors = (doc) => MODULE_COLORS[doc.categoryRef?.moduleKey] || DEFAULT_MODULE_COLOR;
 
   /**
@@ -1807,7 +2011,9 @@ export default function DocumentsPage() {
    */
   const docTaxonomyLabel = (doc) => {
     const moduleName = doc.categoryRef?.moduleName || null;
-    const subName = doc.categoryRef?.documentName || doc.category || null;
+    // Under Others the member's own label (0068) is the sub-category to show:
+    // 'Others - Gym Membership'.
+    const subName = categoryDisplayName(doc.categoryRef, doc.customSubcategory) || doc.category || null;
     if (moduleName && subName && moduleName !== subName) return `${moduleName} - ${subName}`;
     return moduleName || subName || 'Uncategorized';
   };
@@ -2004,31 +2210,22 @@ export default function DocumentsPage() {
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">Documents Manager</h1>
           <p className="text-muted-foreground text-sm">One secure place for every document your workspace owns</p>
         </div>
-        {/* Both routes into this page are ways of ADDING a document, so both
-            disappear together for a member who may add nowhere.
+        {/* ONE way in: "Upload Document" and "Power Scan" used to sit side
+            by side and the user had to choose before picking anything. Now
+            the picked files decide — one stays in the form below, several go
+            to Power Scan (see attachPickedFiles).
 
-            Hidden below `sm` and replaced by the FAB column at the bottom of
-            this file: the two labels carry `whitespace-nowrap` (see Button), so
-            side by side they are ~288px of rigid width that a 375px phone
-            cannot spare — the heading was crushed and the second button clipped
-            off the right edge by `body { overflow-x: hidden }`. */}
+            The button opens the form's dropzone rather than the OS dialog
+            directly: a file dialog cannot be dropped on, so going straight to
+            it took drag & drop away on desktop.
+
+            Hidden below `sm`: a phone has the bottom nav's centre `+`, which
+            does open the picker directly — there is nothing to drag from on a
+            phone. Hidden for a member who may add nowhere. */}
         {canAddAnywhere && (
         <div className="hidden sm:flex items-center gap-2">
-          {/*
-            Power scan is part of the document manager, not a dashboard feature.
-            It was reachable only from the sidebar, the command palette, /more
-            and /dashboard — never from the module that owns uploading.
-          */}
           <Button
-            variant="secondary"
-            onClick={() => router.push(utilityNavPath('/documents/bulk-scan', companyId))}
-            className="flex items-center gap-2 h-10 px-4"
-          >
-            <Sparkles size={16} />
-            <span>Power Scan</span>
-          </Button>
-          <Button
-            onClick={() => (showAddForm ? closeAddForm() : setShowAddForm(true))}
+            onClick={() => (showAddForm ? closeAddForm() : openAddForm())}
             className="flex items-center gap-2 h-10 px-4"
           >
             {showAddForm ? <X size={16} /> : <Plus size={16} />}
@@ -2040,7 +2237,7 @@ export default function DocumentsPage() {
 
       {/* Add Document Section */}
       {showAddForm && (
-        <Card className="relative border-border/50 bg-card backdrop-blur shadow-glass p-6 md:p-8 animate-scale-in">
+        <Card ref={addFormRef} className="relative scroll-mt-20 border-border/50 bg-card backdrop-blur shadow-glass p-6 md:p-8 animate-scale-in">
           {uploading && (
             <ProcessingOverlay
               title="Processing your document"
@@ -2122,6 +2319,7 @@ export default function DocumentsPage() {
                   type="file"
                   ref={uploadInputRef}
                   accept={UPLOAD_ACCEPT_ATTRIBUTE}
+                  multiple
                   onChange={handleFileChange}
                   className="hidden"
                   disabled={uploading || aiScanning}
@@ -2129,21 +2327,45 @@ export default function DocumentsPage() {
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110">
                   <UploadCloud size={28} />
                 </div>
-                <h3 className="mb-1 text-lg font-bold text-foreground">Drag &amp; drop your document here</h3>
+                <h3 className="mb-1 text-lg font-bold text-foreground">Drag &amp; drop your documents here</h3>
                 <p className="mb-4 max-w-sm text-xs text-muted-foreground">
-                  Supports PDFs, Images, Word Docs, Text, Excel, and more
+                  Supports PDFs, Images, Word Docs, Text, Excel, and more.
+                  {' '}Pick several and Power Scan reads them all at once.
                 </p>
-                {/* Singular, both of them: this form takes exactly ONE file —
-                    `handleFileChange` keeps the first of a multi-file drop and
-                    points at Power Scan for the rest. Power Scan's own dropzone
-                    stays plural, because it really does take many. */}
-                <Button type="button" variant="secondary" size="sm" tabIndex={-1}>
-                  Select File
-                </Button>
+                {/* Singular: this form holds exactly ONE file — several, picked
+                    or dropped, are handed to Power Scan by `attachPickedFiles`. */}
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button type="button" variant="secondary" size="sm" tabIndex={-1}>
+                    Select File
+                  </Button>
+                  {/* The phone's own chooser shoots ONE photo and closes; this
+                      keeps the camera coming back for a multi-page document. */}
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); captureRef.current?.start(); }}
+                  >
+                    <Camera size={15} className="mr-1.5" /> Scan with camera
+                  </Button>
+                </div>
               </div>
+              <MultiPageCapture
+                ref={captureRef}
+                onOneDocument={async (scanned, pageCount) => {
+                  if (await attachPickedFiles([scanned]) !== false) {
+                    setCapturedPages(pageCount > 1 ? pageCount : 0);
+                  }
+                }}
+                onSeparate={(photos) => {
+                  // Several different documents: Power Scan sorts them into
+                  // records — the same hand-off as picking several files.
+                  router.push(utilityNavPath('/documents/bulk-scan', companyId));
+                  stashPendingFiles(photos);
+                }}
+              />
 
-              {/* One row, not a list: several files is Power Scan's job, and
-                  `handleFileChange` keeps the first with a link to it. */}
+              {/* One row, not a list: several files go to Power Scan. */}
               {file && (
                 <div className="mt-3 flex items-center justify-between rounded-xl border border-border bg-card p-3">
                   <div className="flex min-w-0 items-center gap-3">
@@ -2153,6 +2375,7 @@ export default function DocumentsPage() {
                     <div className="flex min-w-0 flex-col">
                       <span className="truncate text-sm font-semibold text-foreground">{file.name}</span>
                       <span className="mt-0.5 text-xs text-muted-foreground">
+                        {capturedPages > 0 && `${capturedPages} pages · `}
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </span>
                     </div>
@@ -2162,7 +2385,7 @@ export default function DocumentsPage() {
                     variant="ghost"
                     size="icon"
                     disabled={uploading || aiScanning}
-                    onClick={(e) => { e.stopPropagation(); setFile(null); setFileError(''); }}
+                    onClick={(e) => { e.stopPropagation(); setFile(null); setCapturedPages(0); setFileError(''); }}
                     className="h-8 w-8 text-danger-action hover:bg-destructive/10"
                     aria-label="Remove file"
                   >
@@ -2175,7 +2398,7 @@ export default function DocumentsPage() {
                 <p className="text-xs font-medium text-danger-text">{fileError}</p>
               )}
               <p className="text-xs text-faint">
-                One document at a time. Accepted: {UPLOAD_ACCEPT_LABEL}.
+                One document at a time — use Scan with camera to photograph a multi-page document. Accepted: {UPLOAD_ACCEPT_LABEL}.
               </p>
 
               <div className="flex flex-col gap-2 mt-2">
@@ -2200,13 +2423,6 @@ export default function DocumentsPage() {
                     {aiError}
                   </p>
                 )}
-                <button
-                  type="button"
-                  onClick={() => router.push(utilityNavPath('/documents/bulk-scan', companyId))}
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 self-center"
-                >
-                  Several documents at once? Use Power Scan
-                </button>
               </div>
             </div>
 
@@ -2232,11 +2448,22 @@ export default function DocumentsPage() {
                 action="add"
               />
 
+              {isCatchAll(uploadCategory) && (
+                <OthersLabelInput
+                  id="uploadLabel"
+                  value={uploadLabel}
+                  onChange={setUploadLabel}
+                  disabled={uploading}
+                  className="md:col-span-2"
+                />
+              )}
+
               <div className="flex flex-col gap-1">
                 <HolderSelect
-                  value={holderId}
+                  multiple
+                  value={holderIds}
                   onChange={(val) => {
-                    setHolderId(val);
+                    setHolderIds(val);
                     setHolderFromScan(false);
                     setHolderError('');
                   }}
@@ -2645,6 +2872,43 @@ export default function DocumentsPage() {
         />
       )}
 
+      {/* Password prompt for a locked PDF */}
+      <Dialog open={!!pdfPrompt} onOpenChange={(open) => { if (!open) skipPdfPassword(); }}>
+        <DialogContent aria-describedby={undefined} className="max-w-[420px] border-border/50 bg-popover/95 backdrop-blur shadow-glass">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">This PDF is password-protected</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={submitPdfPassword} className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Enter the password to read it. It is used only to read this file and is not saved.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="pdf-password">PDF password</Label>
+              <Input
+                id="pdf-password"
+                type="password"
+                autoComplete="off"
+                autoFocus
+                value={pdfPasswordInput}
+                onChange={(e) => setPdfPasswordInput(e.target.value)}
+                aria-invalid={pdfPrompt?.incorrect || undefined}
+              />
+              {pdfPrompt?.incorrect && (
+                <p className="text-xs text-destructive">That password did not open the PDF. Try again.</p>
+              )}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="secondary" onClick={skipPdfPassword}>
+                Skip
+              </Button>
+              <Button type="submit" disabled={!pdfPasswordInput}>
+                Unlock and read
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Preview Modal */}
       <Dialog open={!!previewDoc} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
         {previewDoc && (
@@ -2737,9 +3001,18 @@ export default function DocumentsPage() {
                   className="md:col-span-2"
                   action="edit"
                 />
+                {editIsCatchAll && (
+                  <OthersLabelInput
+                    id="editLabel"
+                    value={editLabel}
+                    onChange={setEditLabel}
+                    disabled={editSaving || editLoading}
+                    className="md:col-span-2"
+                  />
+                )}
               </div>
 
-              <HolderSelect id="editHolderId" value={editHolderId} onChange={setEditHolderId} disabled={editSaving || editLoading} />
+              <HolderSelect multiple id="editHolderId" value={editHolderIds} onChange={setEditHolderIds} disabled={editSaving || editLoading} />
 
               {/* The record's OWN category decides what is asked here, from
                   the same spec the upload form renders. It must: the save
@@ -2869,31 +3142,6 @@ export default function DocumentsPage() {
         )}
       </Dialog>
 
-      {/* Mobile: the two header actions, reachable and clear of the bottom nav.
-          The geometry lives in <MobileActionFab>, which the sub-category
-          workspace uses too — the two screens cannot disagree about where the
-          primary action lives, and neither can scroll its last row underneath
-          it. */}
-      {canAddAnywhere && (
-        <MobileActionFab
-          actions={[
-            {
-              key: 'power-scan',
-              icon: <Sparkles size={18} />,
-              label: 'Power Scan',
-              variant: 'secondary',
-              onClick: () => router.push(utilityNavPath('/documents/bulk-scan', companyId)),
-            },
-            {
-              key: 'add',
-              icon: showAddForm ? <X size={22} /> : <Plus size={22} />,
-              label: showAddForm ? 'Close upload form' : 'Upload document',
-              primary: true,
-              onClick: () => (showAddForm ? closeAddForm() : setShowAddForm(true)),
-            },
-          ]}
-        />
-      )}
 
     </PageContainer>
   );

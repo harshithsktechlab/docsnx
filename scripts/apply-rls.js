@@ -28,6 +28,9 @@ const pool = new pg.Pool({
 const tenantScopedTables = [
   'users',
   'documents',
+  // Which members a document belongs to (drizzle/0066). Carries its own
+  // tenant_id so it takes this simple policy, not the EXISTS shape below.
+  'document_holders',
   'passwords',
   'audit_logs',
   'tenant_ai_usages',

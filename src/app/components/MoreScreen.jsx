@@ -93,21 +93,14 @@ export default function MoreScreen({ companyId = null }) {
      once, not twice. Plan & Usage keeps its METERS, which is what a phone
      user comes to this page for and which exist nowhere else on a phone. */
 
-  const adminModules = user?.role === 'SUPER_ADMIN'
-    ? [
-        { name: 'Tenant Management', path: '/tenants', icon: Users, color: '#3b82f6', desc: 'Add, edit, or delete sovereign tenants' },
-        { name: 'AI Key Settings', path: '/ai-settings', icon: Bot, color: '#8b5cf6', desc: 'Manage model rotation and API key pool' },
-        // No audit-logs entry: that trail is tenant-owned and TENANT_ADMIN-only.
-      ]
-    : [
-        // Company-prefixed like everything else here: from inside Acme this used
-        // to be the household's roster, reached from a screen headed with the
-        // company's name.
-        { name: 'User Management', path: utilityNavPath('/users', companyId), icon: Users, color: '#3b82f6', desc: 'Add/edit members & configure permissions' },
-        // Settings and Audit Logs are in the header's account menu now, on
-        // every width. The roster is not: it is a workspace concern, it is
-        // company-prefixed, and it has no business in a menu about the account.
-      ];
+  // Platform admin only. A tenant admin's roster used to sit here as "User
+  // Management"; it is "Members" now, in the Workspace card below and in the
+  // avatar menu — the same two places the desktop offers it.
+  const adminModules = [
+    { name: 'Tenant Management', path: '/tenants', icon: Users, color: '#3b82f6', desc: 'Add, edit, or delete sovereign tenants' },
+    { name: 'AI Key Settings', path: '/ai-settings', icon: Bot, color: '#8b5cf6', desc: 'Manage model rotation and API key pool' },
+    // No audit-logs entry: that trail is tenant-owned and TENANT_ADMIN-only.
+  ];
 
   /**
    * Mobile navigation for the 14 master modules.
@@ -121,12 +114,18 @@ export default function MoreScreen({ companyId = null }) {
   // uses. An unprefixed link here would walk the user out of Acme and into the
   // household's passwords without saying so. There are no exclusions left —
   // `/profile` was one until a company gained a profile of its own.
-  // `/users` is the null-keyed entry and stays out: it is TENANT_ADMIN-only and
-  // already on this page as "User Management" under the admin panel below —
-  // on the page once, not twice.
+  // The same five rows as the sidebar's Workspace group, filtered the same
+  // way: `/users` (Members) is the null-keyed entry and TENANT_ADMIN-only.
   const utilityLinks = UTILITY_MODULES
-    .filter((m) => m.key !== null)
+    .filter((m) => m.key !== null || user?.role === 'TENANT_ADMIN')
     .map((m) => ({ ...m, path: utilityNavPath(m.path, companyId) }));
+
+  // The desktop rail's Overview group, minus what the bottom nav already
+  // carries (Home, Follow Up). Same names as the rail.
+  const overviewLinks = [
+    { name: 'Document Manager', path: utilityNavPath('/documents', companyId) },
+    { name: 'AI Analysis', path: utilityNavPath('/analysis', companyId) },
+  ];
 
   const handleModuleClick = (path) => {
     router.push(path);
@@ -166,6 +165,27 @@ export default function MoreScreen({ companyId = null }) {
               aiCreditsBalance={user?.tenant?.aiCreditsBalance}
               size="lg"
             />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Overview — the desktop rail's first group, in the same order. */}
+      {user?.role !== 'SUPER_ADMIN' && (
+        <Card className="border-border/50 bg-card backdrop-blur shadow-glass animate-fade-in stagger-1">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-bold text-primary">Overview</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {overviewLinks.map((link) => (
+              <button
+                key={link.path}
+                onClick={() => handleModuleClick(link.path)}
+                className="flex items-center justify-between gap-2 w-full min-h-11 p-4 rounded-xl border border-border bg-background/20 hover:bg-muted/30 transition-colors touch-manipulation"
+              >
+                <span className="text-sm font-bold text-foreground truncate">{link.name}</span>
+                <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+              </button>
+            ))}
           </CardContent>
         </Card>
       )}
@@ -256,40 +276,12 @@ export default function MoreScreen({ companyId = null }) {
                 <ChevronRight size={16} className="text-muted-foreground shrink-0" />
               </button>
             ))}
-            {/* Both workspaces now, company-prefixed. This was personal-only
-                while a company had no analysis page to reach — it has one, and
-                a phone is the surface with no sidebar to reach it from.
-
-                Backup & Restore below takes NO prefix and should not: it
-                exports the whole tenant, both halves of the account at once,
-                so there is no company version of it to point at. */}
-            <button
-              onClick={() => handleModuleClick(utilityNavPath('/documents', companyId))}
-              className="flex items-center justify-between gap-2 w-full min-h-11 p-4 rounded-xl border border-border bg-background/20 hover:bg-muted/30 transition-colors touch-manipulation"
-            >
-              <span className="text-sm font-bold text-foreground truncate">Document Manager</span>
-              <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-            </button>
-            <button
-              onClick={() => handleModuleClick(utilityNavPath('/analysis', companyId))}
-              className="flex items-center justify-between gap-2 w-full min-h-11 p-4 rounded-xl border border-border bg-background/20 hover:bg-muted/30 transition-colors touch-manipulation"
-            >
-              <span className="text-sm font-bold text-foreground truncate">AI Portfolio Analysis</span>
-              <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-            </button>
-            <button
-              onClick={() => handleModuleClick('/backup')}
-              className="flex items-center justify-between gap-2 w-full min-h-11 p-4 rounded-xl border border-border bg-background/20 hover:bg-muted/30 transition-colors touch-manipulation"
-            >
-              <span className="text-sm font-bold text-foreground truncate">Backup &amp; Restore</span>
-              <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-            </button>
           </CardContent>
         </Card>
       )}
 
-      {/* Admin Modules (Tenant Admin or Super Admin) */}
-      {(user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN') && (
+      {/* Admin Modules (Super Admin only) */}
+      {isSuperAdmin && (
         <Card className="border-border/50 bg-card backdrop-blur shadow-glass animate-fade-in stagger-2">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg font-bold text-secondary">System Admin Control Panel</CardTitle>

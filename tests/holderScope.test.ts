@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  holderRequired, holderForWrite, companyNameMismatch, COMPANY_HOLDER,
+  holderRequired, holderForWrite, companyNameMismatch, companyNamesMatch, COMPANY_HOLDER,
 } from '@/lib/records/holderScope';
 import { holderFrom } from '@/lib/recordRequest';
 import { resolveHolder } from '@/lib/records/handler';
@@ -82,25 +82,32 @@ describe('the round trip a form actually makes', () => {
     // The reason the key is omitted rather than sent as ''. Sending '' would
     // read as an explicit "All members" and set is_global on every business
     // row, which the module summary reports as covering all members.
-    expect(post(COMPANY, '')).toEqual({ holderId: null, isGlobal: false });
+    expect(post(COMPANY, '')).toEqual({ holderId: null, isGlobal: false, holderIds: [] });
   });
 
   it('a business record filed under a member keeps that member', () => {
-    expect(post(COMPANY, MEMBER)).toEqual({ holderId: MEMBER, isGlobal: false });
+    expect(post(COMPANY, MEMBER)).toEqual({ holderId: MEMBER, isGlobal: false, holderIds: [MEMBER] });
   });
 
   it("a personal 'All members' record is still explicitly global", () => {
-    expect(post(null, 'all')).toEqual({ holderId: null, isGlobal: true });
+    expect(post(null, 'all')).toEqual({ holderId: null, isGlobal: true, holderIds: [] });
   });
 
   it('a personal record filed to a member is unchanged', () => {
-    expect(post(null, MEMBER)).toEqual({ holderId: MEMBER, isGlobal: false });
+    expect(post(null, MEMBER)).toEqual({ holderId: MEMBER, isGlobal: false, holderIds: [MEMBER] });
   });
 });
 
 describe('companyNameMismatch — the scan disagrees with the company name', () => {
   it('answers the scanned name when it differs', () => {
-    expect(companyNameMismatch('Acme', '  Acme Pvt Ltd ')).toBe('Acme Pvt Ltd');
+    expect(companyNameMismatch('Tata Steel', '  Tata Motors Ltd ')).toBe('Tata Motors Ltd');
+  });
+
+  it('the legal form, a shortened word or an OCR slip is not a disagreement', () => {
+    expect(companyNameMismatch('Acme', 'Acme Pvt Ltd')).toBeNull();
+    expect(companyNameMismatch('Redpluto Analytics PVT', 'Redpluto A Pvt')).toBeNull();
+    expect(companyNameMismatch('Redpluto Analytics PVT', 'Redpluto Analytics Private Limited')).toBeNull();
+    expect(companyNameMismatch('Redpluto Analytics PVT', 'REDPULTO ANALYTICS PVT LTD')).toBeNull();
   });
 
   it('case and punctuation are not a disagreement', () => {
@@ -111,5 +118,22 @@ describe('companyNameMismatch — the scan disagrees with the company name', () 
     expect(companyNameMismatch('Acme', '')).toBeNull();
     expect(companyNameMismatch('Acme', undefined)).toBeNull();
     expect(companyNameMismatch('', 'Acme Pvt Ltd')).toBeNull();
+  });
+});
+
+describe('companyNamesMatch', () => {
+  it('matches a name to its shortened and full forms', () => {
+    expect(companyNamesMatch('Redpluto Analytics PVT', 'Redpluto A Pvt')).toBe(true);
+    expect(companyNamesMatch('Redpluto', 'Redpluto Analytics Pvt Ltd')).toBe(true);
+  });
+
+  it('does not match a different company sharing a brand word', () => {
+    expect(companyNamesMatch('Tata Steel', 'Tata Motors')).toBe(false);
+    expect(companyNamesMatch('Redpluto Analytics', 'Bluepluto Analytics')).toBe(false);
+  });
+
+  it('compares a name that is only legal form exactly', () => {
+    expect(companyNamesMatch('Pvt Ltd', 'pvt. ltd.')).toBe(true);
+    expect(companyNamesMatch('Pvt Ltd', 'Acme')).toBe(false);
   });
 });

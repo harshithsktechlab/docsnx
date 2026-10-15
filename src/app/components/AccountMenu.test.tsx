@@ -39,15 +39,16 @@ describe('AccountMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('opens a panel holding the four account rows and Logout', () => {
+  it('opens a panel holding Members, the four account rows and Logout', () => {
     render(<AccountMenu user={ADMIN} />);
     openMenu();
     const menu = screen.getByRole('menu', { name: 'Account' });
     expect(menu).toBeInTheDocument();
-    for (const label of ['Billing', 'AI Credits', 'Settings', 'Audit Logs', 'Logout']) {
+    for (const label of ['Members', 'Billing', 'AI Credits', 'Settings', 'Audit Logs', 'Logout']) {
       expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
     }
     // Real links, so Back works and ⌘-click opens a tab.
+    expect(screen.getByRole('menuitem', { name: 'Members' })).toHaveAttribute('href', '/users');
     expect(screen.getByRole('menuitem', { name: 'Billing' })).toHaveAttribute('href', '/billing');
     expect(screen.getByRole('menuitem', { name: 'Audit Logs' })).toHaveAttribute('href', '/audit-logs');
   });

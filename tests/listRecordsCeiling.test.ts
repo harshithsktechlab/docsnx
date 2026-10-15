@@ -29,6 +29,15 @@ let rows: any[] = [];
 const storeReads: Array<{ companyId: string | null | undefined; module: string }> = [];
 let limitArg: number | null = null;
 
+// The holder set (drizzle/0066) is its own table; these tests are about other
+// things, so a document's set is just its primary holder.
+vi.mock('@/lib/records/documentHolders', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/records/documentHolders')>()),
+  setDocumentHolders: vi.fn(async () => {}),
+  loadHolderSets: vi.fn(async (_tx: unknown, _tenantId: string, rows: any[]) =>
+    new Map(rows.map((r) => [r.id, r.holderId ? [{ id: r.holderId, name: r.holderName ?? '' }] : []]))),
+}));
+
 vi.mock('@/lib/auth', () => ({
   getUserFromRequest: vi.fn(),
   hasPermission: vi.fn(async () => true),

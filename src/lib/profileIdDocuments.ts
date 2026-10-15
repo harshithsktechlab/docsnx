@@ -10,7 +10,7 @@ import { visibleDocument } from '@/lib/records/documentVisibility';
 import { servableFilePath } from '@/lib/records/fileUrl';
 import {
   PROFILE_ID_DOCUMENTS, PROFILE_ID_MODULE_KEY, applyIdNumberToProfile,
-  type ProfileIdKind,
+  applyPersonalDetailsToProfile, personalDetailsFromDocument, type ProfileIdKind,
 } from '@/lib/profileUpdater';
 
 export interface ProfileIdDocument {
@@ -43,14 +43,16 @@ export interface ProfileIdDocument {
  * view.
  *
  * When the profile has no number for a kind but a document exists, the number
- * is read back off that document and saved into the profile. That is what
- * brings in cards filed before the two were linked; it touches Drive only for
- * a kind whose number is missing.
+ * is read back off that document and saved into the profile — and so are the
+ * date of birth and gender on it, where the profile has none. That is what
+ * brings in cards filed before the two were linked; it touches Drive only while
+ * something the card could supply is still missing.
  */
 export async function loadProfileIdDocuments(
   user: any,
   holderId: string,
   legalDetails: Record<string, any>,
+  personalDetails: Record<string, any> = {},
 ): Promise<{ idDocuments: Record<ProfileIdKind, ProfileIdDocument>; backfilled: boolean }> {
   const kinds = Object.keys(PROFILE_ID_DOCUMENTS) as ProfileIdKind[];
   const ctx = await documentManagerContext(user, 'view', null);
@@ -81,6 +83,11 @@ export async function loadProfileIdDocuments(
 
   const idDocuments = {} as Record<ProfileIdKind, ProfileIdDocument>;
   let backfilled = false;
+  // Which personal details are already on file; a card fills only the others.
+  const personal: Record<string, boolean> = {
+    dob: Boolean(String(personalDetails?.dob ?? '').trim()),
+    gender: Boolean(String(personalDetails?.gender ?? '').trim()),
+  };
 
   for (const kind of kinds) {
     const def = PROFILE_ID_DOCUMENTS[kind];
@@ -104,11 +111,22 @@ export async function loadProfileIdDocuments(
       } : null,
     };
 
-    if (row && !legalDetails?.[def.legalKey]) {
+    // A PAN prints no gender, so it is opened only for a missing date of birth.
+    const missingPersonal = !personal.dob || (kind !== 'pan' && !personal.gender);
+    if (row && (!legalDetails?.[def.legalKey] || missingPersonal)) {
       try {
         const revealed = await revealRecord(ctx, row.id);
-        const number = revealed?.sealed?.[def.fieldKey];
-        if (number && await applyIdNumberToProfile(holderId, kind, number)) backfilled = true;
+        const fields = { ...(revealed?.open ?? {}), ...(revealed?.sealed ?? {}) } as Record<string, any>;
+        const number = fields[def.fieldKey];
+        if (!legalDetails?.[def.legalKey] && number && await applyIdNumberToProfile(holderId, kind, number)) {
+          backfilled = true;
+        }
+        if (missingPersonal) {
+          const { dob, gender } = personalDetailsFromDocument(PROFILE_ID_MODULE_KEY, fields);
+          const written = await applyPersonalDetailsToProfile(holderId, { dob, gender });
+          for (const key of written) personal[key] = true;
+          if (written.length) backfilled = true;
+        }
       } catch (err) {
         // The card is still listed; only the number stays blank until the
         // store can be read.

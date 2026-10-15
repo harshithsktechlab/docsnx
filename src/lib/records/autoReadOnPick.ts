@@ -23,6 +23,7 @@
  *
  * Pure: no fetch, no React, no DB.
  */
+import { isCatchAll } from '@/lib/documentCategories';
 
 /** Everything the decision depends on, as the page holds it. */
 export interface AutoReadState {
@@ -67,6 +68,12 @@ export function autoReadKey(
 export function autoReadFor(state: AutoReadState): string {
   if (!state.armed || state.editing) return '';
   if (!state.file || !state.category?.moduleKey || !state.category?.documentKey) return '';
+
+  // The catch-all is what the classify pass already answered — reading the file
+  // against it is a billed call with nothing to fill in (the autofill route
+  // skips it for the same reason). Not a read, and not the end of the wait
+  // either: `armed` is left set, so the user's pick of a REAL category reads.
+  if (isCatchAll(state.category)) return '';
 
   // A second read while the first is in flight would race it, and both would
   // apply to the same inputs.

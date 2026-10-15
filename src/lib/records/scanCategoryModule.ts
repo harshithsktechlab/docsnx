@@ -58,6 +58,9 @@ export const SCAN_CATEGORY_MODULE: Record<string, string> = {
   utility_bill: 'utility_bills',
   employment_payroll: 'employment_payroll',
   trading: 'trading',
+  // Added with 0065, after the legacy vocabulary — so, like the business
+  // scopes below, the token is the module key itself.
+  travel: 'travel',
 
   // ── THE BUSINESS SCOPES ──────────────────────────────────────────────────
   // Token and scope are the same string here, which reads like a redundant
@@ -84,6 +87,8 @@ export const SCAN_CATEGORY_MODULE: Record<string, string> = {
   biz_procurement: 'biz_procurement',
   biz_sales: 'biz_sales',
   biz_operations: 'biz_operations',
+  biz_travel: 'biz_travel',
+  biz_other: 'biz_other',
 };
 
 /**

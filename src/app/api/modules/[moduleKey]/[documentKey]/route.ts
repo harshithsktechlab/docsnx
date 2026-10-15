@@ -108,14 +108,17 @@ export async function POST(req: Request, { params }: Params) {
 
       const created = await createRecord(ctx, {
         title: body.title,
+        customSubcategory: body.customSubcategory,
         // The URL names the category; nothing about the body may change it.
         categoryKey,
         taxonomyFields: true,
         record: body.record,
         holderId: body.holderId,
+        holderIds: body.holderIds,
         ownerId: body.ownerId,
         file: body.file,
         splitPages: body.splitPages,
+        contentText: body.contentText,
       }, { overwrite: body.overwrite, keepBoth: body.keepBoth });
 
       await writeAudit({

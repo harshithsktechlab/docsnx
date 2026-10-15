@@ -73,6 +73,7 @@ let whatsappOn = true;
 vi.mock('@/lib/whatsapp', () => ({
   sendVerificationOtpWhatsApp,
   isWhatsAppEnabled: async () => whatsappOn,
+  sendWhatsAppTemplate: async () => ({ success: true }),
 }));
 
 /**
@@ -141,6 +142,8 @@ function unverified(overrides: any = {}) {
     // member's code lives HERE, not in the email columns it used to borrow.
     phoneVerified: false,
     phoneVerificationOtpExpiry: null,
+    // Set up before 0071, like every pre-existing account (backfilled).
+    activatedAt: new Date('2026-01-01'),
     tenant: { isActive: true },
     ...overrides,
   };

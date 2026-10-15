@@ -40,7 +40,7 @@ describe('belongsToWorkspace', () => {
   });
 
   it('gives a company the business modules', () => {
-    expect(BUSINESS_CATEGORY_MODULES.length).toBe(14);
+    expect(BUSINESS_CATEGORY_MODULES.length).toBe(16);
     for (const m of BUSINESS_CATEGORY_MODULES) {
       expect(belongsToWorkspace(m.moduleKey, COMPANY), m.moduleKey).toBe(true);
       expect(belongsToWorkspace(m.moduleKey, null), m.moduleKey).toBe(false);
@@ -65,12 +65,13 @@ describe('belongsToWorkspace', () => {
     expect(personal.some((m) => business.includes(m))).toBe(false);
   });
 
-  it('puts the catch-all on the household side', () => {
-    // `other/uncategorized` is where an unclassifiable household scan lands.
-    // A company has no equivalent, which is why its Power Scan returns no
-    // category at all rather than falling back — see scanWorkspaceScope.test.ts.
+  it('gives each side its own catch-all', () => {
+    // `other/uncategorized` is where an unclassifiable household scan lands, and
+    // `biz_other/uncategorized` (0067) a company's — see scanWorkspaceScope.test.ts.
     expect(belongsToWorkspace('other', null)).toBe(true);
     expect(belongsToWorkspace('other', COMPANY)).toBe(false);
+    expect(belongsToWorkspace('biz_other', COMPANY)).toBe(true);
+    expect(belongsToWorkspace('biz_other', null)).toBe(false);
   });
 });
 

@@ -24,6 +24,7 @@ import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { setMemberSignIn } from '@/lib/account/memberRemoval';
 import { workspaceMemberScope } from '@/lib/account/workspaceMemberScope';
+import { sendMemberInvite } from '@/lib/memberInvite';
 
 const bodySchema = z.object({
   enabled: z.boolean(),
@@ -119,7 +120,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }, tx);
     });
 
-    return NextResponse.json({ success: true, signInDisabled: !enabled });
+    // A member who has not set their own password yet is sent the invite the
+    // moment they can use it (0071) — unless the admin just handed them one.
+    const invite = enabled && !targetUser.activatedAt && !password
+      ? await sendMemberInvite({
+        tenantId: currentUser.tenantId,
+        actor: currentUser,
+        member: {
+          id: targetUser.id, name: targetUser.name,
+          email: targetUser.email, phoneNumber: targetUser.phoneNumber,
+        },
+        req,
+      })
+      : null;
+
+    return NextResponse.json({ success: true, signInDisabled: !enabled, invite });
   } catch (error) {
     return serverError(error, 'changing member sign-in');
   }

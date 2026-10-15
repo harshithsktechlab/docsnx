@@ -1,0 +1,13 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  0068 — documents.custom_subcategory: a member's label under Others      ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- A document the classifier could not place is filed under the catch-all
+-- (`other/uncategorized`, or `biz_other/uncategorized` for a company). The
+-- member may name what it actually is — "Gym Membership" — without that name
+-- becoming a category: the taxonomy is global and its keys are the Drive path,
+-- so the label is a per-document display string and nothing more.
+--
+-- Additive and idempotent. Only meaningful under a catch-all; createRecord and
+-- PUT /api/documents/[id] null it whenever a document is filed elsewhere.
+ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "custom_subcategory" varchar(120);

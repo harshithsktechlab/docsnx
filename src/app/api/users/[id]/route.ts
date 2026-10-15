@@ -13,6 +13,8 @@ import {
 } from '@/lib/dbErrors';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
+import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
 import { workspaceMemberScope } from '@/lib/account/workspaceMemberScope';
 import { companyAccess } from '@/db/schema';
 import { companySeatCap, seatPredicate } from '@/lib/account/seatCounts';
@@ -137,7 +139,26 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       }, { status: 400 });
     }
 
+    /**
+     * ── ACCESS GIVEN LATER TURNS SIGN-IN ON (0071) ──────────────────────────
+     * A member added with no access, and never invited, who is now given
+     * something to view: that is the admin giving access, so sign-in turns on
+     * and the invite goes out — no second trip to "Give access". A member the
+     * admin has already invited (or switched off afterwards) is left alone:
+     * their sign-in state is a decision someone already made.
+     */
+    const autoEnable = effectiveRole === 'STANDARD'
+      && Boolean(targetUser.signInDisabledAt)
+      && !targetUser.activatedAt
+      && !targetUser.invitedAt
+      && Array.isArray(reqPermissions) && grantsAccess(reqPermissions)
+      && canReceiveInvite(
+        { email: mergedEmail, phoneNumber: isBlankPhone(mergedPhone) ? null : mergedPhone },
+        await isWhatsAppEnabled(),
+      );
+
     const updateData: any = {};
+    if (autoEnable) updateData.signInDisabledAt = null;
     if (name) updateData.name = name;
     if (phoneNumber !== undefined) {
       updateData.phoneNumber = isBlankPhone(phoneNumber) ? null : phoneNumber;
@@ -163,6 +184,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     if (password) {
       updateData.passwordHash = await hashPassword(password);
+      // An admin-set password is a usable one: not waiting on /activate (0071).
+      if (!targetUser.activatedAt) updateData.activatedAt = new Date();
     }
 
     /**
@@ -354,8 +377,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return user;
     });
 
+    const invite = autoEnable
+      ? await sendMemberInvite({
+        tenantId: currentUser.tenantId,
+        actor: currentUser,
+        member: {
+          id: updatedUser.id, name: updatedUser.name,
+          email: updatedUser.email, phoneNumber: updatedUser.phoneNumber,
+        },
+        req,
+      })
+      : null;
+
     const { passwordHash: _, ...safeUser } = updatedUser;
-    return NextResponse.json({ success: true, user: safeUser });
+    return NextResponse.json({ success: true, user: safeUser, invite });
   } catch (error) {
     if (isDuplicatePhone(error)) {
       return NextResponse.json({ error: DUPLICATE_PHONE_MESSAGE }, { status: 400 });

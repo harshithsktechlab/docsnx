@@ -14,15 +14,17 @@
  *     list simply omitted became searchable.
  *
  * ── WHAT IS SEARCHED ───────────────────────────────────────────────────────
- * The OPEN tier and the masked values — never the sealed tier, which the server
- * cannot read without decrypting every record. An exact-match lookup of a
- * sealed identifier goes through its blind index instead, so searching a full
- * account number still finds the account.
+ * The OPEN tier and the masked values in plaintext — never the sealed tier, which
+ * the server cannot read without decrypting every record. Sealed fields and the
+ * document's own text are reached through hashed keyword tokens instead (see
+ * src/lib/search/tokens.ts), and an exact-match lookup of a sealed identifier
+ * through its blind index, so searching a full account number still finds the
+ * account.
  */
 import { NextResponse } from 'next/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { withTenant } from '@/lib/db';
-import { documents, documentCategories, passwords } from '@/db/schema';
+import { documents, documentCategories, documentHolders, passwords, users } from '@/db/schema';
 import { getUserFromRequest, hasCompanyAccess, hasPermission, hasPersonalAccess } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { requireOnboarded } from '@/lib/onboardingGate';
@@ -33,10 +35,74 @@ import { utilityNavPath } from '@/lib/moduleRegistry';
 import { type CategoryKey, categoryLabel } from '@/lib/documentCategories';
 import { activeCategoryKeys, moduleNames } from '@/lib/taxonomyRegistry';
 import { visibleDocument } from '@/lib/records/documentVisibility';
+import { dateTokens, hashSearchToken, parseQuery, textTokens } from '@/lib/search/tokens';
 
 import { serverError } from '@/lib/routeError';
 
-const MAX_RESULTS_PER_MODULE = 10;
+const MAX_RESULTS_PER_MODULE = 20;
+const MAX_RESULTS = 60;
+
+/**
+ * ── HOW A QUERY MATCHES ────────────────────────────────────────────────────
+ * The query is split into terms (see `parseQuery`): "April month bank
+ * statement" is the date term `m:4` and the words `bank` and `statement`. Each
+ * term is matched on its own, so the words need not appear together or in
+ * order. A word term matches when it is
+ *   · a substring of the record's plaintext — title, file name, category,
+ *     sub-category, members, issuer, open and masked values; or
+ *   · one of the record's hashed `searchTokens` — its full text, its sealed
+ *     fields (address and the like), written by `storeRecordInVault`.
+ * A date term matches a date in the record's fields or text; the upload date
+ * counts too, at half weight, so a record with no dated field is still found
+ * by the month it was filed in.
+ *
+ * Records matching EVERY term are returned when there are any. Otherwise the
+ * best partial matches (at least half the terms) are, so a query with one word
+ * too many still finds something.
+ */
+interface PreparedQuery {
+  terms: { term: string; hash: string }[];
+  dateTerms: { term: string; hash: string }[];
+  size: number;
+}
+
+function prepareQuery(query: string): PreparedQuery {
+  const { terms, dateTerms } = parseQuery(query);
+  const withHash = (t: string) => ({ term: t, hash: hashSearchToken(t) });
+  return {
+    terms: terms.map(withHash),
+    dateTerms: dateTerms.map(withHash),
+    size: terms.length + dateTerms.length,
+  };
+}
+
+function scoreRecord(
+  q: PreparedQuery,
+  plain: string,
+  dates: Set<string>,
+  uploadDates: Set<string>,
+  hashes: Set<string> | null,
+): { score: number; complete: boolean } {
+  let score = 0;
+  let matched = 0;
+  for (const { term, hash } of q.terms) {
+    if (plain.includes(term) || hashes?.has(hash)) { score += 1; matched += 1; }
+  }
+  for (const { term, hash } of q.dateTerms) {
+    if (dates.has(term) || hashes?.has(hash)) { score += 1; matched += 1; }
+    else if (uploadDates.has(term)) { score += 0.5; matched += 1; }
+  }
+  return { score, complete: q.size > 0 && matched === q.size };
+}
+
+/** Every string value inside an object, for the plaintext haystack. */
+function valuesText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(valuesText).join(' ');
+  if (typeof value === 'object') return Object.values(value as object).map(valuesText).join(' ');
+  return '';
+}
 
 /**
  * The page a hit links to — the one that owns that CATEGORY, not a slugified
@@ -90,7 +156,7 @@ export async function GET(req: Request) {
     const query = (new URL(req.url).searchParams.get('q') || '').trim();
     if (query.length < 2) return NextResponse.json({ success: true, results: [] });
 
-    const needle = query.toLowerCase();
+    const prepared = prepareQuery(query);
     // Exact-match handle for sealed identifiers. Searching a full account number
     // finds the account without the server ever reading the stored value.
     const queryHash = blindIndex(query);
@@ -114,7 +180,13 @@ export async function GET(req: Request) {
         module: documents.categoryModuleKey,
         documentKey: documents.categoryDocumentKey,
         categoryName: documentCategories.documentName,
+        moduleName: documentCategories.moduleName,
+        customSubcategory: documents.customSubcategory,
         fileName: documents.fileName,
+        // Who the record belongs to — a member's name is a search term.
+        holderId: documents.holderId,
+        isGlobal: documents.isGlobal,
+        createdAt: documents.createdAt,
         // Which vault holds this record's contents, and which workspace its
         // link has to open.
         companyId: documents.companyId,
@@ -196,6 +268,29 @@ export async function GET(req: Request) {
       });
     }
 
+    /**
+     * Member names, so "Priya passport" finds Priya's passport. One read of the
+     * tenant's members and one of the multi-holder table, both tenant-scoped,
+     * rather than a join per row.
+     */
+    const { memberRows, holderRows } = await withTenant(user.tenantId, async (tx) => ({
+      memberRows: await tx.select({ id: users.id, name: users.name })
+        .from(users)
+        .where(eq(users.tenantId, user.tenantId)),
+      holderRows: await tx.select({ documentId: documentHolders.documentId, userId: documentHolders.userId })
+        .from(documentHolders)
+        .where(eq(documentHolders.tenantId, user.tenantId)),
+    }));
+    const memberName = new Map(memberRows.map((m) => [m.id, m.name]));
+    const holdersOf = new Map<string, string[]>();
+    for (const h of holderRows) {
+      const name = memberName.get(h.userId);
+      if (!name) continue;
+      const list = holdersOf.get(h.documentId) ?? [];
+      list.push(name);
+      holdersOf.set(h.documentId, list);
+    }
+
     const perModule = new Map<string, any[]>();
 
     for (const { module: mod, key, companyId, rows: storeRows } of stores.values()) {
@@ -212,20 +307,36 @@ export async function GET(req: Request) {
 
       for (const row of storeRows) {
         const record = records[row.id];
-        const haystack = [
-          row.title, row.fileName, row.categoryName,
-          record?.issuer,
-          JSON.stringify(record?.open ?? {}),
-          JSON.stringify(record?.masked ?? {}),
-        ].join(' ').toLowerCase();
+        const members = [
+          row.holderId ? memberName.get(row.holderId) : null,
+          ...(holdersOf.get(row.id) ?? []),
+          row.isGlobal ? 'all members' : null,
+        ];
+        const openText = valuesText(record?.open);
+        const plain = [
+          row.title, record?.name, row.fileName, row.categoryName, row.customSubcategory,
+          row.moduleName, LABELS.get(mod), ...members, record?.issuer,
+          openText, valuesText(record?.masked),
+        ].filter(Boolean).join(' ').toLowerCase();
+        // Plaintext tokens too, so a stemmed term ("bill") meets its plural and
+        // a written date in an open field ("01/04/2025") meets "april".
+        const dates = textTokens(`${row.title ?? ''} ${openText}`);
+        const uploadDates = row.createdAt ? dateTokens(new Date(row.createdAt).toISOString()) : new Set<string>();
+        // Hashed tokens for the sealed fields and the document's own text —
+        // written by `storeRecordInVault`; absent on records saved before it.
+        const tokenList = [
+          ...(Array.isArray(record?.searchTokens) ? record.searchTokens : []),
+          ...(Array.isArray(record?.contentTokens) ? record.contentTokens : []),
+        ];
+        const hashes = tokenList.length ? new Set<string>(tokenList) : null;
 
-        const hashes: Record<string, string> = record?.searchHashes ?? {};
-        const exactHit = Boolean(queryHash) && Object.values(hashes).includes(queryHash as string);
+        const idHashes: Record<string, string> = record?.searchHashes ?? {};
+        const exactHit = Boolean(queryHash) && Object.values(idHashes).includes(queryHash as string);
+        const { score, complete } = scoreRecord(prepared, plain, dates, uploadDates, hashes);
 
-        if (!exactHit && !haystack.includes(needle)) continue;
+        if (!exactHit && score === 0) continue;
 
         const bucket = perModule.get(mod) ?? [];
-        if (bucket.length >= MAX_RESULTS_PER_MODULE) continue;
         bucket.push({
           id: `${mod}-${row.id}`,
           title: record?.name ?? row.title,
@@ -233,10 +344,16 @@ export async function GET(req: Request) {
             || LABELS.get(mod) || mod,
           // Into the workspace the record actually lives in. A business hit
           // linked at `/modules/...` would open a route that 400s.
-          link: `${linkFor(key, companyId)}?search=${encodeURIComponent(query)}`,
+          //
+          // Filtered by the record's own TITLE, not the query: the list page's
+          // filter is one substring match, so a multi-word query such as
+          // "april bank statement" would land on an empty list.
+          link: `${linkFor(key, companyId)}?search=${encodeURIComponent(record?.name ?? row.title ?? query)}`,
           module: LABELS.get(mod) || mod,
           // An exact identifier match is what the user was most likely after.
           exact: exactHit,
+          complete,
+          score,
         });
         perModule.set(mod, bucket);
       }
@@ -278,25 +395,47 @@ export async function GET(req: Request) {
         if (await mayReach(p.companyId ?? null)) reachable.push(p);
       }
 
+      const none = new Set<string>();
       const hits = reachable
-        .filter((p: any) => `${p.title} ${p.username} ${p.category}`.toLowerCase().includes(needle))
-        .slice(0, MAX_RESULTS_PER_MODULE)
         .map((p: any) => ({
+          p,
+          ...scoreRecord(prepared, `${p.title} ${p.username} ${p.category}`.toLowerCase(), none, none, null),
+        }))
+        .filter(({ score }) => score > 0)
+        .map(({ p, score, complete }) => ({
           id: `password-${p.id}`,
           title: p.title,
           subtitle: `Username: ${p.username} (${String(p.category || '').toUpperCase()})`,
           // The company's own page when it is a company's credential, so the
           // link lands in the workspace that holds it. Same builder the sidebar
           // uses, so the two cannot drift.
-          link: `${utilityNavPath('/passwords', p.companyId ?? null)}?search=${encodeURIComponent(query)}`,
+          link: `${utilityNavPath('/passwords', p.companyId ?? null)}?search=${encodeURIComponent(p.title || query)}`,
           module: 'Passwords',
           exact: false,
+          complete,
+          score,
         }));
       if (hits.length) perModule.set('passwords', hits);
     }
 
-    const results = [...perModule.values()].flat()
-      .sort((a, b) => Number(b.exact) - Number(a.exact));
+    // Everything that matched every term if anything did; otherwise the best
+    // partial matches. Each module keeps its own cap so one large module
+    // cannot crowd the rest out.
+    const all = [...perModule.values()].flat();
+    const anyComplete = all.some((r) => r.complete);
+    const minScore = prepared.size / 2;
+    const rank = (a: any, b: any) =>
+      Number(b.exact) - Number(a.exact)
+      || Number(b.complete) - Number(a.complete)
+      || b.score - a.score;
+    const kept = [...perModule.values()].flatMap((bucket) => bucket
+      .filter((r) => r.exact || (anyComplete ? r.complete : r.score >= minScore))
+      .sort(rank)
+      .slice(0, MAX_RESULTS_PER_MODULE));
+    const results = kept
+      .sort(rank)
+      .slice(0, MAX_RESULTS)
+      .map(({ complete: _c, score: _s, ...r }) => r);
 
     return NextResponse.json({ success: true, results });
   } catch (error) {

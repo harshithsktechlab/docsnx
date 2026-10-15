@@ -148,7 +148,10 @@ describe('the shared form components scope every request', () => {
     // `scoped()` wrapping a ternary, so FOUR call expressions covering five
     // endpoints. The count is exact rather than a floor: a fifth `scoped(`
     // would mean a call this list does not know about.
-    expect((src.match(/scoped\(`/g) ?? []).length).toBe(3);
+    // …plus `syncPhotos` (0069): the photo DELETE is the fourth. The photo
+    // POST is `scoped(base)` — no backtick — and is asserted on its own below.
+    expect((src.match(/scoped\(`/g) ?? []).length).toBe(4);
+    expect(src).toMatch(/postUpload\(scoped\(base\)/);
     expect((src.match(/scoped\(editing/g) ?? []).length).toBe(1);
     // The save is the one that silently could not write a business record.
     expect(src).toMatch(/scoped\(editing\s*\n?\s*\?\s*`\/api\/modules\//);
@@ -166,6 +169,7 @@ describe('the endpoints these calls reach are company-gated', () => {
       'src/app/api/modules/[moduleKey]/[documentKey]/route.ts',
       'src/app/api/modules/[moduleKey]/[documentKey]/[id]/route.ts',
       'src/app/api/modules/[moduleKey]/[documentKey]/autofill/route.ts',
+      'src/app/api/modules/[moduleKey]/[documentKey]/[id]/attachments/route.ts',
     ]) {
       expect(read(file), `${file} does not pass through withCategory/withRecordScope`)
         .toMatch(/with(?:Category|RecordScope)\s*\(/);

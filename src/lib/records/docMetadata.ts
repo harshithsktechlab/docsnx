@@ -30,6 +30,7 @@
 import { CUSTOM_FIELDS_KEY } from '@/lib/records/fieldValidation';
 import { LINKED_CARDS_KEY } from '@/lib/records/linkedCards';
 import { type FileBearingRow, servableFilePath } from './fileUrl';
+import { type FieldRefLookups, formatFieldValue } from './fieldRefs';
 
 /**
  * ── THE TWO DERIVED FACTS THE DOCUMENT MANAGER LISTS ───────────────────────
@@ -214,11 +215,29 @@ export function primaryIdentifier(
 /** What a row has to carry for the two answers below to be derivable. */
 export interface HolderBearingRow {
   holder?: { name?: string | null } | null;
+  /**
+   * EVERY member the record belongs to (drizzle/0066), primary first. When it
+   * names more than one, the row reads as all of them — see `holderNames`.
+   */
+  holders?: readonly { name?: string | null }[] | null;
   isGlobal?: boolean | null;
   /** Set on a BUSINESS row. The company relation, or a joined name. */
   companyId?: string | null;
   company?: { name?: string | null } | null;
   companyName?: string | null;
+}
+
+/**
+ * "Rajesh, Priya" / "Rajesh, Priya +1" for a record shared by several members,
+ * or null when it has one or none — the single-holder answer below covers that.
+ */
+export function holderNames(
+  holders: readonly { name?: string | null }[] | null | undefined,
+): string | null {
+  const names = (holders ?? []).map((h) => h?.name).filter(present).map(String);
+  if (names.length < 2) return null;
+  const shown = names.slice(0, 2).join(', ');
+  return names.length > 2 ? `${shown} +${names.length - 2}` : shown;
 }
 
 /**
@@ -257,6 +276,8 @@ export function holderDisplayName(
     return present(company) ? String(company) : 'This company';
   }
 
+  const several = holderNames(row.holders);
+  if (several) return several;
   const assigned = row.holder?.name;
   if (present(assigned)) return String(assigned);
   const typed = meta.open?.holder_name;
@@ -323,6 +344,11 @@ const NOT_DOCUMENT_CONTENT: ReadonlySet<string> = new Set([
 export function documentFieldList(
   meta: DocMetadata,
   specs: readonly IdentifierSpec[],
+  /**
+   * Names for the pointer fields (0069) — a member's name, a locker's title.
+   * Without it a `member` or `record_link` value would print as an id.
+   */
+  refs?: FieldRefLookups,
 ): DocField[] {
   const open = meta.open ?? {};
   const masked = meta.masked ?? {};
@@ -334,7 +360,10 @@ export function documentFieldList(
     seen.add(key);
     const value = present(masked[key]) ? masked[key] : open[key];
     if (!present(value)) return;
-    out.push({ label, value: String(value), ...(dataType ? { dataType } : {}) });
+    const shown = dataType === 'member' || dataType === 'record_link'
+      ? formatFieldValue({ dataType }, value, refs)
+      : String(value);
+    out.push({ label, value: shown, ...(dataType ? { dataType } : {}) });
   };
 
   for (const spec of specs) push(spec.fieldKey, spec.fieldLabel || spec.fieldKey, spec.dataType);

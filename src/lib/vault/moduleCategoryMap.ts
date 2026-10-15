@@ -275,6 +275,13 @@ export const MODULE_CATEGORY: Record<string, ModuleCategoryPolicy> = {
     defaultKey: k('bank_investments', 'fixed_deposit_receipts'),
   },
 
+  // Added with 0065 and built against the generic `/modules` page, so — like
+  // the business scopes below — every write already carries a `categoryId`.
+  travel: {
+    typeToKey: {},
+    defaultKey: k('travel', 'flight_tickets'),
+  },
+
   // ── BUSINESS SCOPES ──────────────────────────────────────────────────────
   // No `typeToKey` on any of them, and that is not an omission. Those maps
   // translate a PRE-TAXONOMY type column (`recordType`, `policyType`,
@@ -338,6 +345,16 @@ export const MODULE_CATEGORY: Record<string, ModuleCategoryPolicy> = {
   biz_operations: {
     typeToKey: {},
     defaultKey: k('biz_operations', 'property_lease_deeds'),
+  },
+  biz_travel: {
+    typeToKey: {},
+    defaultKey: k('biz_travel', 'flight_tickets'),
+  },
+  // The company's catch-all (0067) — like `documents` above, its default IS
+  // the catch-all, because that is the only thing it holds.
+  biz_other: {
+    typeToKey: {},
+    defaultKey: k('biz_other', 'uncategorized'),
   },
 };
 

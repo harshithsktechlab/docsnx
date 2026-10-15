@@ -57,8 +57,7 @@ export async function POST(req: Request) {
 
     let fetchedAddons: { id: string; price: number }[] = [];
     let finalPrice = 0;
-    let planPrice = 0;
-    let primaryPlanId: string | null = null;
+    let cartPlans: { planId: string; price: number }[] = [];
 
     if (requestedLines.length > 0) {
       const cart = await priceCartLines(tenantId, requestedLines, currency === 'USD' ? 'USD' : 'INR');
@@ -66,8 +65,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: cart.error }, { status: cart.status });
       }
       finalPrice += cart.subtotal;
-      planPrice = cart.primary?.price ?? 0;
-      primaryPlanId = cart.primary?.plan.id ?? null;
+      cartPlans = cart.cart.map(line => ({ planId: line.planId, price: line.amount ?? 0 }));
     }
 
     if (addonsPurchased && addonsPurchased.length > 0) {
@@ -95,8 +93,7 @@ export async function POST(req: Request) {
 
     const priced = computeAmountSaved(discount, {
       subtotal: finalPrice,
-      planId: primaryPlanId,
-      planPrice,
+      plans: cartPlans,
       addons: fetchedAddons,
     });
 

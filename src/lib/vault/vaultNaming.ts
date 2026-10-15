@@ -74,6 +74,7 @@ export const VAULT_MODULES = [
   'rentals_subscriptions',
   'utility_bills',
   'tax_compliance',
+  'travel',
   'other',
   // The business taxonomy (src/lib/documentCategories.ts). Same rules as every
   // key above: immutable, because each one names a Drive folder and is bound
@@ -92,6 +93,8 @@ export const VAULT_MODULES = [
   'biz_procurement',
   'biz_sales',
   'biz_operations',
+  'biz_travel',
+  'biz_other',
   'passwords',
 ] as const;
 export type VaultModule = (typeof VAULT_MODULES)[number];
@@ -210,6 +213,7 @@ export const MODULE_FOLDER: Record<VaultModule, string> = {
   rentals_subscriptions: 'RentalsSubscriptions',
   utility_bills: 'UtilityBills',
   tax_compliance: 'TaxCompliance',
+  travel: 'Travel',
   other: 'Others',
   // Business stores live under `Business/<companyId>/JSON/`, a different root
   // from the personal ones, so these could reuse the bare names above. They
@@ -230,6 +234,8 @@ export const MODULE_FOLDER: Record<VaultModule, string> = {
   biz_procurement: 'BizProcurement',
   biz_sales: 'BizSales',
   biz_operations: 'BizOperations',
+  biz_travel: 'BizTravel',
+  biz_other: 'BizOthers',
   passwords: 'Passwords',
 };
 

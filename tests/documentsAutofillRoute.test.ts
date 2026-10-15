@@ -82,6 +82,8 @@ vi.mock('@/lib/records/autofillRun', () => ({
   }),
   matchHolderByName: async (name: string) => (name === 'Ramya Krishnan' ? 'member-1' : ''),
   runAutofill: (...a: any[]) => runAutofill(...(a as [])),
+  pdfPasswordFrom: () => undefined,
+  pdfPasswordResponse: () => null,
 }));
 
 const { POST } = await import('@/app/api/documents/autofill/route');

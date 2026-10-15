@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { subscriptionPlans, tenants, payments, discountCodes } from '@/db/schema';
-import { eq, or, count } from 'drizzle-orm';
+import { eq, or, count, sql } from 'drizzle-orm';
 import { getUserFromRequest } from '@/lib/auth';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
@@ -212,7 +212,8 @@ async function permanentlyDelete(
     db.select({ value: count() }).from(tenants)
       .where(or(eq(tenants.subscriptionPlanId, plan.id), eq(tenants.businessPlanId, plan.id))),
     db.select({ value: count() }).from(payments).where(eq(payments.planId, plan.id)),
-    db.select({ value: count() }).from(discountCodes).where(eq(discountCodes.planId, plan.id)),
+    db.select({ value: count() }).from(discountCodes)
+      .where(or(eq(discountCodes.planId, plan.id), sql`${plan.id}::uuid = ANY(${discountCodes.planIds})`)),
   ]);
 
   const blockers: string[] = [];

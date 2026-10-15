@@ -29,7 +29,9 @@
  *  name : display label shown in the sidebar
  * ────────────────────────────────────────────────────────────────────────────
  */
-import { DOCUMENT_CATEGORY_MODULES, UNCATEGORIZED, isBusinessModule } from './documentCategories';
+import {
+  BUSINESS_UNCATEGORIZED, DOCUMENT_CATEGORY_MODULES, UNCATEGORIZED, isBusinessModule,
+} from './documentCategories';
 import { RECORD_SCOPES, BUSINESS_BASE } from './records/registry';
 import { permissionsForLevel } from './permissionLevels';
 
@@ -112,10 +114,10 @@ export function subCategoryPath(moduleKey, documentKey) {
  * RECORD_SCOPES, so in phase 1 a sub-category still opens the bespoke page that
  * owns it; when phase 2 merges those pages the paths change in one place.
  *
- * `other` is deliberately excluded: it is the catch-all for a scan whose module
- * could not be determined, reachable from the documents list, and a sidebar
- * entry called "Others" alongside 14 real modules would invite filing into it.
- * It IS still a permission key — see PERMISSION_MODULE_KEYS.
+ * The catch-all (`other`, and `biz_other` for a company) is INCLUDED, last —
+ * its module number is the highest in each taxonomy. It holds what the
+ * classifier could not place, grouped by the member's own labels (0068), and
+ * a member has to be able to find it. It was hidden from the rail until then.
  */
 /**
  * Shared builder for both rails.
@@ -128,7 +130,6 @@ export function subCategoryPath(moduleKey, documentKey) {
  * @param {readonly import('./documentCategories').DocumentCategoryModule[]} modules
  */
 const navModulesOf = (modules) => modules
-  .filter((m) => m.moduleKey !== UNCATEGORIZED.moduleKey)
   .map((m) => {
     const subCategories = m.subCategories.map((s) => ({
       documentKey: s.documentKey,
@@ -159,7 +160,7 @@ const navModulesOf = (modules) => modules
 
 /**
  * The PERSONAL sidebar. Unchanged in meaning from before the business account:
- * the personal modules, catch-all excluded.
+ * the personal modules, with Others last.
  *
  * Business modules are deliberately NOT here. They are not a personal user's
  * navigation, and a tenant on `account_type = 'personal'` must never see
@@ -230,14 +231,17 @@ export const TENANT_SPECIFIC_PATHS = [
  * invisible in testing because TENANT_ADMIN short-circuits to true.
  * `tests/permissionKeys.test.ts` enforces this.
  */
-export const PERMISSION_MODULE_KEYS = [
+// A Set because the two catch-alls are now in ALL_NAV_MODULES too; they stay
+// named here so they remain grantable even if the rail ever drops them again.
+export const PERMISSION_MODULE_KEYS = [...new Set([
   ...ALL_NAV_MODULES.map((m) => m.key),
   UNCATEGORIZED.moduleKey, // `other` — grantable, so an unfiled scan is reachable
+  BUSINESS_UNCATEGORIZED.moduleKey, // `biz_other` — the same, for a company
   ...UTILITY_MODULES.filter((m) => m.key !== null).map((m) => m.key),
   'audit_logs', // sidebar entry is TENANT_ADMIN-only (Account group in Shell.js);
                 // /api/audit-logs additionally hard-gates on role
   'invoices',   // reached from Billing, not the sidebar
-];
+])];
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗

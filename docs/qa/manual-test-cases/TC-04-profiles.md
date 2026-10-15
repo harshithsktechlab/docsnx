@@ -7,10 +7,9 @@
 
 | Aspect | Detail |
 |---|---|
-| Tabs | **Personal** · **Education** · **Shopping** · **Legal / ID** |
+| Tabs | **Personal** · **Education** · **Legal / ID** |
 | Personal fields | Date of Birth, Blood Group, Gender, Place of Birth → `personal_details` (jsonb) |
 | Education fields | Highest Degree, College / University, Year of Passing → `education_details` (jsonb) |
-| Shopping fields | Clothing Size (Shirt/Top), Shoe Size (UK/US/EU), Preferred Brands / Shopping Notes → `shopping_details` (jsonb) |
 | Legal fields | PAN Card Number, Aadhaar Card Number, Passport Number → `legal_details` (jsonb) |
 | Encryption | `panNumber`, `aadhaarNumber`, `passportNumber` are **encrypted at rest** inside the `legal_details` JSON |
 | Auto-enrichment | `autoUpdateProfile()` populates profile fields from record uploads (e.g. document metadata) without overwriting a non-empty existing value with an empty one |
@@ -22,7 +21,7 @@
 
 | TC ID | Type | Test Case / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| PRF-UI-001 | Positive | Open `/profile`. | Four tabs render with icons: Personal, Education, Shopping, Legal / ID. "Personal" is active by default. | — | — |
+| PRF-UI-001 | Positive | Open `/profile`. | Three tabs render with icons: Personal, Education, Legal / ID. "Personal" is active by default. | — | — |
 | PRF-UI-002 | Positive | Click each tab in turn. | Only the selected tab's fields are shown; the active tab is visually highlighted; no page reload. | — | — |
 | PRF-UI-003 | Positive | Open `/profile` on a brand-new user. | All fields render empty (not `null`, `undefined` or `[object Object]`). | — | — |
 | PRF-UI-004 | Positive | Open `/profile` for a user with saved data. | Every field is pre-populated with the stored value on load. | — | — |
@@ -59,10 +58,6 @@
 | PRF-FLD-013 | Year of Passing | Boundary | `1900` and the current year. | Both accepted. | — | — |
 | PRF-FLD-014 | Year of Passing | Edge | A future year (e.g. current year + 20). | Record actual — expected to be rejected or flagged. | — | — |
 | PRF-FLD-015 | Year of Passing | Boundary | `0` and a negative number. | Rejected. | — | — |
-| PRF-FLD-016 | Clothing Size | Positive | `M`, `42`, `XL`. | All accepted (free text by design). | — | — |
-| PRF-FLD-017 | Shoe Size | Positive | `UK 9 / US 10 / EU 43`. | Accepted verbatim. | — | — |
-| PRF-FLD-018 | Brand Preferences | Boundary | A 5 000-character note. | Accepted (text column) and fully re-displayed. Confirm no truncation. | — | — |
-| PRF-FLD-019 | Brand Preferences | Edge | Multi-line text with newlines. | Line breaks preserved on re-display. | — | — |
 | PRF-FLD-020 | PAN | Positive | `ABCDE1234F` (valid Indian PAN format). | Accepted and saved. | — | — |
 | PRF-FLD-021 | PAN | Negative | `12345ABCDE` (wrong pattern), `ABCDE1234` (9 chars). | Record actual — a PAN-format check should reject both; absence of validation ⇒ **S3**. | — | — |
 | PRF-FLD-022 | Aadhaar | Positive | A 12-digit number. | Accepted and saved. | — | — |
@@ -71,7 +66,7 @@
 | PRF-FLD-025 | Passport | Positive | `Z1234567`. | Accepted and saved. | — | — |
 | PRF-FLD-026 | Legal IDs | Edge | Save a legal ID, reload, and save again **without changing it**. | The value is not double-encrypted and still decrypts to the original plaintext on display. | — | — |
 | PRF-FLD-027 | Legal IDs | Edge | Clear a previously saved PAN and save. | The field becomes empty/null — not left holding a stale ciphertext. | — | — |
-| PRF-FLD-028 | All | Edge | Enter `<script>alert(1)</script>` in Place of Birth and Brand Preferences. | Rendered as literal text; no script execution on `/profile` or anywhere the profile is surfaced. | — | — |
+| PRF-FLD-028 | All | Edge | Enter `<script>alert(1)</script>` in Place of Birth and Degree. | Rendered as literal text; no script execution on `/profile` or anywhere the profile is surfaced. | — | — |
 | PRF-FLD-029 | All | Edge | Enter a JSON-looking string `{"a":1}` into a text field. | Stored as a plain string; the profile JSON remains valid and the field re-displays as typed. | — | — |
 | PRF-FLD-030 | All | Edge | Double-click Save. | Only one write occurs; no duplicate profile row is created. | — | — |
 
@@ -118,7 +113,6 @@
 | PRF-DB-002 | Profile exists for every user | `SELECT count(*) FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE p.id IS NULL;` | `0` | — | — |
 | PRF-DB-003 | Personal details saved correctly | `SELECT personal_details->>'dob' AS dob, personal_details->>'bloodGroup' AS bg, personal_details->>'gender' AS gender, personal_details->>'birthPlace' AS bp FROM profiles WHERE user_id = ':user_a1';` | The four values entered in the Personal tab | — | — |
 | PRF-DB-004 | Education details saved correctly | `SELECT education_details->>'degree' AS degree, education_details->>'college' AS college, education_details->>'yearOfPassing' AS yop FROM profiles WHERE user_id = ':user_a1';` | The three values entered | — | — |
-| PRF-DB-005 | Shopping details saved correctly | `SELECT shopping_details->>'clothingSize' AS cs, shopping_details->>'shoeSize' AS ss, shopping_details->>'brandPreferences' AS bp FROM profiles WHERE user_id = ':user_a1';` | The three values entered | — | — |
 | PRF-DB-006 | PAN encrypted at rest | `SELECT legal_details->>'panNumber' ~ '^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$' AS is_ciphertext FROM profiles WHERE user_id = ':user_a1';` | `t` | — | — |
 | PRF-DB-007 | PAN plaintext never stored | `SELECT count(*) FROM profiles WHERE legal_details->>'panNumber' = 'ABCDE1234F';` | `0` | — | — |
 | PRF-DB-008 | Aadhaar encrypted at rest | `SELECT legal_details->>'aadhaarNumber' ~ '^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$' AS is_ciphertext FROM profiles WHERE user_id = ':user_a1';` | `t` | — | — |

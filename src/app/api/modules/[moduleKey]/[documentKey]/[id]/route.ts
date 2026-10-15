@@ -131,6 +131,7 @@ export async function PUT(req: Request, { params }: Params) {
 
       const updated = await createRecord(ctx, {
         title: body.title,
+        customSubcategory: body.customSubcategory,
         // The URL names the category, and a record cannot be re-filed here: its
         // ciphertext sits in that category's Drive folder with the pair bound
         // into its AAD, so moving it needs a Drive move, not an id swap.
@@ -138,12 +139,14 @@ export async function PUT(req: Request, { params }: Params) {
         taxonomyFields: true,
         record: body.record,
         holderId: body.holderId,
+        holderIds: body.holderIds,
         // The record keeps its original owner. `createRecord` defaults this to
         // the caller, which would quietly reassign every record an admin edits.
         ownerId: existing.userId,
         replaceId: id,
         file: body.file,
         splitPages: body.splitPages,
+        contentText: body.contentText,
       }, {
         // An EDIT never overwrites a DIFFERENT record. A collision here means
         // this record's new identifier already belongs to another one, and

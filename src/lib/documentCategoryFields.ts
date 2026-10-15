@@ -60,6 +60,7 @@ import {
   DOCUMENT_CATEGORY_SEED,
   UNCATEGORIZED,
   isBusinessModule,
+  isCatchAll,
 } from './documentCategories';
 import {
   ALERT_DAYS_BY_KEY,
@@ -95,13 +96,39 @@ import {
 export type FieldDataType =
   | 'text' | 'longtext' | 'number' | 'currency' | 'date' | 'boolean'
   | 'select' | 'multiselect'
-  | 'email' | 'phone' | 'url' | 'time';
+  | 'email' | 'phone' | 'url' | 'time'
+  | 'member' | 'record_link';
 
 export const FIELD_DATA_TYPES: readonly FieldDataType[] = [
   'text', 'longtext', 'number', 'currency', 'date', 'boolean',
   'select', 'multiselect',
   'email', 'phone', 'url', 'time',
+  'member', 'record_link',
 ];
+
+/**
+ * The types whose value POINTS at something in the workspace rather than
+ * stating a fact (0069).
+ *
+ *   member       a workspace member (`member:<uuid>`) or, for someone outside
+ *                the app, a typed name — see src/lib/records/fieldRefs.ts.
+ *   record_link  another record's id, in the category named by `linkTarget`.
+ *
+ * A document cannot print either — a jeweller's invoice does not know the
+ * member's id — so neither is ever asked of a scan (see `printed`), and the
+ * catch-all union downgrades both to `text` (see `unionOfEveryCategory`).
+ */
+export const REFERENCE_DATA_TYPES: readonly FieldDataType[] = ['member', 'record_link'];
+
+export function isReferenceDataType(dataType: string | undefined | null): boolean {
+  return dataType === 'member' || dataType === 'record_link';
+}
+
+/** The category a `record_link` field points into. */
+export interface FieldLinkTarget {
+  readonly moduleKey: string;
+  readonly documentKey: string;
+}
 
 /** The types that need `options`, and are meaningless without them. */
 export const CHOICE_DATA_TYPES: readonly FieldDataType[] = ['select', 'multiselect'];
@@ -258,6 +285,14 @@ export interface FieldSpec {
    * is just a field.
    */
   readonly isCustom?: boolean;
+  /**
+   * Where a `record_link` field points. Meaningless on any other type.
+   *
+   * Declared by the dictionary only — an operator cannot aim a link at a new
+   * category from /admin/document-fields, because the server-side check
+   * (src/lib/records/fieldRefsServer.ts) and the picker both read it from here.
+   */
+  readonly linkTarget?: FieldLinkTarget;
 }
 
 /**
@@ -713,6 +748,10 @@ export function dedupeIdentifierFields(
   // and the Documents Manager funnels its one generic "ID / Document Number"
   // into a single one of them (`resolveFieldKey`, records/fieldMap.ts). Its
   // records are compared against each other, which is what was wanted.
+  //
+  // The HOUSEHOLD catch-all only. `biz_other` is a business category, and no
+  // business category decides duplicates (tests/businessDocumentManager.test.ts):
+  // the rule runs, finds every inherited identifier optional, and leaves it none.
   if (categoryKey.moduleKey === UNCATEGORIZED.moduleKey
     && categoryKey.documentKey === UNCATEGORIZED.documentKey) {
     return identifierFields(specs);
@@ -798,6 +837,10 @@ export const NEVER_PRINTED_KEYS: readonly string[] = [
   'holder_name', 'custom_fields', 'notes', 'inventory_list', ALERT_DAYS_FIELD_KEY,
   // credentials the user knows
   'cvv', 'card_number', 'card_expiry', 'net_banking_username', 'login_username', 'cards',
+  // references into the workspace (0069) — a page cannot state a member id or
+  // which locker an item sits in. `printed` also refuses any `member` /
+  // `record_link` field by type, for the ones an operator adds.
+  'locker_ref', 'gifted_by', 'gifted_to',
 ];
 
 const NEVER_PRINTED: ReadonlySet<string> = new Set(NEVER_PRINTED_KEYS);
@@ -809,8 +852,11 @@ const NEVER_PRINTED: ReadonlySet<string> = new Set(NEVER_PRINTED_KEYS);
  * answer means it, and a stored spec row an operator edited is authoritative.
  * Otherwise the key decides, so the classification lives in one place.
  */
-function printed(spec: { fieldKey: string; isPrinted?: boolean }): boolean {
+function printed(spec: { fieldKey: string; isPrinted?: boolean; dataType?: string }): boolean {
   if (spec.isPrinted !== undefined) return spec.isPrinted;
+  // A page cannot state a member id or a record id; asked for one, a model
+  // invents one.
+  if (isReferenceDataType(spec.dataType)) return false;
   return !NEVER_PRINTED.has(spec.fieldKey);
 }
 
@@ -824,7 +870,7 @@ function printed(spec: { fieldKey: string; isPrinted?: boolean }): boolean {
  */
 function withPrinted(spec: FieldSpec): FieldSpec {
   if (spec.isPrinted !== undefined) return spec;
-  return NEVER_PRINTED.has(spec.fieldKey) ? { ...spec, isPrinted: false } : spec;
+  return printed(spec) ? spec : { ...spec, isPrinted: false };
 }
 
 /**
@@ -859,7 +905,7 @@ function withAlertDays(spec: FieldSpec): FieldSpec {
  * hold either the compiled dictionary entry or a stored `fields` row.
  */
 export function ocrFieldKeys(
-  specs: readonly { fieldKey: string; isPrinted?: boolean }[],
+  specs: readonly { fieldKey: string; isPrinted?: boolean; dataType?: string }[],
 ): readonly string[] {
   return specs
     .filter((spec) => spec.fieldKey && printed(spec))
@@ -1015,6 +1061,56 @@ export const BASELINE_OPEN_KEYS: readonly string[] = ['custom_fields'];
  * instead — `valid_to` raises an expiry reminder, which a period must not.
  */
 const PERIOD_FIELD: FieldSpec = { fieldKey: 'period', fieldLabel: 'Period / Year', dataType: 'text', isPii: false };
+
+/**
+ * The journey a ticket is for — shared by every travel ticket category, personal
+ * and business (0065), so a PNR is sealed and formatted the same wherever it is
+ * typed. Only the reference and the operator are relabelled per mode.
+ *
+ * `booking_reference` identifies the booking but is OPTIONAL, deliberately: an
+ * outbound and a return leg often share one PNR, and a required identifier would
+ * make the second ticket overwrite the first (see `dedupeIdentifierFields`).
+ * `travel_date` is the field a ticket cannot be saved without, and it raises a
+ * reminder ahead of the trip.
+ */
+function journeyFields(referenceLabel: string, operatorLabel: string): FieldSpec[] {
+  return [
+    { fieldKey: 'booking_reference', fieldLabel: referenceLabel, dataType: 'text', isPii: true, isIdentifier: true },
+    { fieldKey: 'operator_name', fieldLabel: operatorLabel, dataType: 'text', isPii: false },
+    { fieldKey: 'service_number', fieldLabel: 'Flight / Train / Bus No.', dataType: 'text', isPii: false },
+    { fieldKey: 'from_place', fieldLabel: 'From', dataType: 'text', isPii: false },
+    { fieldKey: 'to_place', fieldLabel: 'To', dataType: 'text', isPii: false },
+    { fieldKey: 'travel_date', fieldLabel: 'Travel Date', dataType: 'date', isPii: false, isRequired: true, isReminder: true },
+    { fieldKey: 'travel_class', fieldLabel: 'Class', dataType: 'text', isPii: false },
+    { fieldKey: 'passenger_names', fieldLabel: 'Passengers', dataType: 'longtext', isPii: true },
+    { fieldKey: 'booked_via', fieldLabel: 'Booked Via', dataType: 'text', isPii: false },
+    { fieldKey: 'amount_paid', fieldLabel: 'Amount Paid', dataType: 'currency', isPii: true },
+  ];
+}
+
+/** A stay — check-in is the date it cannot be saved without. */
+const HOTEL_BOOKING_FIELDS: readonly FieldSpec[] = [
+  { fieldKey: 'booking_reference', fieldLabel: 'Booking ID', dataType: 'text', isPii: true, isIdentifier: true },
+  { fieldKey: 'operator_name', fieldLabel: 'Hotel / Property', dataType: 'text', isPii: false },
+  { fieldKey: 'property_address', fieldLabel: 'Property Address', dataType: 'longtext', isPii: true },
+  { fieldKey: 'check_in_date', fieldLabel: 'Check-in Date', dataType: 'date', isPii: false, isRequired: true, isReminder: true },
+  { fieldKey: 'check_out_date', fieldLabel: 'Check-out Date', dataType: 'date', isPii: false },
+  { fieldKey: 'passenger_names', fieldLabel: 'Guests', dataType: 'longtext', isPii: true },
+  { fieldKey: 'booked_via', fieldLabel: 'Booked Via', dataType: 'text', isPii: false },
+  { fieldKey: 'amount_paid', fieldLabel: 'Amount Paid', dataType: 'currency', isPii: true },
+];
+
+/** A cab or self-drive rental — a pickup rather than a departure. */
+const CAB_RENTAL_FIELDS: readonly FieldSpec[] = [
+  { fieldKey: 'booking_reference', fieldLabel: 'Booking ID', dataType: 'text', isPii: true, isIdentifier: true },
+  { fieldKey: 'operator_name', fieldLabel: 'Provider', dataType: 'text', isPii: false },
+  { fieldKey: 'from_place', fieldLabel: 'Pickup', dataType: 'text', isPii: false },
+  { fieldKey: 'to_place', fieldLabel: 'Drop', dataType: 'text', isPii: false },
+  { fieldKey: 'travel_date', fieldLabel: 'Pickup Date', dataType: 'date', isPii: false, isRequired: true, isReminder: true },
+  { fieldKey: 'return_date', fieldLabel: 'Return Date', dataType: 'date', isPii: false },
+  { fieldKey: 'booked_via', fieldLabel: 'Booked Via', dataType: 'text', isPii: false },
+  { fieldKey: 'amount_paid', fieldLabel: 'Amount Paid', dataType: 'currency', isPii: true },
+];
 
 const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly FieldSpec[]>>>> = {
   // ── Identity ──
@@ -1207,7 +1303,103 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'branch_name', fieldLabel: 'Branch Name', dataType: 'text', isPii: false },
       { fieldKey: 'annual_rent', fieldLabel: 'Annual Rent', dataType: 'currency', isPii: true },
       { fieldKey: 'agreement_date', fieldLabel: 'Agreement Date', dataType: 'date', isPii: false },
-      { fieldKey: 'inventory_list', fieldLabel: 'Inventory List', dataType: 'longtext', isPii: true },
+      // Kept under its own key — renaming it orphans what is already stored —
+      // but each item now has a record of its own under `locker_items` (0070),
+      // so this is for whatever is not worth itemising.
+      { fieldKey: 'inventory_list', fieldLabel: 'Other Contents (free text)', dataType: 'longtext', isPii: true },
+      // 0070: the locker details the agreement scan never asked for.
+      { fieldKey: 'branch_address', fieldLabel: 'Branch Address / Location', dataType: 'longtext', isPii: false },
+      { fieldKey: 'ifsc_code', fieldLabel: 'IFSC Code', dataType: 'text', isPii: true },
+      {
+        fieldKey: 'locker_size', fieldLabel: 'Locker Size', dataType: 'select', isPii: false,
+        options: [
+          { value: 'small', label: 'Small' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'large', label: 'Large' },
+          { value: 'extra_large', label: 'Extra Large' },
+        ],
+      },
+      { fieldKey: 'key_number', fieldLabel: 'Key Number', dataType: 'text', isPii: true },
+      { fieldKey: 'joint_holders', fieldLabel: 'Joint Holders', dataType: 'text', isPii: true },
+      { fieldKey: 'nominee_name', fieldLabel: 'Nominee Name', dataType: 'text', isPii: true },
+      { fieldKey: 'rent_due_date', fieldLabel: 'Rent Due Date', dataType: 'date', isPii: false, isReminder: true },
+      { fieldKey: 'agreement_expiry_date', fieldLabel: 'Agreement Expiry Date', dataType: 'date', isPii: false, isReminder: true },
+      { fieldKey: 'branch_contact_phone', fieldLabel: 'Branch Contact Phone', dataType: 'phone', isPii: false },
+      {
+        fieldKey: 'last_visited_date', fieldLabel: 'Last Visited', dataType: 'date', isPii: false,
+        validation: { notFuture: true, message: 'A visit date cannot be in the future' },
+      },
+    ],
+
+    // 0070. One record per thing kept in a locker. Its owner is the holder
+    // picker, its name `document_title`, its comments `notes`, and its photos
+    // are attachments beside the invoice (src/lib/records/recordAttachments.ts).
+    // Weights are OPEN so the locker page can total them from a list read;
+    // money, the invoice number and the two gift parties are sealed.
+    locker_items: [
+      {
+        fieldKey: 'locker_ref', fieldLabel: 'Locker', dataType: 'record_link', isPii: false,
+        linkTarget: { moduleKey: 'bank_investments', documentKey: 'bank_locker_agreement' },
+      },
+      {
+        fieldKey: 'item_type', fieldLabel: 'Item Type', dataType: 'select', isPii: false, isRequired: true,
+        options: [
+          { value: 'gold_jewellery', label: 'Gold Jewellery' },
+          { value: 'silver', label: 'Silver' },
+          { value: 'diamond', label: 'Diamond Jewellery' },
+          { value: 'platinum', label: 'Platinum' },
+          { value: 'coins_bars', label: 'Coins / Bars' },
+          { value: 'watch', label: 'Watch' },
+          { value: 'documents', label: 'Documents' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      {
+        fieldKey: 'metal_purity', fieldLabel: 'Purity', dataType: 'select', isPii: false,
+        options: [
+          { value: '24k', label: '24K' },
+          { value: '22k', label: '22K' },
+          { value: '18k', label: '18K' },
+          { value: '14k', label: '14K' },
+          { value: '925_silver', label: '925 Silver' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      { fieldKey: 'quantity', fieldLabel: 'Quantity (pieces)', dataType: 'number', isPii: false, validation: { min: 1 } },
+      { fieldKey: 'gross_weight_grams', fieldLabel: 'Gross Weight (g)', dataType: 'number', isPii: false, validation: { min: 0 } },
+      { fieldKey: 'net_weight_grams', fieldLabel: 'Net Weight (g)', dataType: 'number', isPii: false, validation: { min: 0 } },
+      { fieldKey: 'hallmark_huid', fieldLabel: 'Hallmark / HUID', dataType: 'text', isPii: false },
+      {
+        fieldKey: 'acquisition_type', fieldLabel: 'How Acquired', dataType: 'select', isPii: false,
+        options: [
+          { value: 'purchased', label: 'Purchased' },
+          { value: 'gifted', label: 'Gifted' },
+          { value: 'inherited', label: 'Inherited' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      { fieldKey: 'purchased_from', fieldLabel: 'Purchased From (Jeweller / Shop)', dataType: 'text', isPii: false },
+      {
+        fieldKey: 'purchase_date', fieldLabel: 'Purchase Date', dataType: 'date', isPii: false,
+        validation: { notFuture: true, message: 'A purchase date cannot be in the future' },
+      },
+      // Not an identifier here: one bill often covers a set — a necklace and
+      // its earrings — and an identifying invoice number would make the second
+      // item overwrite the first.
+      { fieldKey: 'invoice_number', fieldLabel: 'Invoice / Bill Number', dataType: 'text', isPii: true, isIdentifier: false },
+      { fieldKey: 'purchase_price', fieldLabel: 'Purchase Price', dataType: 'currency', isPii: true, validation: { min: 0 } },
+      { fieldKey: 'gifted_by', fieldLabel: 'Gifted By', dataType: 'member', isPii: true },
+      { fieldKey: 'gifted_to', fieldLabel: 'Gifted To', dataType: 'member', isPii: true },
+      { fieldKey: 'occasion', fieldLabel: 'Occasion', dataType: 'text', isPii: false },
+      {
+        fieldKey: 'gift_date', fieldLabel: 'Gift Date', dataType: 'date', isPii: false,
+        validation: { notFuture: true, message: 'A gift date cannot be in the future' },
+      },
+      { fieldKey: 'current_value', fieldLabel: 'Current Value', dataType: 'currency', isPii: true, validation: { min: 0 } },
+      {
+        fieldKey: 'valuation_date', fieldLabel: 'Valuation Date', dataType: 'date', isPii: false,
+        validation: { notFuture: true, message: 'A valuation date cannot be in the future' },
+      },
     ],
   },
 
@@ -1403,6 +1595,8 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'patient_name', fieldLabel: 'Patient Name', dataType: 'text', isPii: true, isRequired: true },
       { fieldKey: 'diagnosis', fieldLabel: 'Diagnosis', dataType: 'longtext', isPii: true },
       { fieldKey: 'prescription_text', fieldLabel: 'Prescription', dataType: 'longtext', isPii: true },
+      // Read into the member's profile when it is still blank (profileUpdater).
+      { fieldKey: 'blood_group', fieldLabel: 'Blood Group', dataType: 'text', isPii: true },
       { fieldKey: 'doctor_name', fieldLabel: 'Doctor Name', dataType: 'text', isPii: false },
       { fieldKey: 'hospital_name', fieldLabel: 'Hospital / Clinic', dataType: 'text', isPii: false },
       { fieldKey: 'visit_date', fieldLabel: 'Visit Date', dataType: 'date', isPii: false, isRequired: true },
@@ -1420,6 +1614,8 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
     checkup_reports: [
       { fieldKey: 'patient_name', fieldLabel: 'Patient Name', dataType: 'text', isPii: true, isRequired: true },
       { fieldKey: 'test_results', fieldLabel: 'Test Results', dataType: 'longtext', isPii: true },
+      // Read into the member's profile when it is still blank (profileUpdater).
+      { fieldKey: 'blood_group', fieldLabel: 'Blood Group', dataType: 'text', isPii: true },
       { fieldKey: 'lab_name', fieldLabel: 'Laboratory', dataType: 'text', isPii: false },
       { fieldKey: 'referring_doctor', fieldLabel: 'Referring Doctor', dataType: 'text', isPii: false },
       { fieldKey: 'report_date', fieldLabel: 'Report Date', dataType: 'date', isPii: false, isRequired: true },
@@ -1429,6 +1625,8 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'patient_name', fieldLabel: 'Patient Name', dataType: 'text', isPii: true, isRequired: true },
       { fieldKey: 'diagnosis', fieldLabel: 'Diagnosis', dataType: 'longtext', isPii: true },
       { fieldKey: 'treatment_summary', fieldLabel: 'Treatment Summary', dataType: 'longtext', isPii: true },
+      // Read into the member's profile when it is still blank (profileUpdater).
+      { fieldKey: 'blood_group', fieldLabel: 'Blood Group', dataType: 'text', isPii: true },
       { fieldKey: 'hospital_name', fieldLabel: 'Hospital', dataType: 'text', isPii: false },
       { fieldKey: 'admission_date', fieldLabel: 'Admission Date', dataType: 'date', isPii: false, isRequired: true },
       { fieldKey: 'discharge_date', fieldLabel: 'Discharge Date', dataType: 'date', isPii: false },
@@ -1646,6 +1844,24 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
     ],
   },
 
+  // ── Travel & Tickets (0065) ──
+  travel: {
+    flight_tickets: journeyFields('PNR / Booking Reference', 'Airline'),
+    train_tickets: journeyFields('PNR Number', 'Railway / Operator'),
+    bus_tickets: journeyFields('Ticket / PNR Number', 'Bus Operator'),
+    hotel_bookings: HOTEL_BOOKING_FIELDS,
+    cab_car_rentals: CAB_RENTAL_FIELDS,
+    event_tickets: [
+      { fieldKey: 'booking_reference', fieldLabel: 'Booking ID', dataType: 'text', isPii: true, isIdentifier: true },
+      { fieldKey: 'event_name', fieldLabel: 'Event / Movie', dataType: 'text', isPii: false },
+      { fieldKey: 'venue', fieldLabel: 'Venue', dataType: 'text', isPii: false },
+      { fieldKey: 'event_date', fieldLabel: 'Event Date', dataType: 'date', isPii: false, isRequired: true, isReminder: true },
+      { fieldKey: 'seat_details', fieldLabel: 'Seats', dataType: 'text', isPii: false },
+      { fieldKey: 'booked_via', fieldLabel: 'Booked Via', dataType: 'text', isPii: false },
+      { fieldKey: 'amount_paid', fieldLabel: 'Amount Paid', dataType: 'currency', isPii: true },
+    ],
+  },
+
   // ── Utility Bills ──
   utility_bills: {
     electricity: [
@@ -1731,6 +1947,11 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
   other: {
     uncategorized: [],
   },
+  // The company's catch-all (0067). Same shape as `other`: no fields of its
+  // own, and `specificFieldsFor` gives it the sealed union of every category's.
+  biz_other: {
+    uncategorized: [],
+  },
 
 };
 
@@ -1781,20 +2002,32 @@ function mergeFields(specific: readonly FieldSpec[]): FieldSpec[] {
  * keys a record actually carries, so naming a field the record does not have is
  * simply skipped. Sealing too much is free; sealing too little is a leak.
  */
+/**
+ * One field as the catch-all inherits it.
+ *
+ * A reference type is downgraded to `text`: the Others form must not grow a
+ * locker picker or a member picker for a key it only carries so the key stays
+ * sealed. Choice lists go with it — the union's job is the sealing policy, not
+ * the form.
+ */
+function unionField(f: FieldSpec): FieldSpec {
+  if (!isReferenceDataType(f.dataType)) return { ...f, isRequired: false };
+  const { linkTarget: _target, ...rest } = f;
+  return { ...rest, dataType: 'text', isRequired: false };
+}
+
 function unionOfEveryCategory(): FieldSpec[] {
   const seen = new Set<string>();
   const out: FieldSpec[] = [];
   for (const [moduleKey, categories] of Object.entries(CATEGORY_FIELDS)) {
     for (const [documentKey, fields] of Object.entries(categories)) {
-      if (moduleKey === UNCATEGORIZED.moduleKey && documentKey === UNCATEGORIZED.documentKey) {
-        continue;
-      }
+      if (isCatchAll({ moduleKey, documentKey })) continue;
       for (const f of fields) {
         if (seen.has(f.fieldKey)) continue;
         seen.add(f.fieldKey);
         // `isRequired` cannot survive the union — a field mandatory for one kind
         // of document is not mandatory for an unclassified one.
-        out.push({ ...f, isRequired: false });
+        out.push(unionField(f));
       }
     }
   }
@@ -1992,6 +2225,11 @@ const BUSINESS_MODULE_DEFAULTS: Readonly<Record<string, readonly FieldSpec[]>> =
  * twelve GST returns of one year each keep their own row. Making one of them
  * `isRequired` would reinstate exactly the failure BUSINESS_COMMON warns about.
  */
+/** A spec with nothing required — see "WHY EVERY ONE OF THESE IS OPTIONAL". */
+function optional(fields: readonly FieldSpec[]): FieldSpec[] {
+  return fields.map((f) => ({ ...f, isRequired: false }));
+}
+
 const BUSINESS_CATEGORY_FIELDS: Readonly<
   Record<string, Readonly<Record<string, readonly FieldSpec[]>>>
 > = {
@@ -2288,6 +2526,24 @@ const BUSINESS_CATEGORY_FIELDS: Readonly<
       { fieldKey: 'consumer_number', fieldLabel: 'Consumer Number', dataType: 'text', isPii: true, isIdentifier: true },
     ],
   },
+
+  // 0065. The same journey fields as the personal `travel` module, every one of
+  // them optional per the rule above — the module default's Document Date is
+  // what a business ticket is required to carry.
+  biz_travel: {
+    flight_tickets: optional(journeyFields('PNR / Booking Reference', 'Airline')),
+    train_tickets: optional(journeyFields('PNR Number', 'Railway / Operator')),
+    bus_tickets: optional(journeyFields('Ticket / PNR Number', 'Bus Operator')),
+    hotel_bookings: optional(HOTEL_BOOKING_FIELDS),
+    cab_car_rentals: optional(CAB_RENTAL_FIELDS),
+    travel_expense_claims: [
+      { fieldKey: 'claim_number', fieldLabel: 'Claim Number', dataType: 'text', isPii: true, isIdentifier: true },
+      { fieldKey: 'employee_name', fieldLabel: 'Employee', dataType: 'text', isPii: true },
+      { fieldKey: 'trip_purpose', fieldLabel: 'Trip Purpose', dataType: 'text', isPii: false },
+      { fieldKey: 'claim_date', fieldLabel: 'Claim Date', dataType: 'date', isPii: false },
+      { fieldKey: 'claim_amount', fieldLabel: 'Claim Amount', dataType: 'currency', isPii: true },
+    ],
+  },
 };
 
 /**
@@ -2361,7 +2617,7 @@ const RETIRED_UNION_FIELDS: readonly FieldSpec[] = [
 
 function specificFieldsFor(moduleKey: string, documentKey: string): readonly FieldSpec[] {
   const own = CATEGORY_FIELDS[moduleKey]?.[documentKey] ?? [];
-  if (moduleKey !== UNCATEGORIZED.moduleKey || documentKey !== UNCATEGORIZED.documentKey) {
+  if (!isCatchAll({ moduleKey, documentKey })) {
     /**
      * A business category is its OWN number laid over its MODULE's default.
      *

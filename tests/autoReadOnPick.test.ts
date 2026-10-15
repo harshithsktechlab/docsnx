@@ -13,6 +13,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { autoReadFor, autoReadKey } from '@/lib/records/autoReadOnPick';
+import { UNCATEGORIZED } from '@/lib/documentCategories';
 
 const FILE = { name: 'pan.pdf', size: 1024, lastModified: 1700000000000 };
 const PAN = { id: 'cat-1', moduleKey: 'identity', documentKey: 'pan_card' };
@@ -31,6 +32,15 @@ const ready = (overrides = {}) => ({
 
 describe('autoReadFor', () => {
   it('reads the file against the category the user just picked', () => {
+    expect(autoReadFor(ready())).toBe(autoReadKey(FILE, PAN));
+  });
+
+  it('never reads against Others, and stays armed for the real pick', () => {
+    // Others is what the classify pass pre-selects when it could not place the
+    // document; reading against it would be a billed call with nothing to fill.
+    const others = { id: 'cat-0', moduleKey: UNCATEGORIZED.moduleKey, documentKey: UNCATEGORIZED.documentKey };
+    expect(autoReadFor(ready({ category: others }))).toBe('');
+    // The user then picks what it really is — that read still happens.
     expect(autoReadFor(ready())).toBe(autoReadKey(FILE, PAN));
   });
 

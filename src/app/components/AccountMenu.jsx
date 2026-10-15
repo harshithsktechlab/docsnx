@@ -45,6 +45,7 @@ import {
   Settings,
   Sparkles,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -62,6 +63,7 @@ const PANEL_WIDTH = 224;
  * plan-expired row, which is the only entry that is a gate rather than a page.
  */
 const ROW_ICON = {
+  members: Users,
   billing: CreditCard,
   credits: Sparkles,
   settings: Settings,

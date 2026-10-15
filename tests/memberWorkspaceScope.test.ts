@@ -92,7 +92,11 @@ vi.mock('@/lib/audit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/audit')>()),
   writeAudit: vi.fn(),
 }));
-vi.mock('@/lib/whatsapp', () => ({ getWhatsAppConfig: async () => ({ url: 'x', key: 'y' }) }));
+vi.mock('@/lib/whatsapp', () => ({
+  getWhatsAppConfig: async () => ({ url: 'x', key: 'y' }),
+  isWhatsAppEnabled: async () => true,
+  sendWhatsAppTemplate: async () => ({ success: true }),
+}));
 
 vi.mock('@/lib/db', () => {
   let table = '';

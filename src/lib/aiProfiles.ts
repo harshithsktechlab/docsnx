@@ -260,6 +260,43 @@ export const AI_PROFILES: Record<string, AIProfile> = {
     ],
     mandatoryDisclaimer: 'Informational asset and premises summary only.'
   },
+  biz_travel: {
+    category: 'biz_travel',
+    name: 'Travel & Expenses',
+    extractionFields: [
+      'Ticket or Booking Type',
+      'PNR / Booking Reference',
+      'Operator (airline, railway, hotel)',
+      'From and To',
+      'Travel or Check-in Date',
+      'Amount Paid',
+    ],
+    analyticalCapabilities: [
+      'Upcoming business trips and stays',
+      'Travel spend by month and by traveller',
+      'Expense claims awaiting reimbursement',
+    ],
+    mandatoryDisclaimer: 'Informational travel and expense summary only.'
+  },
+  // 0067: the company's catch-all. What it holds is unknown by definition, so
+  // the profile asks only what any document answers.
+  biz_other: {
+    category: 'biz_other',
+    name: 'Other Company Documents',
+    extractionFields: [
+      'Document Type',
+      'Issuing Party',
+      'Reference Number',
+      'Issue Date',
+      'Expiry or Due Date',
+      'Amount',
+    ],
+    analyticalCapabilities: [
+      'Unfiled documents awaiting a category',
+      'Upcoming expiry and due dates',
+    ],
+    mandatoryDisclaimer: 'Informational document summary only.'
+  },
 
   documents: {
     category: 'documents',
@@ -445,6 +482,23 @@ export const AI_PROFILES: Record<string, AIProfile> = {
       'Missing form/challan alerts'
     ],
     mandatoryDisclaimer: 'Informational tax summary only. Consult a Chartered Accountant.'
+  },
+  travel: {
+    category: 'travel',
+    name: '14. Travel & Tickets',
+    extractionFields: [
+      'Ticket or Booking Type',
+      'PNR / Booking Reference',
+      'Operator (airline, railway, hotel)',
+      'From and To',
+      'Travel or Check-in Date',
+      'Amount Paid',
+    ],
+    analyticalCapabilities: [
+      'Upcoming journeys, stays and events',
+      'Travel spend summary',
+    ],
+    mandatoryDisclaimer: 'Informational travel summary only. Check the operator for the latest schedule.'
   },
   wills_estate: {
     category: 'wills_estate',

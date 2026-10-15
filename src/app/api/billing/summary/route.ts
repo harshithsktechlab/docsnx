@@ -25,13 +25,12 @@ import { NextResponse } from 'next/server';
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { db, withTenant } from '@/lib/db';
 import { companies, tenants, users } from '@/db/schema';
-import { seatPredicate } from '@/lib/account/seatCounts';
+import { seatAllowance, seatPredicate } from '@/lib/account/seatCounts';
 import { getUserFromRequest } from '@/lib/auth';
 import {
   ACCOUNT_AXES,
   axisStatus,
   companyQuota,
-  memberQuota,
   type AccountAxis,
 } from '@/lib/billingAxis';
 import { upgradeEligibility } from '@/lib/upgradePricing';
@@ -147,6 +146,12 @@ export async function GET(req: Request) {
       return { personal: personal.n, perCompany, companies: live.length };
     });
 
+    // Plan + extras + live add-ons, through the helper /api/users enforces with.
+    const [personalSeats, perCompanySeats] = await Promise.all([
+      seatAllowance(user.tenantId, 'personal'),
+      seatAllowance(user.tenantId, 'business'),
+    ]);
+
     const axisPayload = (axis: AccountAxis) => {
       const planId = axis === 'business' ? tenant.businessPlanId : tenant.subscriptionPlanId;
       const plan = planId ? planById.get(planId) ?? null : null;
@@ -166,15 +171,15 @@ export async function GET(req: Request) {
          */
         members: axis === 'business'
           ? {
-            perCompanyLimit: memberQuota(plan, tenant, 'business'),
+            perCompanyLimit: perCompanySeats,
             companies: usage.perCompany.map((c) => ({
               id: c.id,
               name: c.name,
               used: c.used,
-              limit: memberQuota(plan, tenant, 'business'),
+              limit: perCompanySeats,
             })),
           }
-          : { used: usage.personal, limit: memberQuota(plan, tenant, 'personal') },
+          : { used: usage.personal, limit: personalSeats },
         // Only the business axis meters companies; a household has none.
         ...(axis === 'business'
           ? { companies: { used: usage.companies, limit: companyQuota(plan, tenant) } }

@@ -27,8 +27,9 @@ const paths = (
 ) => accountMenuItems(viewer, locked, companyId).map((i) => i.path);
 
 describe('accountMenuItems', () => {
-  it('gives a tenant admin all four rows, in display order', () => {
+  it('gives a tenant admin Members and the four account rows, in display order', () => {
     expect(accountMenuItems({ role: 'TENANT_ADMIN' })).toEqual([
+      { key: 'members', name: 'Members', path: '/users' },
       { key: 'billing', name: 'Billing', path: '/billing' },
       { key: 'credits', name: 'AI Credits', path: '/billing/credits' },
       { key: 'settings', name: 'Settings', path: '/settings' },
@@ -90,8 +91,10 @@ describe('accountMenuItems', () => {
   describe('opened from inside a company', () => {
     const admin = { role: 'TENANT_ADMIN' };
 
-    it('hangs the company off all four rows', () => {
+    it('hangs the company off all four rows, and opens the company roster', () => {
       expect(accountMenuItems(admin, false, 'acme')).toEqual([
+        // The company's own roster route, not `?company=` — a company has one.
+        { key: 'members', name: 'Members', path: '/business/acme/users' },
         // `axis=business` is the param /billing itself reads to open the right
         // half of the bill; `company` is there for the shell.
         { key: 'billing', name: 'Billing', path: '/billing?axis=business&company=acme' },
@@ -153,5 +156,21 @@ describe('getInitials', () => {
     expect(getInitials(undefined)).toBe('?');
     expect(getInitials('')).toBe('?');
     expect(getInitials('   ')).toBe('?');
+  });
+});
+
+describe('the Members row', () => {
+  const keys = (...args: Parameters<typeof accountMenuItems>) =>
+    accountMenuItems(...args).map((i) => i.key);
+
+  it('is offered to a tenant admin only — /api/users refuses everyone else', () => {
+    expect(keys({ role: 'TENANT_ADMIN' })).toContain('members');
+    expect(keys({ role: 'MEMBER' })).not.toContain('members');
+    expect(keys({ role: 'SUPER_ADMIN' })).not.toContain('members');
+  });
+
+  it('is withheld while the plan is locked, from admins too', () => {
+    expect(keys({ role: 'TENANT_ADMIN' }, true)).not.toContain('members');
+    expect(keys({ role: 'TENANT_ADMIN' }, true, 'acme')).not.toContain('members');
   });
 });

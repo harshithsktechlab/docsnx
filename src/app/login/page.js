@@ -54,6 +54,11 @@ function LoginContent() {
       // Pinning means it is simply not shown there. See src/lib/flashToast.ts.
       setFlash({ message: 'Login successful!', type: 'success', pin: '/dashboard', tag: 'login-ok' });
       router.push('/dashboard');
+    } else if (res.requireActivation) {
+      // Invited, never set a password (0071): the setup page, with what they
+      // typed already filled in.
+      toast.info(res.error || 'Finish setting up your account first.', { id: 'login-activate' });
+      router.push(`/activate?identifier=${encodeURIComponent(typed)}`);
     } else if (res.verificationUndeliverable) {
       // The account needs verifying but the code could not be sent — a member
       // whose WhatsApp gateway is down. Sending them to the verify screen would
@@ -220,8 +225,21 @@ function LoginContent() {
               </Button>
             </form>
 
-            {/* Register Link */}
+            {/* Invited members (0071) */}
             <div className="mt-6 text-center">
+              <p className="text-muted-foreground text-sm">
+                Added as a member?{' '}
+                <button
+                  onClick={() => router.push('/activate')}
+                  className="text-primary font-semibold hover:underline underline-offset-4 transition-colors bg-transparent border-none cursor-pointer font-inherit"
+                >
+                  Set up my account
+                </button>
+              </p>
+            </div>
+
+            {/* Register Link */}
+            <div className="mt-3 text-center">
               <p className="text-muted-foreground text-sm">
                 New to DocsNX?{' '}
                 <button
