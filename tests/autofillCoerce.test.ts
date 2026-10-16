@@ -136,3 +136,35 @@ describe('coerceExtracted — identifiers carry the spec’s own format', () => 
     expect(coerceExtracted(broken, 'ABCDE1234F')).toBe('ABCDE1234F');
   });
 });
+
+describe('premium frequency — the abbreviations a policy schedule prints', () => {
+  const spec: FieldSpec = {
+    fieldKey: 'premium_frequency', fieldLabel: 'Premium Frequency', dataType: 'select', isPii: false,
+    options: [
+      { value: 'yearly', label: 'Yearly' },
+      { value: 'half_yearly', label: 'Half-Yearly' },
+      { value: 'quarterly', label: 'Quarterly' },
+      { value: 'monthly', label: 'Monthly' },
+      { value: 'single', label: 'Single Premium' },
+    ],
+  };
+
+  it('folds them onto the option values', () => {
+    expect(coerceExtracted(spec, 'Yly')).toBe('yearly');
+    expect(coerceExtracted(spec, 'Annual')).toBe('yearly');
+    expect(coerceExtracted(spec, 'Hly')).toBe('half_yearly');
+    expect(coerceExtracted(spec, 'Half-Yearly')).toBe('half_yearly');
+    expect(coerceExtracted(spec, 'SSS')).toBe('monthly');
+    expect(coerceExtracted(spec, 'Single Premium')).toBe('single');
+  });
+
+  it('still refuses what it cannot place', () => {
+    expect(coerceExtracted(spec, '12')).toBeNull();
+    expect(coerceExtracted(spec, 'fortnightly')).toBeNull();
+  });
+
+  it('applies the aliases to this field only', () => {
+    const other: FieldSpec = { ...spec, fieldKey: 'locker_size' };
+    expect(coerceExtracted(other, 'Yly')).toBeNull();
+  });
+});

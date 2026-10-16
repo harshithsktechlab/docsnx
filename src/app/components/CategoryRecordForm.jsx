@@ -86,7 +86,7 @@ const presetHolders = (id) => (!id ? null : id === ALL_MEMBERS ? [] : [id]);
 import { focusFirstError } from '@/lib/records/focusFirstError';
 import FilePicker from '@/app/components/FilePicker';
 import { RecordPhotos } from '@/app/components/RecordPhotos';
-import { scopeForCategory } from '@/lib/records/registry';
+import { scopeForCategory, homeScopeForModule } from '@/lib/records/registry';
 import { downscaleForScan, makeThumbnail } from '@/lib/records/imageDownscale';
 import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
 /**
@@ -100,6 +100,8 @@ import CategoryFieldInputs, {
   normaliseNumeric, visibleFields,
 } from '@/app/components/CategoryFieldInputs';
 import { withoutReadTitle } from '@/lib/records/autoTitle';
+import { nextPremiumDue } from '@/lib/records/derivedDates';
+import { normalisePremiumFrequency } from '@/lib/records/premiumFrequency';
 import {
   CUSTOM_FIELDS_KEY, describeFieldErrors, isValid, validateField, validateRecord,
 } from '@/lib/records/fieldValidation';
@@ -347,6 +349,11 @@ export default function CategoryRecordForm({
           if (key === CUSTOM_FIELDS_KEY || key === LINKED_CARDS_KEY) continue;
           next[key] = asInputValue(value);
         }
+        // Saved while premium frequency was free text ("Yly", "Annual"): shown
+        // as the option it means, so the select does not refuse it on save. A
+        // spelling nothing recognises is left as is and shown as an orphan.
+        const frequency = normalisePremiumFrequency(next.premium_frequency);
+        if (frequency) next.premium_frequency = frequency;
         // The title is the row's own column; a category whose spec declares it
         // still gets it from there, because that is what every list shows.
         if (json.record?.title) next[TITLE_KEY] = String(json.record.title);
@@ -412,7 +419,10 @@ export default function CategoryRecordForm({
   /** This category's photo slot, or null — see src/lib/records/recordAttachments.ts. */
   const photoSlot = spec?.attachmentSlot || null;
   const recordScope = useMemo(
-    () => scopeForCategory({ moduleKey, documentKey }),
+    // A category a super admin created after this build is in no scope's list;
+    // the server files it under its module's home scope (records/handler.ts),
+    // so the client must address it the same way.
+    () => scopeForCategory({ moduleKey, documentKey }) ?? homeScopeForModule(moduleKey),
     [moduleKey, documentKey],
   );
 
@@ -441,8 +451,29 @@ export default function CategoryRecordForm({
     return failed;
   };
 
+  /**
+   * The renewal date this form last filled in from last payment + frequency.
+   * Recomputed only while the box still holds that value (or nothing), so a
+   * date the user typed — or the document printed — is never overwritten.
+   */
+  const derivedRenewal = useRef('');
+
   const setValue = (key, value) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
+    setValues((prev) => {
+      const next = { ...prev, [key]: value };
+      if (
+        (key === 'last_premium_paid_date' || key === 'premium_frequency')
+        && fields.some((f) => f.fieldKey === 'renewal_due_date')
+      ) {
+        const current = String(prev.renewal_due_date ?? '');
+        if (current === '' || current === derivedRenewal.current) {
+          const due = nextPremiumDue(next) ?? '';
+          next.renewal_due_date = due;
+          derivedRenewal.current = due;
+        }
+      }
+      return next;
+    });
     // Typed over an AI answer: it is the user's value now, so it loses the
     // badge and a later re-read will not overwrite it.
     setAiFilled((prev) => {

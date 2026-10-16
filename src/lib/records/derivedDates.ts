@@ -7,10 +7,17 @@
  * (being told never to do date arithmetic itself), and this computes the end
  * dates from them and the bill date, so the reminders have a date to fire on.
  *
+ * An insurance premium works the same way from the other end: a policy schedule
+ * or receipt prints when the premium was LAST paid and the mode ("Yly", "Hly"),
+ * and the renewal due date is the one after — so `renewal_due_date` is
+ * `last_premium_paid_date` plus one interval of `premium_frequency`.
+ *
  * Fills a date only when it is BLANK: a date the document actually printed, or
- * the user typed, always wins over a computed one. Pure and leaf — no imports —
- * so the server autofill and anything client-side can share it.
+ * the user typed, always wins over a computed one. Pure — its only import is
+ * the leaf premiumFrequency table — so the server autofill and anything
+ * client-side can share it.
  */
+import { PREMIUM_FREQUENCY_MONTHS, normalisePremiumFrequency } from './premiumFrequency';
 
 /** start date key, period key, unit, and the date key it produces. */
 const RULES: ReadonlyArray<{
@@ -81,5 +88,30 @@ export function deriveDates(
     const end = rule.unit === 'months' ? addMonths(start, n) : addDays(start, n);
     if (end) out[rule.to] = end;
   }
+  if (allowed.has(RENEWAL_KEY) && isBlank(fields[RENEWAL_KEY])) {
+    const next = nextPremiumDue(fields);
+    if (next) out[RENEWAL_KEY] = next;
+  }
   return out;
+}
+
+const RENEWAL_KEY = 'renewal_due_date';
+
+function isBlank(value: unknown): boolean {
+  return value === undefined || value === null || String(value).trim() === '';
+}
+
+/**
+ * The premium due after the last one paid, or null.
+ *
+ * Null when either half is missing or unreadable, and for a single-premium
+ * policy, which has no next premium. Ignores what `renewal_due_date` holds —
+ * the caller decides whether a computed date may replace it.
+ */
+export function nextPremiumDue(fields: Readonly<Record<string, unknown>>): string | null {
+  const lastPaid = fields.last_premium_paid_date;
+  if (typeof lastPaid !== 'string' || !parseIso(lastPaid)) return null;
+  const frequency = normalisePremiumFrequency(fields.premium_frequency);
+  const months = frequency ? PREMIUM_FREQUENCY_MONTHS[frequency] : null;
+  return months ? addMonths(lastPaid, months) : null;
 }

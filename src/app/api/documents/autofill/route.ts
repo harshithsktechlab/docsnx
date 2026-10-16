@@ -230,6 +230,7 @@ export async function POST(req: Request) {
       holderName: result.holderName,
       title: subCategoryTitle(category.documentName, result.holderName) || base.title,
     };
+    const holderForTitle = readHolder?.holderName ?? proposal.holderName;
 
     return NextResponse.json({
       ...base,
@@ -240,6 +241,14 @@ export async function POST(req: Request) {
        */
       fields: withoutReadTitle(result.fields),
       ...(readHolder ?? {}),
+      /**
+       * Re-named with the read's distinguishing detail — "Bank account
+       * statements - HDFC Bank Oct 2025 - Ravi Kumar" — when it found one.
+       * `titleDetail` too, so a re-file on the page keeps it.
+       */
+      title: subCategoryTitle(category.documentName, holderForTitle, result.titleDetail)
+        || readHolder?.title || base.title,
+      titleDetail: result.titleDetail,
       /**
        * Words read off the document, for the keyword index. The page posts it
        * back with the save; the vault hashes it and keeps no text.

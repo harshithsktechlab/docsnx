@@ -659,6 +659,9 @@ export async function PUT(req: Request) {
         eq(documentCategoryFieldOverrides.isCustom, true),
       ));
     const custom = new Set(customRows.map((r) => r.fieldKey));
+    // Each custom row as stored, read once here for the guard and reused below
+    // to keep its label and type when the patch clears them.
+    const storedCustom = new Map<string, Awaited<ReturnType<typeof customRow>>>();
 
     for (const f of fields) {
       if (!declared.has(f.fieldKey) && !custom.has(f.fieldKey)) {
@@ -675,19 +678,28 @@ export async function PUT(req: Request) {
        * two-choices rule simply because the patch says nothing about the type.
        */
       const shipped = fieldsFor(categoryKey).find((d) => d.fieldKey === f.fieldKey);
+      if (isCustom) storedCustom.set(f.fieldKey, await customRow(category.id, f.fieldKey));
       const effective = isCustom
-        ? { ...(await customRow(category.id, f.fieldKey)), ...stripUndefined(f) }
+        ? { ...storedCustom.get(f.fieldKey), ...stripUndefined(f) }
         : { ...f, hasLinkTarget: Boolean(shipped?.linkTarget) };
       const message = configurationError(f.fieldKey, effective, isCustom);
       if (message) return NextResponse.json({ error: message }, { status: 400 });
     }
 
     const now = new Date();
+    /**
+     * A custom row IS the field, so a null label or type cannot mean "follow
+     * the default" there — there is none. Reset on a custom row clears its
+     * settings and keeps what defines it; writing the nulls through would trip
+     * the 0041 CHECK and fail the whole save.
+     */
+    const stored = (key: string) => storedCustom.get(key) as
+      { fieldLabel?: string | null; dataType?: string | null } | undefined;
     const rows = fields.map((f) => ({
       categoryId: category.id,
       fieldKey: f.fieldKey,
-      fieldLabel: f.fieldLabel ?? null,
-      dataType: f.dataType ?? null,
+      fieldLabel: f.fieldLabel || stored(f.fieldKey)?.fieldLabel || null,
+      dataType: f.dataType ?? stored(f.fieldKey)?.dataType ?? null,
       isPii: f.isPii ?? null,
       isRequired: f.isRequired ?? null,
       isPrinted: f.isPrinted ?? null,

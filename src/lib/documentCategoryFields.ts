@@ -70,6 +70,7 @@ import {
   MIN_ALERT_DAYS,
   raisesReminder,
 } from './records/reminderPolicy';
+import { PREMIUM_FREQUENCY_OPTIONS } from './records/premiumFrequency';
 
 /**
  * Mirrors document_category_fields.data_type.
@@ -853,6 +854,9 @@ export const NEVER_PRINTED_KEYS: readonly string[] = [
   // which locker an item sits in. `printed` also refuses any `member` /
   // `record_link` field by type, for the ones an operator adds.
   'locker_ref', 'gifted_by', 'gifted_to',
+  // a locker item's latest withdrawal / deposit — the user's own log, which
+  // no bill or photo of the item states.
+  'locker_movement', 'movement_date', 'movement_by', 'movement_reason',
 ];
 
 const NEVER_PRINTED: ReadonlySet<string> = new Set(NEVER_PRINTED_KEYS);
@@ -1075,6 +1079,37 @@ export const BASELINE_OPEN_KEYS: readonly string[] = ['custom_fields'];
  * instead — `valid_to` raises an expiry reminder, which a period must not.
  */
 const PERIOD_FIELD: FieldSpec = { fieldKey: 'period', fieldLabel: 'Period / Year', dataType: 'text', isPii: false };
+
+/**
+ * The three premium fields shared by Life and Term policies.
+ *
+ * `premium_frequency` is a choice, not text, so the scan answers in one
+ * vocabulary — the options and the house abbreviations ("Yly", "Hly", "SSS")
+ * that fold onto them live in src/lib/records/premiumFrequency.ts. Together with
+ * `last_premium_paid_date` it fills `renewal_due_date` when the document does
+ * not print a next-due date (src/lib/records/derivedDates.ts).
+ *
+ * The last payment is history, not a deadline: `isReminder: false`.
+ */
+const PREMIUM_FREQUENCY_FIELD: FieldSpec = {
+  fieldKey: 'premium_frequency', fieldLabel: 'Premium Frequency', dataType: 'select', isPii: false,
+  options: PREMIUM_FREQUENCY_OPTIONS,
+};
+const LAST_PREMIUM_PAID_FIELD: FieldSpec = {
+  fieldKey: 'last_premium_paid_date', fieldLabel: 'Date of Last Payment', dataType: 'date', isPii: false,
+  isReminder: false,
+  validation: { notFuture: true, message: 'A payment date cannot be in the future' },
+};
+const POLICY_STATUS_FIELD: FieldSpec = {
+  fieldKey: 'policy_status', fieldLabel: 'Policy Status', dataType: 'select', isPii: false,
+  options: [
+    { value: 'in_force', label: 'In Force' },
+    { value: 'lapsed', label: 'Lapsed' },
+    { value: 'paid_up', label: 'Paid-up' },
+    { value: 'matured', label: 'Matured' },
+    { value: 'surrendered', label: 'Surrendered' },
+  ],
+};
 
 /**
  * The journey a ticket is for — shared by every travel ticket category, personal
@@ -1429,6 +1464,121 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
         fieldKey: 'valuation_date', fieldLabel: 'Valuation Date', dataType: 'date', isPii: false,
         validation: { notFuture: true, message: 'A valuation date cannot be in the future' },
       },
+      // Where the item is right now: the last time it left or went back into
+      // the locker, who did it and why. Latest movement only — a new one
+      // overwrites it. The status is OPEN so the locker panel can flag it.
+      {
+        fieldKey: 'locker_movement', fieldLabel: 'Withdrawn / Deposited', dataType: 'select', isPii: false,
+        options: [
+          { value: 'deposited', label: 'Deposited (in locker)' },
+          { value: 'withdrawn', label: 'Withdrawn (taken out)' },
+        ],
+      },
+      {
+        fieldKey: 'movement_date', fieldLabel: 'Withdrawn / Deposited On', dataType: 'date', isPii: false,
+        validation: { notFuture: true, message: 'A withdrawal or deposit date cannot be in the future' },
+      },
+      { fieldKey: 'movement_by', fieldLabel: 'Withdrawn / Deposited By', dataType: 'member', isPii: true },
+      { fieldKey: 'movement_reason', fieldLabel: 'Reason', dataType: 'longtext', isPii: false },
+    ],
+
+    // 0074. One record per purchase of gold, silver or diamonds held as an
+    // investment — a jeweller's or bullion dealer's bill, a coin or bar,
+    // digital gold, an SGB. Option values for type and purity match
+    // `locker_items` where they overlap. Weights and rates are OPEN so a list
+    // read can total them; money, the bill number and the diamond certificate
+    // are sealed. The bill number is not an identifier: one bill often covers
+    // several items. The item's name is the baseline `document_title`.
+    precious_metals_purchases: [
+      {
+        fieldKey: 'metal_type', fieldLabel: 'Asset Type', dataType: 'select', isPii: false, isRequired: true,
+        options: [
+          { value: 'gold', label: 'Gold' },
+          { value: 'silver', label: 'Silver' },
+          { value: 'diamond', label: 'Diamond' },
+          { value: 'platinum', label: 'Platinum' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      {
+        fieldKey: 'item_form', fieldLabel: 'Form', dataType: 'select', isPii: false, isRequired: true,
+        options: [
+          { value: 'jewellery', label: 'Jewellery' },
+          { value: 'coin', label: 'Coin' },
+          { value: 'bar_biscuit', label: 'Bar / Biscuit' },
+          { value: 'loose_stone', label: 'Loose Stone' },
+          { value: 'digital_gold', label: 'Digital Gold' },
+          { value: 'sgb', label: 'Sovereign Gold Bond' },
+          { value: 'gold_etf', label: 'Gold ETF / Fund' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      {
+        fieldKey: 'metal_purity', fieldLabel: 'Purity', dataType: 'select', isPii: false,
+        options: [
+          { value: '24k', label: '24K' },
+          { value: '22k', label: '22K' },
+          { value: '18k', label: '18K' },
+          { value: '14k', label: '14K' },
+          { value: '999_silver', label: '999 Silver' },
+          { value: '925_silver', label: '925 Silver' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      { fieldKey: 'quantity', fieldLabel: 'Quantity (pieces)', dataType: 'number', isPii: false, validation: { min: 1 } },
+      { fieldKey: 'gross_weight_grams', fieldLabel: 'Gross Weight (g)', dataType: 'number', isPii: false, validation: { min: 0 } },
+      { fieldKey: 'net_weight_grams', fieldLabel: 'Net Weight (g)', dataType: 'number', isPii: false, validation: { min: 0 } },
+      { fieldKey: 'diamond_carat', fieldLabel: 'Diamond Weight (ct)', dataType: 'number', isPii: false, validation: { min: 0 } },
+      {
+        fieldKey: 'diamond_clarity', fieldLabel: 'Diamond Clarity', dataType: 'select', isPii: false,
+        options: [
+          { value: 'fl_if', label: 'FL / IF' },
+          { value: 'vvs', label: 'VVS1 / VVS2' },
+          { value: 'vs', label: 'VS1 / VS2' },
+          { value: 'si', label: 'SI1 / SI2' },
+          { value: 'i', label: 'I1 / I2 / I3' },
+        ],
+      },
+      { fieldKey: 'diamond_color', fieldLabel: 'Diamond Colour Grade', dataType: 'text', isPii: false },
+      { fieldKey: 'diamond_certificate_no', fieldLabel: 'Diamond Certificate No. (GIA / IGI)', dataType: 'text', isPii: true, isIdentifier: false },
+      { fieldKey: 'hallmark_huid', fieldLabel: 'Hallmark / HUID', dataType: 'text', isPii: false },
+      { fieldKey: 'rate_per_gram', fieldLabel: 'Rate per Gram (at purchase)', dataType: 'currency', isPii: false, validation: { min: 0 } },
+      { fieldKey: 'making_charges', fieldLabel: 'Making Charges', dataType: 'currency', isPii: true, validation: { min: 0 } },
+      { fieldKey: 'gst_amount', fieldLabel: 'GST Amount', dataType: 'currency', isPii: true, validation: { min: 0 } },
+      { fieldKey: 'purchase_price', fieldLabel: 'Total Purchase Price', dataType: 'currency', isPii: true, isRequired: true, validation: { min: 0 } },
+      { fieldKey: 'purchased_from', fieldLabel: 'Purchased From (Jeweller / Platform)', dataType: 'text', isPii: false },
+      {
+        fieldKey: 'purchase_date', fieldLabel: 'Purchase Date', dataType: 'date', isPii: false, isRequired: true,
+        validation: { notFuture: true, message: 'A purchase date cannot be in the future' },
+      },
+      { fieldKey: 'invoice_number', fieldLabel: 'Invoice / Bill Number', dataType: 'text', isPii: true, isIdentifier: false },
+      {
+        fieldKey: 'payment_mode', fieldLabel: 'Payment Mode', dataType: 'select', isPii: false,
+        options: [
+          { value: 'cash', label: 'Cash' },
+          { value: 'card', label: 'Card' },
+          { value: 'upi', label: 'UPI' },
+          { value: 'bank_transfer', label: 'Bank Transfer' },
+          { value: 'cheque', label: 'Cheque' },
+          { value: 'old_gold_exchange', label: 'Old Gold Exchange' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      {
+        fieldKey: 'storage_location', fieldLabel: 'Kept At', dataType: 'select', isPii: false,
+        options: [
+          { value: 'home', label: 'Home' },
+          { value: 'bank_locker', label: 'Bank Locker' },
+          { value: 'jeweller', label: 'With Jeweller' },
+          { value: 'demat_digital', label: 'Demat / Digital' },
+          { value: 'other', label: 'Other' },
+        ],
+      },
+      { fieldKey: 'current_value', fieldLabel: 'Current Value', dataType: 'currency', isPii: true, validation: { min: 0 } },
+      {
+        fieldKey: 'valuation_date', fieldLabel: 'Valuation Date', dataType: 'date', isPii: false,
+        validation: { notFuture: true, message: 'A valuation date cannot be in the future' },
+      },
     ],
   },
 
@@ -1440,10 +1590,14 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'plan_name', fieldLabel: 'Plan Name', dataType: 'text', isPii: false },
       { fieldKey: 'sum_assured', fieldLabel: 'Sum Assured', dataType: 'currency', isPii: true },
       { fieldKey: 'premium_amount', fieldLabel: 'Premium Amount', dataType: 'currency', isPii: true },
-      { fieldKey: 'premium_frequency', fieldLabel: 'Premium Frequency', dataType: 'text', isPii: false },
+      PREMIUM_FREQUENCY_FIELD,
+      LAST_PREMIUM_PAID_FIELD,
+      POLICY_STATUS_FIELD,
       { fieldKey: 'nominee_name', fieldLabel: 'Nominee Name', dataType: 'text', isPii: true },
       { fieldKey: 'policy_term_years', fieldLabel: 'Policy Term (Years)', dataType: 'number', isPii: false },
       { fieldKey: 'maturity_date', fieldLabel: 'Maturity Date', dataType: 'date', isPii: false },
+      // Filled from last payment + frequency when the document does not print
+      // it — see src/lib/records/derivedDates.ts.
       { fieldKey: 'renewal_due_date', fieldLabel: 'Renewal Due Date', dataType: 'date', isPii: false, isRequired: true },
     ],
 
@@ -1484,6 +1638,9 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'insurer_name', fieldLabel: 'Insurer Name', dataType: 'text', isPii: false },
       { fieldKey: 'sum_assured', fieldLabel: 'Sum Assured', dataType: 'currency', isPii: true },
       { fieldKey: 'premium_amount', fieldLabel: 'Premium Amount', dataType: 'currency', isPii: true },
+      PREMIUM_FREQUENCY_FIELD,
+      LAST_PREMIUM_PAID_FIELD,
+      POLICY_STATUS_FIELD,
       { fieldKey: 'policy_term_years', fieldLabel: 'Policy Term (Years)', dataType: 'number', isPii: false },
       { fieldKey: 'nominee_name', fieldLabel: 'Nominee Name', dataType: 'text', isPii: true },
       { fieldKey: 'renewal_due_date', fieldLabel: 'Renewal Due Date', dataType: 'date', isPii: false, isRequired: true },
@@ -1579,7 +1736,7 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
   // ── Education ──
   education: {
     marksheets_certificates: [
-      { fieldKey: 'roll_number', fieldLabel: 'Roll Number', dataType: 'text', isPii: true, isRequired: true },
+      { fieldKey: 'roll_number', fieldLabel: 'Roll Number', dataType: 'text', isPii: true },
       { fieldKey: 'student_name', fieldLabel: 'Student Name', dataType: 'text', isPii: true },
       { fieldKey: 'board_university', fieldLabel: 'Board / University', dataType: 'text', isPii: false },
       { fieldKey: 'institution_name', fieldLabel: 'Institution Name', dataType: 'text', isPii: false },

@@ -775,7 +775,9 @@ describe('Document category field dictionary', () => {
           // 0070's locker items postdate 0015 too.
           && !(p.moduleKey === 'bank_investments' && p.documentKey === 'locker_items')
           // …and so do 0073's purchase bills.
-          && !(p.moduleKey === 'warranty_amc' && p.documentKey === 'purchase_bills'),
+          && !(p.moduleKey === 'warranty_amc' && p.documentKey === 'purchase_bills')
+          // …and 0074's gold / silver / diamond purchases.
+          && !(p.moduleKey === 'bank_investments' && p.documentKey === 'precious_metals_purchases'),
       );
       expect(stated).toHaveLength(expected.length);
       expect([...stated].sort()).toEqual(
@@ -1014,3 +1016,20 @@ describe('Document category field dictionary', () => {
   });
 });
 
+
+describe('Insurance premium fields (life and term)', () => {
+  for (const documentKey of ['life_policies', 'term_policies']) {
+    const specs = fieldsFor({ moduleKey: 'insurance', documentKey });
+    const byKey = new Map(specs.map((f) => [f.fieldKey, f]));
+
+    it(`${documentKey} carries frequency, last payment and status`, () => {
+      expect(byKey.get('premium_frequency')?.dataType).toBe('select');
+      expect(byKey.get('premium_frequency')?.options?.map((o) => o.value))
+        .toEqual(['yearly', 'half_yearly', 'quarterly', 'monthly', 'single']);
+      expect(byKey.get('last_premium_paid_date')?.dataType).toBe('date');
+      expect(byKey.get('last_premium_paid_date')?.isRequired).toBeFalsy();
+      expect(byKey.get('policy_status')?.options?.map((o) => o.value))
+        .toEqual(['in_force', 'lapsed', 'paid_up', 'matured', 'surrendered']);
+    });
+  }
+});

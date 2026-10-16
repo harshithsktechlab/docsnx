@@ -261,7 +261,10 @@ async function attachCategoryFields(records, aiFiles, user, companyId = null) {
         // gap above is filled; pass 1's name only when the category has none.
         // `rec.title` too, so the grid shows the same name. The reviewer's edit
         // in the grid still wins at save.
-        const named = subCategoryTitle(rec.extractedData.categoryName, rec.holderName)
+        // With the read's distinguishing detail — "HDFC Bank Oct 2025" — kept on
+        // the record too, so the review grid can re-name it after a re-file.
+        if (result.titleDetail) rec.extractedData.titleDetail = result.titleDetail;
+        const named = subCategoryTitle(rec.extractedData.categoryName, rec.holderName, result.titleDetail)
           || rec.extractedData.name || rec.title || '';
         if (named) {
           rec.extractedData.fields.document_title = named;

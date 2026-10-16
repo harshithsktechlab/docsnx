@@ -69,7 +69,7 @@ import { CUSTOM_FIELDS_KEY } from '@/lib/records/fieldValidation';
 import { LINKED_CARDS_KEY } from '@/lib/records/linkedCards';
 import { MODULE_COLORS, DEFAULT_MODULE_COLOR, isCatchAll } from '@/lib/documentCategories';
 import { UNLABELLED } from '@/lib/records/customSubcategory';
-import { scopeForCategory } from '@/lib/records/registry';
+import { scopeForCategory, homeScopeForModule } from '@/lib/records/registry';
 import { MODULE_BASE, ALL_NAV_MODULES } from '@/lib/moduleRegistry';
 import CategoryRecordForm from '@/app/components/CategoryRecordForm';
 import { AttachmentThumb, attachmentUrl } from '@/app/components/RecordPhotos';
@@ -88,6 +88,15 @@ function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/** A renewal's countdown in words: "in 17 days", "Due today", "Overdue by 3 days". */
+function dueInWords(daysLeft) {
+  const n = Math.abs(daysLeft);
+  const days = `${n} day${n === 1 ? '' : 's'}`;
+  if (daysLeft < 0) return `Overdue by ${days}`;
+  if (daysLeft === 0) return 'Due today';
+  return `in ${days}`;
 }
 
 function StatTile({ icon: Icon, label, value, tone = 'default', hint }) {
@@ -174,7 +183,10 @@ export default function SubCategoryWorkspace() {
   // list already returns a `filePath` resolved against the scope that OWNS the
   // category, which need not be this page's (see records/fileUrl.ts).
   const scope = useMemo(
-    () => scopeForCategory({ moduleKey, documentKey }),
+    // A category a super admin created after this build is in no scope's list;
+    // the server files it under its module's home scope (records/handler.ts),
+    // so the client must address it the same way.
+    () => scopeForCategory({ moduleKey, documentKey }) ?? homeScopeForModule(moduleKey),
     [moduleKey, documentKey],
   );
 
@@ -776,7 +788,7 @@ export default function SubCategoryWorkspace() {
                                 {summary.renewals.dueWithin?.[days] ?? 0}
                               </span>
                               <span className="text-xs font-semibold uppercase text-muted-foreground">
-                                {days}d
+                                {days} days
                               </span>
                             </div>
                           ))}
@@ -796,43 +808,43 @@ export default function SubCategoryWorkspace() {
                               <button
                                 key={item.id}
                                 onClick={() => openRecord(item.recordId)}
-                                className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/30 px-3 py-2 text-left hover:border-primary/40 hover:bg-muted/30 transition-colors"
+                                className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-border/40 bg-background/30 px-3 py-2 text-left hover:border-primary/40 hover:bg-muted/30 transition-colors"
                               >
-                                <span className="flex min-w-0 flex-col gap-0.5">
-                                  <span className="truncate text-xs font-bold text-foreground">
-                                    {item.recordTitle}
-                                  </span>
-                                  {/*
-                                    * `min-w-0` is the whole reason the badge no
-                                    * longer sits ON the holder name. This row is
-                                    * a nested flex container, so its automatic
-                                    * `min-width: auto` was its MIN-CONTENT width:
-                                    * the column above it shrank, this row did not,
-                                    * and its tail ran out past the column's right
-                                    * edge and under the `shrink-0` badge. Wrapping
-                                    * rather than truncating keeps the field label
-                                    * — "Policy renewal date" — readable on a phone.
-                                    */}
-                                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                                    <span className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 font-semibold">
-                                      {item.fieldLabel}
-                                    </span>
-                                    <span>{formatDate(item.dueDate)}</span>
-                                    {item.holderName && (
-                                      <span className="min-w-0 max-w-full truncate">· {item.holderName}</span>
-                                    )}
-                                  </span>
+                                <span className="truncate text-xs font-bold text-foreground">
+                                  {item.recordTitle}
                                 </span>
-                                <Badge
-                                  variant={item.daysLeft < 0 ? 'destructive' : 'secondary'}
-                                  className="shrink-0 text-2xs"
+                                {/*
+                                  * The countdown sits under the title, in words.
+                                  * "IN 17D" in a pill on the right read as a code,
+                                  * and the pill stole width from the line below.
+                                  */}
+                                <span
+                                  className={cn(
+                                    'text-xs font-semibold',
+                                    item.daysLeft < 0
+                                      ? 'text-danger-text'
+                                      : item.daysLeft <= 30
+                                        ? 'text-primary'
+                                        : 'text-muted-foreground',
+                                  )}
                                 >
-                                  {item.daysLeft < 0
-                                    ? `${Math.abs(item.daysLeft)}d overdue`
-                                    : item.daysLeft === 0
-                                      ? 'today'
-                                      : `in ${item.daysLeft}d`}
-                                </Badge>
+                                  {dueInWords(item.daysLeft)}
+                                </span>
+                                {/*
+                                  * Wrapping rather than truncating keeps the field
+                                  * label — "Policy renewal date" — readable on a
+                                  * phone; `min-w-0` lets the holder name truncate
+                                  * instead of pushing past the card's edge.
+                                  */}
+                                <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                                  <span className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 font-semibold">
+                                    {item.fieldLabel}
+                                  </span>
+                                  <span>{formatDate(item.dueDate)}</span>
+                                  {item.holderName && (
+                                    <span className="min-w-0 max-w-full truncate">· {item.holderName}</span>
+                                  )}
+                                </span>
                               </button>
                             ))}
                           </div>

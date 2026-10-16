@@ -127,6 +127,15 @@ describe('dates', () => {
     const d = spec({ fieldKey: 'issue_date', fieldLabel: 'Issue Date', dataType: 'date', validation: {} });
     expect(validateField(d, 'not a date')).toMatch(/valid date/i);
   });
+
+  it('reads a slashed date day-first and refuses half-typed or impossible ones', () => {
+    const d = spec({ fieldKey: 'issue_date', fieldLabel: 'Issue Date', dataType: 'date', validation: {} });
+    expect(validateField(d, '16/10/2026')).toBeNull();
+    // The engine's own parser reads both of these as real days.
+    expect(validateField(d, '05/10')).toMatch(/valid date/i);
+    expect(validateField(d, '02/31/2026')).toMatch(/valid date/i);
+    expect(validateField(d, '31/02/2026')).toMatch(/valid date/i);
+  });
 });
 
 describe('cross-field rules', () => {

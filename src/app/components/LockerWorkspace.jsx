@@ -196,7 +196,14 @@ function LockerBlock({ title, subtitle, totals, spec, weightCell, onPreviewItem,
                 onClick={() => onPreviewItem(item)}
                 className="flex min-w-0 flex-1 flex-col text-left hover:text-primary"
               >
-                <span className="truncate text-xs font-semibold text-foreground">{item.title}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-xs font-semibold text-foreground">{item.title}</span>
+                  {item.fields?.locker_movement === 'withdrawn' && (
+                    <Badge variant="destructive" className="shrink-0 text-2xs">
+                      Withdrawn{item.fields?.movement_date ? ` · ${item.fields.movement_date}` : ''}
+                    </Badge>
+                  )}
+                </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {[
                     optionLabel(spec, 'item_type', item.fields?.item_type),

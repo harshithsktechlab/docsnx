@@ -135,6 +135,24 @@ export const ALERT_DAYS_BY_KEY: Readonly<Record<string, number>> = {
   due_date: 7,
 };
 
+/**
+ * Is this reminder a RENEWAL or an EXPIRY — something the "Renewals & expiry"
+ * card on a category's Summary tab should list?
+ *
+ * Every reminder is a deadline, but not every deadline is a renewal. A maturity
+ * date is when a policy or an FD PAYS OUT: a follow-up worth raising on
+ * /follow-up, and noise on a card about what is about to lapse — a tenant read
+ * "Maturity Date · in 5919 days" there as a bug, and it was.
+ *
+ * Keyed on the LABEL as well as the key, because the legacy LIC map files the
+ * user's "Policy Expiry" under `maturity_date` (see fieldMap.ts). That one IS
+ * an expiry and must stay; only a date that calls itself a maturity is dropped.
+ */
+export function isRenewalReminder(item: { fieldKey?: string; fieldLabel?: string }): boolean {
+  if (item.fieldKey !== 'maturity_date') return true;
+  return /expir/i.test(item.fieldLabel ?? '');
+}
+
 /** The part of a FieldSpec this module needs. Structural, to avoid the import. */
 export interface ReminderSpecLike {
   fieldKey: string;

@@ -53,7 +53,7 @@ import { apiCall } from '@/lib/net/apiRequest';
 export default function ModuleOverview() {
   const { moduleKey, companyId } = useParams();
   const router = useRouter();
-  const { permitted } = usePermittedCategories();
+  const { permitted, categories } = usePermittedCategories();
   const [counts, setCounts] = useState(null);
 
   /** `?companyId=` on every request, or '' on the personal route. */
@@ -70,10 +70,18 @@ export default function ModuleOverview() {
 
   const subCategories = useMemo(() => {
     if (!navModule) return [];
+    // The live rows, once loaded: they include sub-categories a super admin
+    // created after this build, which the compiled list cannot know about, and
+    // they are already filtered to what the member may view.
+    if (categories) {
+      return categories
+        .filter((c) => c.moduleKey === navModule.key)
+        .map((c) => ({ documentKey: c.documentKey, name: c.documentName }));
+    }
     if (!permitted) return navModule.subCategories;
     const allowed = permitted.get(navModule.key);
     return navModule.subCategories.filter((s) => allowed?.has(s.documentKey));
-  }, [navModule, permitted]);
+  }, [navModule, permitted, categories]);
 
   useEffect(() => {
     if (!navModule) return;

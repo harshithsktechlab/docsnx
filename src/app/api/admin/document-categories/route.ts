@@ -281,7 +281,7 @@ export async function POST(req: Request) {
      * so it is not allowed to be half-written.
      */
     const spec = baselineSpecFor(categoryKey);
-    await db.transaction(async (tx) => {
+    const createdId = await db.transaction(async (tx) => {
       const [row] = await tx
         .insert(documentCategories)
         .values({
@@ -304,6 +304,7 @@ export async function POST(req: Request) {
         allFields: spec.allFieldsCsv,
         ocrFields: spec.ocrFieldsCsv,
       });
+      return row.id;
     });
 
     invalidateTaxonomy();
@@ -322,7 +323,9 @@ export async function POST(req: Request) {
       tenantId: user.tenantId,
       userId: user.id,
       entityType: 'document_categories',
-      entityId: categoryLabel(categoryKey),
+      // The row's id: `entity_id` is a uuid column, and the `module/document`
+      // pair is already in the sentence above.
+      entityId: createdId,
       req,
     });
 
@@ -445,7 +448,7 @@ export async function PATCH(req: Request) {
       tenantId: user.tenantId,
       userId: user.id,
       entityType: 'document_categories',
-      entityId: categoryLabel(categoryKey),
+      entityId: row.id,
       req,
     });
 

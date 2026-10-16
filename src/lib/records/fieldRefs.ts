@@ -23,6 +23,7 @@
  * can share. Membership and tenancy are checked server-side in
  * ./fieldRefsServer.ts.
  */
+import { isoToDisplay } from '@/lib/dateHelper';
 
 export const MEMBER_REF_PREFIX = 'member:';
 
@@ -93,7 +94,8 @@ function lookup(
 /**
  * A field's value as a person reads it.
  *
- * Every other type is returned unchanged — this only translates the pointers,
+ * Dates are shown DD/MM/YYYY. Every other type is returned unchanged — this
+ * only translates the pointers and the dates,
  * so callers can route every value through it without a type switch of their
  * own. An id that no longer resolves says so rather than printing a UUID.
  */
@@ -116,5 +118,8 @@ export function formatFieldValue(
       ?? lookup(lookups.linkTitles, text.trim())
       ?? 'Record removed';
   }
+  // Stored ISO, read DD/MM/YYYY — the share text, print and download all
+  // come through here.
+  if (spec.dataType === 'date') return isoToDisplay(text);
   return text;
 }

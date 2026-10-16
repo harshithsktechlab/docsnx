@@ -151,6 +151,10 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       // invoice, photos — each pointing at its `bank_locker_agreement` through
       // the `locker_ref` record_link field.
       { documentKey: 'locker_items', documentName: 'Locker inventory — jewellery & valuables' },
+      // 0074. Gold, silver and diamonds bought as an INVESTMENT — the jeweller's
+      // or bullion dealer's bill, a coin or bar, digital gold, an SGB. Where an
+      // item is kept is a field; a locker's contents stay under `locker_items`.
+      { documentKey: 'precious_metals_purchases', documentName: 'Gold / Silver / Diamond Purchase' },
     ],
   },
   {
@@ -836,7 +840,7 @@ export function subCategoriesFor(moduleKey: string): readonly DocumentSubCategor
  */
 const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   identity: 'Government photo ID and civil identity of a PERSON. Not a company\'s registrations.',
-  bank_investments: 'A private individual\'s banking — including bank account statements and passbooks — investments, loans and retirement savings.',
+  bank_investments: 'A private individual\'s banking — including bank account statements and passbooks — investments, loans and retirement savings. Also a jeweller\'s or bullion dealer\'s bill for gold, silver or diamonds, and digital gold or Sovereign Gold Bond statements.',
   insurance: 'Any insurance POLICY or premium receipt — life, health, vehicle, home, term.',
   property_legal: 'Ownership, transfer and inheritance of immovable property; deeds and court orders.',
   education: 'Proof of study: mark sheets, degrees, transfer certificates, exam scorecards.',
@@ -844,7 +848,7 @@ const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   employment: 'The employer-employee relationship: hiring, pay, leaving, provident fund.',
   vehicle: 'Papers that follow the VEHICLE itself — registration, emissions, purchase. A motor insurance policy is Insurance, and is listed under Vehicle from there.',
   civil_government: 'Civil status and entitlement certificates issued by a government body.',
-  warranty_amc: 'Cover for an appliance or equipment: warranty cards, annual maintenance contracts. Also a shop or online store\'s bill, tax invoice or purchase receipt for goods a person BOUGHT (clothes, bags, electronics, furniture, groceries) — whether or not a warranty is printed. Not a utility bill, a subscription or a ticket.',
+  warranty_amc: 'Cover for an appliance or equipment: warranty cards, annual maintenance contracts. Also a shop or online store\'s bill, tax invoice or purchase receipt for goods a person BOUGHT (clothes, bags, electronics, furniture, groceries) — whether or not a warranty is printed. Not a bill for gold, silver or diamond jewellery, coins or bars, which is Bank & Investments. Not a utility bill, a subscription or a ticket.',
   rentals_subscriptions: 'Ongoing agreements that renew or recur: a rental or lease, or a periodic service plan (OTT, SaaS, gym). Not a one-off booking or ticket.',
   utility_bills: 'A periodic consumption bill for electricity, gas or water at a premises.',
   tax_compliance: 'Tax deducted, tax paid in advance, declared wealth, pension orders.',

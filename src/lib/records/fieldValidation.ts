@@ -37,6 +37,7 @@ import { ALERT_DAYS_FIELD_KEY, categoryRaisesReminder } from './reminderPolicy';
 import { LINKED_CARDS_KEY, linkedCardsError } from './linkedCards';
 // Leaf too (0069): the pointer types' shape rules.
 import { memberRefError, recordLinkError } from './fieldRefs';
+import { displayToIso } from '@/lib/dateHelper';
 
 /** `fieldKey → message`. Empty object means the record is valid. */
 export type FieldErrors = Record<string, string>;
@@ -160,9 +161,22 @@ function startOfToday(): number {
   return now.getTime();
 }
 
-/** A date-only value, at midnight. NaN when unparseable. */
+/**
+ * A date-only value, at midnight. NaN when unparseable.
+ *
+ * A slashed date is read day-first and strictly (`displayToIso`): the engine's
+ * own parser reads `05/10/2026` as 10 May and rolls `02/31/2026` into March.
+ * A value with no four-digit year is refused outright — the engine would read
+ * a half-typed `05/10` as 10 May 2001.
+ */
 function dateValue(value: unknown): number {
-  const parsed = new Date(String(value));
+  const text = String(value).trim();
+  if (!/\d{4}/.test(text)) return Number.NaN;
+  if (/^\d{1,2}[/\-.]\d{1,2}[/\-.]\d{4}$/.test(text)) {
+    const iso = displayToIso(text);
+    return iso === null ? Number.NaN : dateValue(iso);
+  }
+  const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return Number.NaN;
   parsed.setHours(0, 0, 0, 0);
   return parsed.getTime();

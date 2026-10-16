@@ -163,7 +163,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     legacyEnvelope: 'investments',
     categories: [
       ...k('bank_investments', 'fixed_deposit_receipts', 'mutual_fund_statements',
-        'epf_ppf_nps_statements'),
+        'epf_ppf_nps_statements', 'precious_metals_purchases'),
       ...k('property_legal', 'sale_deed_title', 'registration_stamp_duty_receipts',
         'encumbrance_certificate', 'property_tax_receipts', 'khata_mutation_certificates'),
     ],

@@ -124,8 +124,8 @@ export async function POST(req: Request, { params }: Params) {
          * ("INCOME TAX DEPARTMENT"), and `title` below is the document's name.
          */
         fields: withoutReadTitle(result.fields),
-        /** "<Sub-category> - <Holder>", for the title input if it is empty. */
-        title: subCategoryTitle(category?.documentName, result.holderName),
+        /** "<Sub-category> - <Detail> - <Holder>", for the title input if it is empty. */
+        title: subCategoryTitle(category?.documentName, result.holderName, result.titleDetail),
         /**
          * Pre-selects "Belongs to" when the name on the document is one
          * member's, unambiguously. '' means the user chooses.

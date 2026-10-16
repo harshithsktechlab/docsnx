@@ -14,6 +14,7 @@ import { buildLiveAiCategoryList, knownCategory } from './taxonomyRegistry';
 import { ocrFieldKeys } from './documentCategoryFields';
 import { coerceExtracted } from './records/autofillCoerce';
 import { scanCategoryForKey } from './records/scanCategoryModule';
+import { cleanTitleDetail } from './records/autoTitle';
 
 // ─── HUF Helper ───────────────────────────────────────────────────────────────
 
@@ -556,6 +557,23 @@ async function resolveScanCategory(rec, scope = 'personal') {
 const MAX_PROMPTED_OPTIONS = 50;
 
 /**
+ * Reading guidance for keys whose label alone sends the model to the wrong
+ * place on the page. Keyed by field key, so it applies in every category that
+ * carries the key; an operator's `description` override is still sent as well.
+ *
+ * `nominee_name` is the one that motivated this: a policy schedule prints the
+ * Proposer, the Life Assured and the Nominee side by side, and with only the
+ * label to go on the model returned the first prominent name — the holder's.
+ */
+const FIELD_PROMPT_HINTS = {
+  nominee_name: 'ONLY the person printed under the Nominee / Nomination (e.g. "Nomination u/s 39") heading — NEVER the Proposer, Life Assured, Policyholder, Insured or account holder. Several nominees: comma separated. Omit if no nominee is printed',
+  premium_frequency: 'the premium mode / mode of payment / premium paying frequency (Yly or Annual = yearly, Hly = half_yearly, Qly = quarterly, Mly / SSS / ECS / NACH = monthly, Single premium = single)',
+  last_premium_paid_date: 'the date the most recent premium was PAID (last premium paid on / premium paid up to / receipt date) — not the policy start date and not the next due date',
+  policy_status: 'only when the document states the status (In Force, Lapsed, Paid-up, Matured, Surrendered)',
+  renewal_due_date: 'for an insurance policy, the NEXT premium due date (next due / FUP / due date of next premium) as printed',
+};
+
+/**
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║   READ ONE DOCUMENT AGAINST ONE CATEGORY'S FIELD SPEC                    ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
@@ -598,6 +616,7 @@ export async function extractCategoryFields({ files, category, fields }, tenantI
 
   const fieldList = askable.map((f) => {
     const bits = [`"${f.fieldKey}" — ${f.fieldLabel} (${f.dataType})`];
+    if (FIELD_PROMPT_HINTS[f.fieldKey]) bits.push(FIELD_PROMPT_HINTS[f.fieldKey]);
     if (f.description) bits.push(f.description);
     /**
      * A choice field's PERMITTED ANSWERS, spelled out.
@@ -643,11 +662,13 @@ RULES
 7. Do not translate or reformat names. Copy them as printed.
 8. "holderName" is the person the document is about, as printed on it. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name.
 9. "searchKeywords" helps the owner find this document later by search. List up to 60 short words or phrases printed on it that someone might search for: names of people and organisations (bank, insurer, merchant, hospital), full postal addresses, cities and localities, every date and period shown (e.g. "April 2025", "15 May 2025"), and what the document is (e.g. "electricity bill", "bank statement"). Do NOT include account, card, policy or ID numbers, amounts, passwords or OTPs.
+10. "titleDetail" is a short phrase (at most 5 words, 40 characters) that tells THIS document apart from other "${category.documentName}" documents of the same person, to be used in its title. Pick what a person would naturally say: the issuer, bank, insurer or merchant ("HDFC Bank"), the period it covers ("Oct 2025", "FY 2024-25"), the class or exam ("Class 10", "B.Tech Sem 4"), the product or brand ("Samsung TV"), the doctor or hospital ("Apollo Hospital"). Combine two at most ("HDFC Bank Oct 2025"). Do NOT repeat the document type or the holder's name. NEVER include any account, card, policy, ID or phone number, amount, password or OTP. Use an empty string when nothing useful is printed (for example on an Aadhaar or PAN card).
 
 Return ONLY raw JSON in exactly this shape, with no markdown fences and no commentary:
 {
   "fields": { "<fieldKey>": "<value read from the document>" },
   "holderName": "<the person this document is about, or an empty string>",
+  "titleDetail": "<short distinguishing phrase, or an empty string>",
   "searchKeywords": ["<word or phrase>"]
 }`;
 
@@ -683,6 +704,9 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
     }
 
     const holderName = typeof parsed?.holderName === 'string' ? parsed.holderName.trim() : '';
+    // For the title only, and checked again there: `cleanTitleDetail` refuses
+    // one carrying a number the rule above forbade.
+    const titleDetail = cleanTitleDetail(parsed?.titleDetail);
     // For the keyword index only: hashed at save time, never stored as text.
     const searchKeywords = Array.isArray(parsed?.searchKeywords)
       ? parsed.searchKeywords
@@ -694,6 +718,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
     return {
       fields: out,
       holderName,
+      titleDetail,
       searchKeywords,
       // Read by executeTenantWithRotation for per-tenant usage accounting.
       promptTokens: res.promptTokens,

@@ -39,16 +39,17 @@ import { maskSensitiveText } from '../src/lib/aiPrivacyMasker';
  * Personal modules 1..14 then the catch-all. `business` (16) left in 0050;
  * `travel` (14) arrived in 0065. Bank & Investments gained `locker_items` in
  * 0070, which also removed the one-day `wealth` module 0069 had added.
- * Warranty & AMC gained `purchase_bills` in 0073.
+ * Warranty & AMC gained `purchase_bills` in 0073, and Bank & Investments
+ * `precious_metals_purchases` in 0074.
  */
-const EXPECTED_PERSONAL_COUNTS = [8, 11, 6, 8, 4, 6, 4, 4, 5, 3, 2, 3, 4, 6, 1];
+const EXPECTED_PERSONAL_COUNTS = [8, 12, 6, 8, 4, 6, 4, 4, 5, 3, 2, 3, 4, 6, 1];
 /**
  * Business modules 101..114, added by 0050, 115 `biz_travel` by 0065, and the
  * company catch-all 116 `biz_other` by 0067.
  */
 const EXPECTED_BUSINESS_COUNTS = [8, 7, 8, 7, 7, 6, 7, 7, 5, 5, 5, 4, 4, 4, 6, 1];
 const EXPECTED_MODULE_COUNTS = [...EXPECTED_PERSONAL_COUNTS, ...EXPECTED_BUSINESS_COUNTS];
-const TOTAL_PERSONAL = 75;
+const TOTAL_PERSONAL = 76;
 const TOTAL_BUSINESS = 91;
 const TOTAL_SUBCATEGORIES = TOTAL_PERSONAL + TOTAL_BUSINESS;
 
@@ -59,6 +60,7 @@ const BIZ_OTHER_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0067_business
 const WEALTH_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0069_wealth_module.sql');
 const FOLD_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0070_fold_wealth_into_bank.sql');
 const PURCHASE_BILLS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0073_purchase_bills_category.sql');
+const PRECIOUS_METALS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0074_precious_metals_purchases.sql');
 
 /**
  * 0036 reaped the 15 tombstones 0023 left behind, once 0035 had removed their
@@ -91,7 +93,7 @@ describe('Document category taxonomy', () => {
       );
     });
 
-    it('has 166 sub-categories in total', () => {
+    it('has 167 sub-categories in total', () => {
       const total = DOCUMENT_CATEGORY_MODULES.reduce((n, m) => n + m.subCategories.length, 0);
       expect(total).toBe(TOTAL_SUBCATEGORIES);
       expect(EXPECTED_MODULE_COUNTS.reduce((a, b) => a + b, 0)).toBe(TOTAL_SUBCATEGORIES);
@@ -321,6 +323,25 @@ describe('Document category taxonomy', () => {
       expect(purchaseSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
     });
 
+    /** 0074 adds gold / silver / diamond purchases under Bank & Investments. */
+    const preciousSql = readFileSync(PRECIOUS_METALS_MIGRATION_PATH, 'utf8');
+    const preciousRows = Array.from(preciousSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
+    it('adds gold / silver / diamond purchases additively in 0074', () => {
+      expect(preciousRows).toEqual([{
+        moduleNo: 2, moduleKey: 'bank_investments', moduleName: 'Bank & Investments',
+        documentKey: 'precious_metals_purchases', sortOrder: 2012,
+      }]);
+      expect(preciousSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(preciousSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
+    });
+
     it('adds the two travel modules additively in 0065', () => {
       expect(travelRows).toHaveLength(12);
       expect([...new Set(travelRows.map((r) => r.moduleKey))]).toEqual(['travel', 'biz_travel']);
@@ -339,6 +360,7 @@ describe('Document category taxonomy', () => {
         // 0069's rows were deleted by 0070, which adds its own.
         ...foldRows,
         ...purchaseRows,
+        ...preciousRows,
       ]
         .map((r) => ({
           moduleNo: r.moduleNo,

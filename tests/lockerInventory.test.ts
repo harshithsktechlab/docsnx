@@ -99,10 +99,18 @@ describe('the locker field dictionary', () => {
   it('keeps weights open (the locker total needs them) and money sealed', () => {
     expect(spec(ITEMS, 'gross_weight_grams').isPii).toBe(false);
     expect(spec(ITEMS, 'net_weight_grams').isPii).toBe(false);
-    for (const key of ['purchase_price', 'current_value', 'invoice_number', 'gifted_by', 'gifted_to']) {
+    for (const key of ['purchase_price', 'current_value', 'invoice_number', 'gifted_by', 'gifted_to', 'movement_by']) {
       expect(spec(ITEMS, key).isPii, key).toBe(true);
     }
     expect(spec(LOCKERS, 'locker_number').isPii).toBe(true);
+  });
+
+  it('records the latest withdrawal or deposit: what, when, by whom', () => {
+    expect(spec(ITEMS, 'locker_movement').options?.map((o) => o.value)).toEqual(['deposited', 'withdrawn']);
+    expect(spec(ITEMS, 'locker_movement').isPii).toBe(false);
+    expect(validateField(spec(ITEMS, 'movement_by'), encodeMemberRef(MEMBER))).toBeNull();
+    expect(validateField(spec(ITEMS, 'movement_by'), 'member:x')).toMatch(/valid member/);
+    expect(validateField(spec(ITEMS, 'movement_date'), '2999-01-01')).toMatch(/future/);
   });
 
   it('does not let one bill covering a set make the second item overwrite the first', () => {

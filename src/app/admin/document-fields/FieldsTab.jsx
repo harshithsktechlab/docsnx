@@ -250,7 +250,7 @@ function changeSummary(row) {
 }
 
 /** Grid template shared by the header and every row, so columns line up. */
-const GRID = 'grid grid-cols-[1fr_repeat(4,3.25rem)_2rem] sm:grid-cols-[1fr_7rem_repeat(4,4.5rem)_2.25rem] lg:grid-cols-[1fr_7rem_repeat(4,5.5rem)_2.25rem] items-center gap-x-2';
+const GRID = 'grid grid-cols-[minmax(6rem,1fr)_repeat(4,3.25rem)_2rem] sm:grid-cols-[minmax(9rem,1fr)_7rem_repeat(4,4.5rem)_2.25rem] lg:grid-cols-[minmax(9rem,1fr)_7rem_repeat(4,5.5rem)_2.25rem] items-center gap-x-2';
 
 /**
  * @param {object}   props
@@ -363,8 +363,16 @@ export default function FieldsTab({ jumpTo = null, reloadKey = 0, taxonomy = 'pe
       : r)));
   };
 
+  // A custom row IS the field: its label and type have no shipped default to
+  // fall back to, so Reset clears its settings and keeps what defines it.
   const resetRow = (fieldKey) => setRows((prev) => prev.map((r) => (r.fieldKey === fieldKey
-    ? { ...r, override: Object.fromEntries(OVERRIDE_KEYS.map((k) => [k, null])) }
+    ? {
+      ...r,
+      override: {
+        ...Object.fromEntries(OVERRIDE_KEYS.map((k) => [k, null])),
+        ...(r.isCustom ? { fieldLabel: r.default.fieldLabel, dataType: r.default.dataType } : {}),
+      },
+    }
     : r)));
 
   const move = (fieldKey, delta) => {
@@ -622,7 +630,7 @@ export default function FieldsTab({ jumpTo = null, reloadKey = 0, taxonomy = 'pe
           </div>
 
           {/* ── Header + rows ──────────────────────────────────────────── */}
-          <div className="overflow-hidden rounded-lg border bg-card">
+          <div className="overflow-x-auto rounded-lg border bg-card">
             <div className={cn(GRID, 'border-b bg-muted/40 px-3 py-2')}>
               <span className="text-2xs font-bold uppercase tracking-wide text-faint">
                 Field
@@ -801,7 +809,7 @@ function FieldRow({
         >
           <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
           {changed && <span className="size-1.5 shrink-0 rounded-full bg-primary" title="Configured" />}
-          <span className={cn('truncate text-sm', hidden && 'text-muted-foreground line-through')}>
+          <span className={cn('min-w-[4rem] truncate text-sm', hidden && 'text-muted-foreground line-through')}>
             {effective(row, 'fieldLabel')}
           </span>
           {/* "Added here" and "configured here" are different facts and the dot
@@ -813,7 +821,9 @@ function FieldRow({
               title="Added on this screen — not part of the shipped document type"
               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 py-px text-2xs font-bold uppercase tracking-wider text-primary"
             >
-              <Sparkles className="size-2.5" /> Added
+              {/* Icon only until the Field column is wide enough to carry the
+                  word — the badge must never squeeze out the name itself. */}
+              <Sparkles className="size-2.5" /> <span className="hidden xl:inline">Added</span>
             </span>
           )}
           {hidden && <EyeOff className="size-3 shrink-0 text-muted-foreground" />}
@@ -866,7 +876,8 @@ function FieldRow({
           {changed && (
             <Button
               variant="ghost" size="sm" onClick={onReset}
-              title="Reset to default" aria-label="Reset to default"
+              title={row.isCustom ? 'Reset settings' : 'Reset to default'}
+              aria-label={row.isCustom ? 'Reset settings' : 'Reset to default'}
               className="size-7 px-0 text-muted-foreground"
             >
               <RotateCcw className="size-3.5" />

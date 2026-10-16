@@ -238,6 +238,8 @@ export interface AutofillResult {
    * The form posts it back with the save as `searchText`; the vault hashes it.
    */
   searchText: string;
+  /** A short phrase telling this document apart from others of its kind, for the title. '' when none. */
+  titleDetail: string;
 }
 
 /**
@@ -271,7 +273,7 @@ export async function runAutofill(input: {
   spec?: readonly FieldSpec[];
 }): Promise<AutofillResult> {
   const fields = input.spec ?? await loadCategoryFieldSpec(db, input.categoryKey);
-  if (fields.length === 0) return { fields: {}, holderName: '', fieldCount: 0, searchText: '' };
+  if (fields.length === 0) return { fields: {}, holderName: '', fieldCount: 0, searchText: '', titleDetail: '' };
 
   const display = categoryDisplay(input.categoryKey);
   const result = await extractCategoryFields({
@@ -293,5 +295,6 @@ export async function runAutofill(input: {
     holderName: typeof result?.holderName === 'string' ? result.holderName.trim() : '',
     fieldCount: fields.length,
     searchText: Array.isArray(result?.searchKeywords) ? result.searchKeywords.join('\n') : '',
+    titleDetail: typeof result?.titleDetail === 'string' ? result.titleDetail : '',
   };
 }

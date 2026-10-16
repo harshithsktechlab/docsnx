@@ -27,6 +27,7 @@
  * wrong first — and the whole risk of autofill is the value nobody checked.
  */
 import type { FieldSpec } from '@/lib/documentCategoryFields';
+import { normalisePremiumFrequency } from '@/lib/records/premiumFrequency';
 
 /**
  * Answers that mean "the document does not say".
@@ -105,7 +106,23 @@ function asChoice(spec: FieldSpec, value: string): string | null {
     ?? options.find((o) => o.label === value)?.value
     ?? options.find((o) => fold(o.value) === folded)?.value
     ?? options.find((o) => fold(o.label) === folded)?.value
+    ?? aliasChoice(spec, options, value)
     ?? null;
+}
+
+/**
+ * A field whose documents print the answer in house abbreviations the option
+ * labels cannot be folded onto — "Yly", "SSS" for premium frequency. Only an
+ * alias that lands on an option the field actually offers is accepted.
+ */
+function aliasChoice(
+  spec: FieldSpec,
+  options: NonNullable<FieldSpec['options']>,
+  value: string,
+): string | null {
+  if (spec.fieldKey !== 'premium_frequency') return null;
+  const alias = normalisePremiumFrequency(value);
+  return alias && options.some((o) => o.value === alias) ? alias : null;
 }
 
 /**

@@ -519,6 +519,13 @@
       "when": 1786061460000,
       "tag": "0073_purchase_bills_category",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786061461000,
+      "tag": "0074_precious_metals_purchases",
+      "breakpoints": true
     }
   ]
 }

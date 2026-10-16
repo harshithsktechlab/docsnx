@@ -265,7 +265,18 @@ export const MODULE_CATEGORY: Record<string, ModuleCategoryPolicy> = {
       fd: k('bank_investments', 'fixed_deposit_receipts'),
       fixeddeposit: k('bank_investments', 'fixed_deposit_receipts'),
       mutualfund: k('bank_investments', 'mutual_fund_statements'),
+      // The page's own values (`mutual_funds`, `shares`, `gold_silver`) were
+      // missing here, so they fell through to the FD default.
+      mutualfunds: k('bank_investments', 'mutual_fund_statements'),
       mf: k('bank_investments', 'mutual_fund_statements'),
+      // Same compromise as `stocks` below: demat accounts are the Trading
+      // page's scope, and a record must stay inside the page that wrote it.
+      shares: k('bank_investments', 'mutual_fund_statements'),
+      goldsilver: k('bank_investments', 'precious_metals_purchases'),
+      gold: k('bank_investments', 'precious_metals_purchases'),
+      silver: k('bank_investments', 'precious_metals_purchases'),
+      diamond: k('bank_investments', 'precious_metals_purchases'),
+      preciousmetals: k('bank_investments', 'precious_metals_purchases'),
       stocks: k('bank_investments', 'mutual_fund_statements'),
       equity: k('bank_investments', 'mutual_fund_statements'),
       ppf: k('bank_investments', 'epf_ppf_nps_statements'),

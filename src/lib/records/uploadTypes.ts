@@ -223,6 +223,37 @@ export function isGenericFileName(name: string | null | undefined): boolean {
 }
 
 /**
+ * Names an app, camera or bank portal generated: `WhatsApp Image 2026-10-12 at
+ * 10.15.32`, `IMG_20261012_101532`, `PXL_…`, `Screenshot_…`, `CamScanner …`,
+ * `1792055848268548790`, `AccountStatement_151020261914`.
+ */
+const MACHINE_STEM_PATTERNS: readonly RegExp[] = [
+  /^whatsapp (image|video|document|audio)\b/,
+  /^(img|pxl|dsc|dcim|vid|mvimg|signal|telegram)[\s_-]?\d/,
+  /^(screenshot|screen shot|scan|photo|image)[\s_-]?\d{4}/,
+  /^(camscanner|adobe scan|microsoft lens|office lens|genius scan)\b/,
+  /^[\d\s_.:-]+$/,                    // all digits, dates and separators
+  /^[a-z]+[_-]?\d{6,}([_-]\w*)?$/,    // AccountStatement_151020261914
+];
+
+/**
+ * Is this filename useless as a document's TITLE?
+ *
+ * Broader than `isGenericFileName` on purpose. That one decides whether two
+ * files sharing a name are the same document, and `IMG_0042` on one camera
+ * really is evidence there. None of these names says what the document is,
+ * though, so the upload form leaves the title for the scan to fill instead.
+ */
+export function isMachineFileName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  if (isGenericFileName(name)) return true;
+  const extension = extensionOf(name);
+  const stem = (extension ? name.slice(0, -extension.length) : name).trim().toLowerCase();
+  if (!stem) return false;
+  return MACHINE_STEM_PATTERNS.some((pattern) => pattern.test(stem));
+}
+
+/**
  * May this file be stored?
  *
  * Either signal is enough — see the note above on why neither alone works. A

@@ -70,6 +70,7 @@ import {
   UPLOAD_ACCEPT_ATTRIBUTE,
   UPLOAD_ACCEPT_LABEL,
   isGenericFileName,
+  isMachineFileName,
 } from '@/lib/records/uploadTypes';
 import { prepareUploadFile } from '@/lib/records/fileSnapshot';
 import { postUpload, uploadErrorMessage } from '@/lib/records/uploadRequest';
@@ -214,12 +215,15 @@ export default function DocumentsPage() {
   const [holderNameFromScan, setHolderNameFromScan] = useState('');
   /**
    * The last title a scan gave this document — "PAN Card - Ravi Kumar" — so a
-   * later scan, or a change of sub-category, may replace it. Anything else in
-   * the title input (typed, or seeded from the file's name) is left alone.
+   * later scan, or a change of sub-category, may replace it. A title seeded
+   * from the file's name counts as one too: it is a placeholder until the scan
+   * names the document. Only a TYPED title is left alone.
    */
   const autoTitleRef = useRef('');
   /** The holder the last scan read, so a new sub-category can re-name it. */
   const scanHolderRef = useRef('');
+  /** The scan's distinguishing detail ("HDFC Bank Oct 2025"), kept for the same reason. */
+  const scanDetailRef = useRef('');
   /**
    * Words the last scan read off a file, for the keyword index — posted back
    * as `searchText` with the save. Keyed by the File it was read from, so a
@@ -527,7 +531,7 @@ export default function DocumentsPage() {
   // before the re-read the pick triggers comes back. A typed title is kept.
   useEffect(() => {
     if (editingDoc || !autoTitleRef.current || !uploadCategory?.documentName) return;
-    applyAutoTitle(subCategoryTitle(uploadCategory.documentName, scanHolderRef.current));
+    applyAutoTitle(subCategoryTitle(uploadCategory.documentName, scanHolderRef.current, scanDetailRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadCategory?.id]);
 
@@ -665,7 +669,8 @@ export default function DocumentsPage() {
       rememberScanText(selectedFile, json);
       if (!editingDoc) {
         scanHolderRef.current = json.holderName || '';
-        applyAutoTitle(json.title || subCategoryTitle(categoryRef.documentName, json.holderName));
+        scanDetailRef.current = json.titleDetail || '';
+        applyAutoTitle(json.title || subCategoryTitle(categoryRef.documentName, json.holderName, json.titleDetail));
       }
 
       // The route answers with the member it read off the document, exactly as
@@ -966,6 +971,7 @@ export default function DocumentsPage() {
       // belongs to (the route builds it); only the classifier's own name when
       // it could not place the document.
       scanHolderRef.current = outcome.holderName || '';
+      scanDetailRef.current = json.titleDetail || '';
       applyAutoTitle(outcome.title);
       if (outcome.kind !== 'failed') applyScannedHolder(outcome);
 
@@ -1090,12 +1096,16 @@ export default function DocumentsPage() {
     //
     // Not from a name the phone made up: every iOS Photos pick is `image.jpeg`,
     // and seeding "image" as the title made the SECOND photo a title clash with
-    // the first. Left blank, the user or the scan names it.
-    if (!String(uploadFields.values[TITLE_KEY] ?? '').trim() && !isGenericFileName(chosen.name)) {
-      uploadFields.setValue(
-        TITLE_KEY,
-        chosen.name.substring(0, chosen.name.lastIndexOf('.')) || chosen.name,
-      );
+    // the first. Nor from `WhatsApp Image 2026-10-12 at 10.15.32` or a bank
+    // portal's `AccountStatement_151020261914`, which say nothing either. Left
+    // blank, the user or the scan names it.
+    //
+    // A real filename is seeded as an AUTO title, so the scan's name replaces
+    // it; it used to count as typed and block the scan's name for good.
+    if (!String(uploadFields.values[TITLE_KEY] ?? '').trim() && !isMachineFileName(chosen.name)) {
+      const seeded = chosen.name.substring(0, chosen.name.lastIndexOf('.')) || chosen.name;
+      autoTitleRef.current = seeded.trim();
+      uploadFields.setValue(TITLE_KEY, seeded);
     }
   };
 
@@ -1418,6 +1428,7 @@ export default function DocumentsPage() {
     uploadFields.reset();
     autoTitleRef.current = '';
     scanHolderRef.current = '';
+    scanDetailRef.current = '';
     setHolderIds(null);
     setDuplicateDoc(null);
   };

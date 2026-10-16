@@ -35,6 +35,7 @@ import {
 import { keepBothAllowed } from '@/lib/records/duplicateMatch';
 import type { DuplicateMatch } from '@/lib/records/duplicateMatch';
 import { holderFrom, holderIdsFrom } from '@/lib/recordRequest';
+import { subCategoryTitle } from '@/lib/records/autoTitle';
 import { heldByAny, loadHolderSets } from '@/lib/records/documentHolders';
 import {
   documentDisplay, documentFieldList, readDocMetadata, withDocMetadata,
@@ -43,7 +44,7 @@ import { vaultErrorResponse } from '@/lib/vault/vaultErrors';
 import { findDeletedTwin, visibleDocument } from '@/lib/records/documentVisibility';
 import { invalidateAnalysisCache } from '@/lib/records/documentPurge';
 import {
-  isAcceptedUpload, isWithinUploadSize, uploadSizeError, uploadTypeError,
+  isAcceptedUpload, isMachineFileName, isWithinUploadSize, uploadSizeError, uploadTypeError,
 } from '@/lib/records/uploadTypes';
 import { refreshUploadLimit } from '@/lib/records/uploadLimitLoader';
 import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
@@ -706,8 +707,14 @@ export async function POST(req: Request) {
 
     for (const file of sourceFiles) {
       // With several files the filename is the only thing distinguishing them,
-      // so it becomes the title; a single upload keeps what was typed.
-      const fileTitle = sourceFiles.length === 1 ? title : (title || file.name);
+      // so it becomes the title; a single upload keeps what was typed. Not a
+      // name the phone or an app made up (`WhatsApp Image …`): that names the
+      // document after its sub-category and holder instead, as a scan would.
+      const fileTitle = sourceFiles.length === 1 ? title : (title || (
+        isMachineFileName(file.name)
+          ? subCategoryTitle(resolvedCategory.documentName, namedHolders.length === 1 ? holderName : '') || file.name
+          : file.name
+      ));
 
       // An explicit choice — the page's own modal, or the answer to a previous
       // 409 from here — outranks anything found by looking.

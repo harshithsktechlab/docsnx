@@ -128,6 +128,20 @@ export default function CategoriesTab({ onConfigureFields, onTaxonomyChanged }) 
     setBusy(false);
   };
 
+  /**
+   * A module name lives on every one of its rows; the route renames them all
+   * from any one. Addressed through the module's first row in `rows`, not the
+   * search-filtered list, so a filter can never leave it without one.
+   */
+  const renameModule = (mod) => {
+    const name = editValue.trim();
+    if (!name || name === mod.moduleName) return;
+    const row = rows.find((r) => r.moduleKey === mod.moduleKey);
+    if (!row) return;
+    setEditing(null);
+    patch(row, { moduleName: name }, `Module renamed to "${name}".`);
+  };
+
   const create = async (moduleKey, documentName) => {
     setBusy(true); setAddError('');
     try {
@@ -182,9 +196,65 @@ export default function CategoriesTab({ onConfigureFields, onTaxonomyChanged }) 
       {modules.map((mod) => (
         <div key={mod.moduleKey} className="rounded-lg border bg-card">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{mod.moduleName}</p>
-              <p className="truncate font-mono text-xs text-faint">{mod.moduleKey}</p>
+            <div className="min-w-0 flex-1">
+              {editing === `module:${mod.moduleKey}` ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1">
+                    <Input
+                      autoFocus
+                      className="h-8 max-w-sm text-sm font-semibold"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setEditing(null);
+                        if (e.key === 'Enter') renameModule(mod);
+                      }}
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      title="Save"
+                      disabled={!editValue.trim() || editValue.trim() === mod.moduleName || busy}
+                      onClick={() => renameModule(mod)}
+                    >
+                      <Check className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      title="Cancel"
+                      onClick={() => setEditing(null)}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Renames the module for every tenant. The key stays the same.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-sm font-semibold">{mod.moduleName}</p>
+                  <button
+                    type="button"
+                    title="Rename module"
+                    aria-label={`Rename module ${mod.moduleName}`}
+                    className="text-faint hover:text-foreground"
+                    onClick={() => { setEditing(`module:${mod.moduleKey}`); setEditValue(mod.moduleName); }}
+                  >
+                    <Pencil className="size-3" />
+                  </button>
+                </div>
+              )}
+              <p
+                className="flex items-center gap-1 truncate font-mono text-xs text-faint"
+                title="The key names the folder these records are stored in. It can never change."
+              >
+                <Lock className="size-2.5 shrink-0" />
+                {mod.moduleKey}
+              </p>
             </div>
             <Button
               size="sm"

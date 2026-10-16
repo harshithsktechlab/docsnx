@@ -1912,10 +1912,11 @@ export default function BulkScanPage() {
                               // from the old sub-category follows the new one;
                               // one the reviewer typed is kept as it is.
                               const holder = record.holderName || '';
+                              const detail = extractedData.titleDetail || '';
                               const wasAuto = !String(record.title || '').trim()
-                                || record.title === subCategoryTitle(extractedData.categoryName, holder);
+                                || record.title === subCategoryTitle(extractedData.categoryName, holder, detail);
                               const nextTitle = wasAuto
-                                ? (subCategoryTitle(picked?.documentName, holder) || record.title || '')
+                                ? (subCategoryTitle(picked?.documentName, holder, detail) || record.title || '')
                                 : record.title;
                               updateRecordField(rIdx, 'fields', nextTitle ? { [TITLE_KEY]: nextTitle } : {});
                               updateRecordField(rIdx, 'categoryName', picked?.documentName || '');

@@ -37,6 +37,7 @@ import { inCategories, inCompany, memberNames, withCategory } from '@/lib/record
 import { workspaceMembers } from '@/lib/records/workspaceMembers';
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { remindersForCategory, daysUntil } from '@/lib/records/followUps';
+import { isRenewalReminder } from '@/lib/records/reminderPolicy';
 import { recordScopeConfig, scopeForCategory } from '@/lib/records/registry';
 import { categoryDescriptor } from '@/lib/taxonomyRegistry';
 import { vaultErrorResponse } from '@/lib/vault/vaultErrors';
@@ -160,7 +161,11 @@ export async function GET(req: Request, { params }: Params) {
         remindersAvailable = false;
       }
 
-      const upcoming = [...reminders].sort((a, b) => a.daysLeft - b.daysLeft);
+      // Renewals and expiries only: a maturity date is a payout, not a lapse.
+      // It stays a follow-up on /follow-up; it is noise on this card.
+      const upcoming = reminders
+        .filter(isRenewalReminder)
+        .sort((a, b) => a.daysLeft - b.daysLeft);
       const overdue = upcoming.filter((r) => r.daysLeft < 0);
       const dueWithin = Object.fromEntries(
         HORIZONS.map((days) => [
