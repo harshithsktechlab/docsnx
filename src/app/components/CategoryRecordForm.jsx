@@ -201,6 +201,12 @@ export default function CategoryRecordForm({
    */
   const [searchTextFromScan, setSearchTextFromScan] = useState('');
   /**
+   * Usage rows the autofill reads wrote (tenant_ai_usages ids). Posted with the
+   * create so the AI cost is attributed to the record it produced. Every read
+   * of the attached file is kept — each one was billed.
+   */
+  const [aiUsageIds, setAiUsageIds] = useState([]);
+  /**
    * Field keys currently holding an AI-suggested value rather than a typed one.
    *
    * Two jobs: it marks those inputs on screen so nothing lands in the record
@@ -280,6 +286,7 @@ export default function CategoryRecordForm({
     setCardsValue({ cards: [], text: '' });
     setFile(null);
     setSearchTextFromScan('');
+    setAiUsageIds([]);
     setFileError('');
     setExistingPhotos([]);
     setPendingPhotos([]);
@@ -514,6 +521,7 @@ export default function CategoryRecordForm({
   const pickFile = (chosen) => {
     setFile(chosen);
     setSearchTextFromScan('');
+    setAiUsageIds([]);
     setAutofillNote('');
     setAutofillError('');
     // The holder the LAST document named is no more current than the values it
@@ -564,6 +572,8 @@ export default function CategoryRecordForm({
     try {
       const body = new FormData();
       body.append('file', file);
+      // Editing: the record exists, so the server links the read to it now.
+      if (recordId) body.append('recordId', recordId);
       // `postUpload`, not `fetch`: this posts a file, so nginx's 413 HTML page
       // is on the table and `res.json()` used to throw a SyntaxError on it —
       // landing in the catch below as "Network error — the document was not
@@ -588,6 +598,9 @@ export default function CategoryRecordForm({
       }
 
       setSearchTextFromScan(typeof json.searchText === 'string' ? json.searchText : '');
+      if (Array.isArray(json.usageIds) && json.usageIds.length > 0) {
+        setAiUsageIds((prev) => [...new Set([...prev, ...json.usageIds])]);
+      }
 
       const specByKey = new Map(fields.map((f) => [f.fieldKey, f]));
       const nextValues = { ...values };
@@ -745,6 +758,7 @@ export default function CategoryRecordForm({
     if (holder.holderIds) body.append('holderIds', JSON.stringify(holder.holderIds));
     if (file) body.append('file', file);
     if (file && searchTextFromScan) body.append('searchText', searchTextFromScan);
+    if (!editing && aiUsageIds.length > 0) body.append('aiUsageIds', JSON.stringify(aiUsageIds));
     if (force) body.append('forceSave', 'true');
     if (keepBoth) body.append('keepBoth', 'true');
 

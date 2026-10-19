@@ -45,7 +45,21 @@ function SortableTh({ column, label, sortConfig, onSort, className = '' }) {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const STATUS_OPTIONS = ['all', 'captured', 'created', 'failed', 'pending'];
-const METHOD_OPTIONS = ['all', 'RAZORPAY', 'MANUAL'];
+const METHOD_OPTIONS = ['all', 'RAZORPAY', 'COUPON', 'FREE', 'MANUAL'];
+
+/**
+ * How an order was settled (payments.payment_method, corrected in 0079):
+ *   RAZORPAY — Razorpay took the money;
+ *   COUPON   — a discount code brought the total to ₹0, Razorpay never called;
+ *   FREE     — the cart was ₹0 before any discount;
+ *   MANUAL   — recorded or granted by a super admin.
+ */
+const METHOD_LABELS = { RAZORPAY: 'Razorpay', COUPON: 'Coupon', FREE: 'Free', MANUAL: 'Manual' };
+const METHOD_STYLES = {
+  MANUAL: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
+  COUPON: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+  FREE: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+};
 
 export default function AdminPaymentsPage() {
   // ── Data ─────────────────────────────────────────────────────────────────
@@ -161,7 +175,8 @@ export default function AdminPaymentsPage() {
         p.razorpayOrderId?.toLowerCase().includes(q) ||
         p.paymentRef?.toLowerCase().includes(q) ||
         p.planName?.toLowerCase().includes(q) ||
-        p.addonName?.toLowerCase().includes(q)
+        p.addonName?.toLowerCase().includes(q) ||
+        p.couponCode?.toLowerCase().includes(q)
       );
     }
 
@@ -402,8 +417,9 @@ export default function AdminPaymentsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Methods</SelectItem>
-                <SelectItem value="RAZORPAY">Razorpay</SelectItem>
-                <SelectItem value="MANUAL">Manual</SelectItem>
+                {METHOD_OPTIONS.filter((m) => m !== 'all').map((m) => (
+                  <SelectItem key={m} value={m}>{METHOD_LABELS[m]}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -479,7 +495,16 @@ export default function AdminPaymentsPage() {
                 ) : (
                   pagePayments.map(p => {
                     const method = p.paymentMethod || 'RAZORPAY';
-                    const itemDesc = p.planName || p.addonName || 'Manual Entry';
+                    // A plan a super admin granted from Tenants → Change Plan:
+                    // a ₹0 MANUAL row (0077). Named from the plan, or from the
+                    // grant's own note when that plan has since been deleted.
+                    const grantedByAdmin = method === 'MANUAL' && Number(p.amount) === 0
+                      && String(p.paymentRef || '').startsWith('Plan granted by admin');
+                    const grantedPlan = p.planName
+                      || (grantedByAdmin ? String(p.paymentRef).replace(/^Plan granted by admin(?: \(audit:[^)]*\))?:\s*/, '') : '');
+                    const itemDesc = grantedByAdmin
+                      ? `${grantedPlan || 'Plan'} · Granted by admin`
+                      : p.planName || p.addonName || 'Manual Entry';
 
                     return (
                       <tr key={p.id} className="hover:bg-muted/30 transition-colors">
@@ -507,10 +532,16 @@ export default function AdminPaymentsPage() {
                         <td className="px-4 py-3">
                           <Badge
                             variant="outline"
-                            className={method === 'MANUAL' ? 'bg-purple-500/10 text-purple-500 border-purple-500/20' : ''}
+                            className={METHOD_STYLES[method] || ''}
                           >
                             {method}
                           </Badge>
+                          {p.couponCode && (
+                            <div className="text-xs text-muted-foreground mt-1 whitespace-nowrap" title={`Discount code ${p.couponCode}`}>
+                              Coupon <span className="font-semibold text-foreground">{p.couponCode}</span>
+                              {Number(p.amountSaved) > 0 && <> · saved ₹{Number(p.amountSaved).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</>}
+                            </div>
+                          )}
                           {p.paymentRef && (
                             <div className="text-xs text-muted-foreground mt-1 max-w-[120px] truncate" title={p.paymentRef}>
                               Ref: {p.paymentRef}
@@ -594,6 +625,7 @@ export default function AdminPaymentsPage() {
               <p className="text-xs text-muted-foreground">
                 Showing <span className="font-medium text-foreground">{startIdx + 1}–{endIdx}</span> of{' '}
                 <span className="font-medium text-foreground">{totalCount}</span> payments
+                <span className="block sm:inline sm:ml-2 text-2xs">Plans granted by an admin appear as MANUAL ₹0.</span>
               </p>
 
               <div className="flex items-center gap-3">

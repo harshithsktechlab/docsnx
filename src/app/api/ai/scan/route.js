@@ -8,6 +8,7 @@ import { processUpload, sweepStaleScanDirs } from '@/lib/documentProcessor';
 import { scanMultipleFiles } from '@/lib/ai';
 import { AI_ERROR_MESSAGES, AI_ERROR_CODES } from '@/lib/aiKeyManager';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { driveReauthResponse } from '@/lib/uploadErrors';
 import { db } from '@/lib/db';
@@ -194,7 +195,7 @@ async function attachHolderIds(records, user, companyId = null) {
  */
 const PASS_2_CONCURRENCY = 6;
 
-async function attachCategoryFields(records, aiFiles, user, companyId = null) {
+async function attachCategoryFields(records, aiFiles, user, companyId = null, batchId = null) {
   const targets = (records || []).filter(
     (r) => r?.extractedData?.moduleKey
       && r.extractedData?.documentKey
@@ -237,7 +238,15 @@ async function attachCategoryFields(records, aiFiles, user, companyId = null) {
         const spec = await specFor(categoryKey);
         const result = await runAutofill({
           aiFiles: pages, categoryKey, spec, tenantId: user.tenantId, userId: user.id, companyId,
+          usageContext: {
+            batchId,
+            fileCount: new Set(pages.map((p) => p.originalName || p.fileName)).size,
+          },
         });
+        // The usage row this read wrote. Round-trips on the record through the
+        // review grid to /api/ai/scan/save, which links it to the record the
+        // member actually keeps — see src/lib/aiUsageLink.ts.
+        if (result.usageId) rec.aiUsageIds = [result.usageId];
         // Without the read's `document_title`: it copies the heading printed at
         // the top of the page ("INCOME TAX DEPARTMENT"). Named below instead.
         rec.extractedData.fields = withoutReadTitle(result.fields);
@@ -514,7 +523,14 @@ export async function POST(req) {
     }
 
     // 3. Scan processed page images using AI (with automatic key rotation)
-    const result = await scanMultipleFiles(aiFiles, user.tenantId, user.id, taxonomy, companyId);
+    // One id for this whole request: stamped on the pass-1 row and every
+    // pass-2 row, so the super admin AI Usage page can show a scan as one batch.
+    const batchId = randomUUID();
+    const result = await scanMultipleFiles(aiFiles, user.tenantId, user.id, taxonomy, companyId, {
+      batchId,
+      fileCount: files.length,
+      pageCount: aiFiles.length,
+    });
 
     // 4. Resolve the AI's master category codes to ids for the review UI.
     await attachCategoryIds(result.proposedRecords);
@@ -523,7 +539,7 @@ export async function POST(req) {
     //    under — the pass that makes the Field Configuration mean something
     //    here. BEFORE the holder match, because it can read a name pass 1
     //    missed and that name deserves the same matching as any other.
-    const fieldSpecs = await attachCategoryFields(result.proposedRecords, aiFiles, user, companyId);
+    const fieldSpecs = await attachCategoryFields(result.proposedRecords, aiFiles, user, companyId, batchId);
 
     // 6. Resolve the name the OCR read to a member, so "Belongs to"
     //    arrives pre-selected instead of defaulting for every record.

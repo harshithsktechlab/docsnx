@@ -54,6 +54,11 @@ export interface CategoryFormBody {
   holderIds: string[] | undefined;
   file: File | null;
   /**
+   * tenant_ai_usages row ids from the autofill read that filled this form, as
+   * sent by the browser. A hint for src/lib/aiUsageLink.ts, never trusted.
+   */
+  aiUsageIds: unknown;
+  /**
    * The caller answered the duplicate prompt with "keep the new one". It means
    * "update the record this duplicates", NOT "save a second copy" — forking is
    * `keepBoth` below and nothing else. Still posted as `forceSave` on the wire,
@@ -205,6 +210,7 @@ export async function readCategoryFormBody(
     holderId,
     holderIds,
     file,
+    aiUsageIds: fields.aiUsageIds,
     overwrite: fields.forceSave === 'true' || fields.forceSave === true,
     keepBoth: fields.keepBoth === 'true' || fields.keepBoth === true,
     splitPages: fields.splitPages === 'true' || fields.splitPages === true,

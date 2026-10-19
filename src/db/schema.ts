@@ -1013,6 +1013,17 @@ export const systemConfigs = pgTable("system_configs", {
   aiCostCategoryAnalysis: decimal("ai_cost_category_analysis", { precision: 10, scale: 2 }).default("2.00").notNull(),
   aiCostPortfolioAnalysis: decimal("ai_cost_portfolio_analysis", { precision: 10, scale: 2 }).default("5.00").notNull(),
   aiCostBulkScan: decimal("ai_cost_bulk_scan", { precision: 10, scale: 2 }).default("10.00").notNull(),
+  /**
+   * Rupees per US dollar, used to write `tenant_ai_usages.cost_inr`. Set by a
+   * super admin in Admin → AI Settings. No default: a built-in rate would be a
+   * guess, so until it is set `cost_inr` is written as NULL.
+   */
+  usdInrRate: decimal("usd_inr_rate", { precision: 10, scale: 4 }),
+  /**
+   * The platform's full cost of an AI call = Gemini cost in INR × this.
+   * Set by the owner (2 for now); snapshotted onto each tenant_ai_usages row.
+   */
+  aiCostMultiplier: decimal("ai_cost_multiplier", { precision: 6, scale: 2 }).default("2.00").notNull(),
   maxUploadBytes: integer("max_upload_bytes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1024,9 +1035,56 @@ export const tenantAiUsages = pgTable("tenant_ai_usages", {
   modelName: varchar("model_name", { length: 100 }).notNull(),
   promptTokens: integer("prompt_tokens").default(0).notNull(),
   completionTokens: integer("completion_tokens").default(0).notNull(),
+  /** USD. Input at the input rate, output + thinking at the output rate. */
   cost: decimal("cost", { precision: 10, scale: 5 }).notNull(),
+  // ─── Added in 0075. NULL / 0 on rows written before it (not backfilled). ──
+  /** The executeTenantWithRotation action: RECORD_ANALYSIS, BULK_SCAN, FIELD_READ, DOC_CLASSIFY, … */
+  action: varchar("action", { length: 64 }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: 'set null' }),
+  /** Workspace the call was made from. NULL = the household. */
+  companyId: uuid("company_id").references(() => companies.id, { onDelete: 'set null' }),
+  /** Gemini `thoughtsTokenCount` — billed at the output rate. */
+  thinkingTokens: integer("thinking_tokens").default(0).notNull(),
+  /** Input tokens served from cache (already included in promptTokens). */
+  cachedTokens: integer("cached_tokens").default(0).notNull(),
+  /** Which key paid: 'pool' (api_keys row), 'env' (GEMINI_API_KEY), 'tenant' (tenant's own key). */
+  keySource: varchar("key_source", { length: 16 }),
+  apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: 'set null' }),
+  /** Credits deducted for this call. 0 on the tenant's own key. */
+  creditsCharged: integer("credits_charged"),
+  /** The rate in force when the row was written, so old rows never move. */
+  usdInrRate: decimal("usd_inr_rate", { precision: 10, scale: 4 }),
+  /** cost × usdInrRate. NULL when no rate was configured. */
+  costInr: decimal("cost_inr", { precision: 12, scale: 4 }),
+  // ─── Added in 0076: what the call was ABOUT, and the final cost. ─────────
+  /**
+   * The saved record this call was for. No FK (see document_holders): linked
+   * after the user saves, by src/lib/aiUsageLink.ts. NULL on a row that was
+   * never saved = AI work the user discarded.
+   */
+  documentId: uuid("document_id"),
+  todoId: uuid("todo_id"),
+  contactId: uuid("contact_id"),
+  /** One Power Scan request — shared by its BULK_SCAN row and every FIELD_READ row. */
+  batchId: uuid("batch_id"),
+  /** Category the call was about; for CATEGORY_ANALYSIS, the analysed scope. */
+  moduleKey: varchar("module_key", { length: 64 }),
+  documentKey: varchar("document_key", { length: 100 }),
+  /** Files and pages sent (for CATEGORY_ANALYSIS, fileCount = records analysed). */
+  fileCount: integer("file_count"),
+  pageCount: integer("page_count"),
+  /** system_configs.ai_cost_multiplier in force when written. */
+  costMultiplier: decimal("cost_multiplier", { precision: 6, scale: 2 }),
+  /** costInr × costMultiplier — the platform's full cost. NULL when costInr is. */
+  finalCostInr: decimal("final_cost_inr", { precision: 12, scale: 4 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  tenantCreatedIdx: index("tenant_ai_usages_tenant_created_idx").on(table.tenantId, table.createdAt),
+  documentIdx: index("tenant_ai_usages_document_idx").on(table.documentId),
+  batchIdx: index("tenant_ai_usages_batch_idx").on(table.batchId),
+  createdIdx: index("tenant_ai_usages_created_idx").on(table.createdAt),
+  actionCreatedIdx: index("tenant_ai_usages_action_created_idx").on(table.action, table.createdAt),
+}));
 
 /**
  * Every movement of a tenant's AI credit balance — the history behind

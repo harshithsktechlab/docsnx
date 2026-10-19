@@ -71,7 +71,7 @@ vi.mock('../src/lib/db', () => ({
         return { where: async () => undefined };
       },
     })),
-    insert: vi.fn(() => ({ values: async () => undefined })),
+    insert: vi.fn(() => ({ values: () => ({ returning: async () => [{ id: 'usage-1' }] }) })),
   },
 }));
 

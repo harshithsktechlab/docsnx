@@ -37,7 +37,7 @@ let modelAnswers: string[] = [];
 // assertions below are about WHAT was sent, not only about the answer.
 const generateContent = vi.fn(async (_req?: { contents?: unknown[] }) => ({
   text: modelAnswers.length > 0 ? modelAnswers.shift()! : modelAnswer,
-  usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+  usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, thoughtsTokenCount: 3, cachedContentTokenCount: 2 },
 }));
 
 vi.mock('@/lib/aiKeyManager', () => ({
@@ -391,6 +391,9 @@ describe('classifyDocument', () => {
 
     expect(out.promptTokens).toBe(20);
     expect(out.completionTokens).toBe(10);
+    // Thinking is billed at the output rate, so a retry must carry both too.
+    expect(out.thinkingTokens).toBe(6);
+    expect(out.cachedTokens).toBe(4);
   });
 
   it('keeps the first answer when the retry misses too', async () => {

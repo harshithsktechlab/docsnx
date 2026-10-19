@@ -37,6 +37,7 @@ import { driveReauthResponse, storageLimitResponse } from '@/lib/uploadErrors';
 import { writeAudit } from '@/lib/audit';
 import { auditSentence, categoryPhrase, recordAction } from '@/lib/auditActions';
 import { serverError } from '@/lib/routeError';
+import { linkAiUsage } from '@/lib/aiUsageLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -139,6 +140,9 @@ export async function POST(req: Request, { params }: Params) {
         entityType: 'documents',
         entityId: created.id,
       });
+
+      // Attribute the autofill read(s) that filled this form to the new record.
+      await linkAiUsage(ctx.user.tenantId, body.aiUsageIds, { documentId: created.id });
 
       return NextResponse.json({ success: true, record: created }, { status: 201 });
     } catch (error) {

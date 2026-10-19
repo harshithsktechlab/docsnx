@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { getUserFromRequest } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { serverError } from '@/lib/routeError';
+import { aiCreditMultiplier } from '@/lib/account/seatCounts';
 
 export async function GET(req: Request) {
   try {
@@ -35,7 +36,11 @@ export async function GET(req: Request) {
     const basePortfolioAnalysis = parseFloat(configRes?.aiCostPortfolioAnalysis as string) || 5.00;
     const baseBulkScan = parseFloat(configRes?.aiCostBulkScan as string) || 10.00;
 
-    const multiplier = (tenantResult.maxMembers || 1) + (tenantResult.extraMembers || 0);
+    // The same multiplier executeTenantWithRotation charges with, so the price
+    // shown on /billing/credits is the price deducted. Household seats unless
+    // the request names a company (?companyId=).
+    const companyParam = new URL(req.url).searchParams.get('companyId');
+    const multiplier = await aiCreditMultiplier(user.tenantId, companyParam || null);
 
     return NextResponse.json({
       success: true,

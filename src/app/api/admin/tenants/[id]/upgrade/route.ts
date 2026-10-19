@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/db';
-import { tenants, subscriptionPlans } from '@/db/schema';
+import { tenants, subscriptionPlans, payments } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getUserFromRequest } from '@/lib/auth';
 import { applyPlanToTenant, planExpiry } from '@/lib/planProvisioning';
@@ -48,7 +48,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     // Perform update — applies the plan, the expiry, and the plan's AI credits.
     const { creditsGranted } = await db.transaction(async (tx) => {
-      return applyPlanToTenant(tx as any, {
+      const applied = await applyPlanToTenant(tx as any, {
         tenantId,
         plan,
         expiry: newExpiry,
@@ -56,6 +56,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         action: 'tenant.manual_upgrade',
         reason: `${reason} (previous plan: ${existingTenant.subscriptionPlanId || 'none'})`,
       });
+
+      // ── A ₹0 MANUAL payment, so the grant shows on the Payments page ─────
+      // Without it a plan granted here existed only in the audit trail, and
+      // Payments listed 2 of 14 workspaces. Inserted directly, NOT through
+      // POST /api/admin/payments: that route applies the plan itself and would
+      // grant its credits a second time. Same transaction, so a grant never
+      // lands without its payment row or the other way round.
+      // `planBillingCycle` stays NULL: nothing was billed, and the tenant
+      // overview reads the cycle only from rows that carry one.
+      await tx.insert(payments).values({
+        tenantId,
+        planId: plan.id,
+        appliesTo: plan.appliesTo,
+        plansPurchased: [{ planId: plan.id, appliesTo: plan.appliesTo, billingCycle: null, amount: 0 }],
+        amount: '0',
+        currency: 'INR',
+        status: 'captured',
+        paymentMethod: 'MANUAL',
+        paymentRef: `Plan granted by admin: ${String(reason)}`.slice(0, 255),
+        // varchar(50): a long email is clipped rather than failing the grant.
+        initiatedBy: String(user.email ?? user.id).slice(0, 50),
+      });
+
+      return applied;
     });
 
     return NextResponse.json({

@@ -67,6 +67,21 @@ export function newTenantPlanValues(plan: SubscriptionPlan | null | undefined): 
  * than read-modify-writing it in JS, so concurrent grants cannot lose an update.
  * Floored at zero so a negative amount can never leave the balance below zero.
  */
+/**
+ * Takes the tenant row's lock for the rest of the transaction, BEFORE the
+ * balance is read.
+ *
+ * Every credit writer here reads the balance, updates it, and records
+ * `after − before` in the ledger. Without the lock two concurrent writers both
+ * read the same `before`: on 25 Sep ten Power Scans running side by side each
+ * deducted 10 but were recorded as −20 or −30, so the tenant's ledger stopped
+ * adding up to its balance. With it the second writer waits, then reads the
+ * first one's result.
+ */
+async function lockTenantRow(tx: any, tenantId: string) {
+  await tx.execute(sql`SELECT 1 FROM tenants WHERE id = ${tenantId} FOR UPDATE`);
+}
+
 export function creditBalanceDelta(amount: number) {
   const delta = Math.trunc(amount);
   return sql`GREATEST(${tenants.aiCreditsBalance} + ${delta}, 0)`;
@@ -148,6 +163,7 @@ export async function adjustTenantCredits(
   // happened. `creditBalanceDelta` floors at zero, so a -1000 delta against a
   // balance of 100 moves -100; recording the REQUESTED -1000 would make the
   // ledger contradict the very column it explains.
+  await lockTenantRow(tx, opts.tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, opts.tenantId),
     columns: { aiCreditsBalance: true },
@@ -207,6 +223,7 @@ export async function setTenantCredits(
 
   // An absolute set says nothing about how far the balance moved, which is what
   // the ledger records — so read the previous value first.
+  await lockTenantRow(tx, opts.tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, opts.tenantId),
     columns: { aiCreditsBalance: true },
@@ -317,6 +334,7 @@ export async function applyPlanToTenant(
 
   // Read before write, as adjustTenantCredits does: the widening is a function
   // of what the tenant already is, and it is written only when it changes.
+  await lockTenantRow(tx, tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
     columns: { accountType: true },
@@ -407,6 +425,7 @@ export async function spendTenantCredits(
 
   try {
     return await withTenant(tenantId, async (tx) => {
+      await lockTenantRow(tx, tenantId);
       const before = await tx.query.tenants.findFirst({
         where: eq(tenants.id, tenantId),
         columns: { aiCreditsBalance: true },

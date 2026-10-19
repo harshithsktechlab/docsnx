@@ -63,12 +63,17 @@ describe('WORKSPACE_TABLES covers every partitioned table', () => {
    *   creditTransactions — SET NULL, and deliberately never deleted: it is the
    *     one wallet's running ledger, and removing rows from the middle of it
    *     would leave `balance_after` unable to reconcile.
+   *   tenantAiUsages     — SET NULL, kept for the same reason: it is the
+   *     platform's record of what each AI call cost (0075), the other half of
+   *     the credit ledger above, and the AI Usage page must still add up after
+   *     a workspace is gone.
    */
   const NOT_ROW_ERASED = new Set([
     'companyAccess',
     'companyProfiles',
     'auditLogs',
     'creditTransactions',
+    'tenantAiUsages',
   ]);
 
   it('finds the partitioned tables in the schema at all', () => {
@@ -99,7 +104,7 @@ describe('WORKSPACE_TABLES covers every partitioned table', () => {
      * asserted — the cast keeps the runtime guard for the day someone widens the
      * list and the static proof disappears with it.
      */
-    const forbidden: unknown[] = [schema.creditTransactions, schema.auditLogs];
+    const forbidden: unknown[] = [schema.creditTransactions, schema.auditLogs, schema.tenantAiUsages];
     for (const entry of WORKSPACE_TABLES) {
       expect(
         forbidden.includes(entry.table as unknown),

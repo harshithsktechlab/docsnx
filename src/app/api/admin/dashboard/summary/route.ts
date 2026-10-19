@@ -99,8 +99,11 @@ export async function GET(req: Request) {
 
     // 4. AI FinOps Telemetry
     const totalAiCreditsBalance = allTenants.reduce((acc, t) => acc + (t.aiCreditsBalance || 0), 0);
-    const aiCostQuery = await db.select({ totalCost: sum(tenantAiUsages.cost) }).from(tenantAiUsages);
+    const aiCostQuery = await db.select({ totalCost: sum(tenantAiUsages.cost), totalCostInr: sum(tenantAiUsages.costInr) }).from(tenantAiUsages);
     const totalAiUsageCost = Number(aiCostQuery[0]?.totalCost || 0);
+    // Only rows written after 0075 with a rate configured carry cost_inr, so
+    // this is "since INR tracking began", not the INR value of totalAiUsageCost.
+    const totalAiUsageCostInr = Number(aiCostQuery[0]?.totalCostInr || 0);
 
     // 5. API Key Health
     const activeApiKeysList = await db.select().from(apiKeys);
@@ -185,6 +188,7 @@ export async function GET(req: Request) {
         totalVaultRecords,
         totalAiCreditsBalance,
         totalAiUsageCost,
+        totalAiUsageCostInr,
         estimatedMRR: Math.round(estimatedMRR * 100) / 100,
       },
       subscriptionBreakdown,

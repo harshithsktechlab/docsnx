@@ -209,6 +209,18 @@ export async function POST(req: Request) {
       const orderIdPrefix = isManualPayment ? 'manual' : 'trial';
       const pId = `${orderIdPrefix}_${Date.now()}`;
 
+      /**
+       * How this order was settled — never Razorpay on this path, which is why
+       * the column's 'RAZORPAY' default was wrong for every row it wrote:
+       *   MANUAL — a super admin checking out on a tenant's behalf;
+       *   COUPON — a discount code took the total to ₹0;
+       *   FREE   — the cart was ₹0 before any discount.
+       * RAZORPAY is written only by the paid branch below.
+       */
+      const paymentMethod = isManualPayment
+        ? 'MANUAL'
+        : appliedDiscountId && amountSaved > 0 ? 'COUPON' : 'FREE';
+
       // 1. Insert payment record first
       const paymentRet = await db.insert(payments).values({
         tenantId,
@@ -224,6 +236,7 @@ export async function POST(req: Request) {
         amount: String(finalPrice),
         currency: currency === 'USD' ? 'USD' : 'INR',
         status: 'captured',
+        paymentMethod,
         initiatedBy: user.role,
       }).returning({ id: payments.id });
 
@@ -365,6 +378,9 @@ export async function POST(req: Request) {
       amount: String(finalPrice),
       currency: currency === 'USD' ? 'USD' : 'INR',
       status: 'created',
+      // Explicit rather than the column default: this is the one branch where
+      // Razorpay really takes the money.
+      paymentMethod: 'RAZORPAY',
       initiatedBy: user.role,
     });
 

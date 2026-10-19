@@ -11,6 +11,7 @@ import { DOCUMENT_CATEGORY_MODULES, UNCATEGORIZED } from '@/lib/documentCategori
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { getDefaultPlan } from '@/lib/planProvisioning';
 import { serverError } from '@/lib/routeError';
+import { seatAllowance } from '@/lib/account/seatCounts';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,8 +75,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const [
       members, recordTotals, credentialTotal, moduleRows,
       plan, defaultPlan, tenantAddonRows,
-      paymentRows, invoiceRows, promoRows, creditRows, aiUsageRows,
-      latestCycleRow, storageData,
+      paymentRows, invoiceRows, promoRows, creditRows, aiUsageRows, aiUsageByActionRows,
+      latestCycleRow, storageData, [ledgerTotals], seats,
     ] = await Promise.all([
       db.select({
         id: users.id,
@@ -213,12 +214,30 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         modelName: tenantAiUsages.modelName,
         promptTokens: sum(tenantAiUsages.promptTokens).mapWith(Number),
         completionTokens: sum(tenantAiUsages.completionTokens).mapWith(Number),
+        thinkingTokens: sum(tenantAiUsages.thinkingTokens).mapWith(Number),
         cost: sum(tenantAiUsages.cost).mapWith(Number),
+        costInr: sum(tenantAiUsages.costInr).mapWith(Number),
         calls: count(),
       })
         .from(tenantAiUsages)
         .where(eq(tenantAiUsages.tenantId, tenantId))
         .groupBy(tenantAiUsages.modelName),
+
+      // Same rows by AI task. `action` is NULL on rows written before 0075;
+      // they group together and the page labels them "Before tracking".
+      db.select({
+        action: tenantAiUsages.action,
+        promptTokens: sum(tenantAiUsages.promptTokens).mapWith(Number),
+        completionTokens: sum(tenantAiUsages.completionTokens).mapWith(Number),
+        thinkingTokens: sum(tenantAiUsages.thinkingTokens).mapWith(Number),
+        cost: sum(tenantAiUsages.cost).mapWith(Number),
+        costInr: sum(tenantAiUsages.costInr).mapWith(Number),
+        creditsCharged: sum(tenantAiUsages.creditsCharged).mapWith(Number),
+        calls: count(),
+      })
+        .from(tenantAiUsages)
+        .where(eq(tenantAiUsages.tenantId, tenantId))
+        .groupBy(tenantAiUsages.action),
 
       // `tenants` carries no billing-cycle column, so the cycle of record is
       // whatever the last captured plan payment was taken on.
@@ -233,12 +252,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         .limit(1),
 
       checkStorageLimit(tenantId, 0),
+
+      // Everything ever received vs. used, from the append-only ledger.
+      db.select({
+        granted: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.amount} > 0 THEN ${creditTransactions.amount} ELSE 0 END), 0)`.mapWith(Number),
+        used: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.amount} < 0 THEN -${creditTransactions.amount} ELSE 0 END), 0)`.mapWith(Number),
+      })
+        .from(creditTransactions)
+        .where(eq(creditTransactions.tenantId, tenantId)),
+
+      seatAllowance(tenantId, 'personal'),
     ]);
 
     const effectivePlan = plan ?? defaultPlan ?? null;
-    const liveAddons = tenantAddonRows.filter(
-      (a) => a.isActive && (!a.expiresAt || new Date(a.expiresAt) > new Date()),
-    );
     const owner = members.find((m) => m.role === 'TENANT_ADMIN') ?? null;
 
     const totals = recordTotals[0] ?? { records: 0, files: 0, bytes: 0 };
@@ -303,8 +329,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       // Seats granted by the plan plus every LIVE add-on — an expired add-on
       // still shows in the list above but must not inflate the entitlement.
       entitlements: {
-        maxMembers: liveAddons.reduce((n, a) => n + (a.extraMembers || 0), effectivePlan?.maxMembers ?? 1),
+        // The same allowance POST /api/users enforces and AI credits are
+        // multiplied by — see aiCreditMultiplier in src/lib/account/seatCounts.ts.
+        maxMembers: seats,
         aiCreditsBalance: tenant.aiCreditsBalance,
+        /** Ledger totals that explain the balance: received − used = balance. */
+        creditsGranted: ledgerTotals?.granted ?? 0,
+        creditsUsed: ledgerTotals?.used ?? 0,
         planAiCredits: effectivePlan?.aiCredits ?? 0,
         storage: {
           currentBytes: storageData.currentBytes,
@@ -319,6 +350,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       invoices: invoiceRows,
       credits: { balance: tenant.aiCreditsBalance, transactions: creditRows },
       aiUsage: aiUsageRows,
+      aiUsageByAction: aiUsageByActionRows,
       records: {
         total: Number(totals.records) || 0,
         files: Number(totals.files) || 0,

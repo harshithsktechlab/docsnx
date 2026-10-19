@@ -54,6 +54,7 @@ import {
   AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, pdfPasswordFrom,
   pdfPasswordResponse, runAutofill, UNREADABLE_FILE_MESSAGE,
 } from '@/lib/records/autofillRun';
+import { linkAiUsageToExistingDocument } from '@/lib/aiUsageLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,6 +113,12 @@ export async function POST(req: Request, { params }: Params) {
         aiFiles, categoryKey, spec, tenantId: user.tenantId, userId: user.id, companyId,
       });
 
+      // Editing a record that already exists: link the read to it now. A new
+      // record is linked when the form saves, from `usageIds` below.
+      if (result.usageId) {
+        await linkAiUsageToExistingDocument(user.tenantId, result.usageId, form.get('recordId'));
+      }
+
       // The sub-category's display name, for the title. Looked up rather than
       // taken from the URL: an operator may have renamed it.
       const category = await resolveCategory(db, null, categoryKey);
@@ -145,6 +152,11 @@ export async function POST(req: Request, { params }: Params) {
          * back with the save; the vault hashes it and keeps no text.
          */
         searchText: result.searchText,
+        /**
+         * The usage row(s) this read wrote. The form posts them back with the
+         * save so the AI cost is attributed to the record that is created.
+         */
+        usageIds: result.usageId ? [result.usageId] : [],
       });
     } catch (error: any) {
       // An unusable Google Drive grant is the tenant's to fix, not a fault here.

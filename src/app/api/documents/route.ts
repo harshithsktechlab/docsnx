@@ -51,6 +51,7 @@ import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
 import { buildTaxonomyRecord } from '@/lib/records/categoryFormBody';
 import { customSubcategoryError, readCustomSubcategory } from '@/lib/records/customSubcategory';
 import { serverError } from '@/lib/routeError';
+import { linkAiUsage } from '@/lib/aiUsageLink';
 
 /**
  * The client-facing shape of a record `createRecord` just wrote.
@@ -875,6 +876,11 @@ export async function POST(req: Request) {
         throw error;
       }
       created.push(record);
+      // The Documents Manager autofill read ONE file; its classify + field read
+      // belong to the record that file became. Never spread across a batch.
+      if (plan.length === 1) {
+        await linkAiUsage(user.tenantId, formData.get('aiUsageIds'), { documentId: record.id });
+      }
 
       const overwrote = targetId || record.replacedExisting;
       // Who the document is FILED UNDER: the holder when one was named, else

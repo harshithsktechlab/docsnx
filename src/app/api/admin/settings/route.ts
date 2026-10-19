@@ -75,8 +75,38 @@ export async function PUT(req: Request) {
     const { 
       platformName, platformGstin, platformAddress, platformStateCode, platformLogo, platformEmail, platformPhone,
       smtpHost, smtpPort, smtpUser, smtpPassword, smtpSecure, smtpFrom,
-      aiCostRecordAnalysis, aiCostCategoryAnalysis, aiCostPortfolioAnalysis, aiCostBulkScan
+      aiCostRecordAnalysis, aiCostCategoryAnalysis, aiCostPortfolioAnalysis, aiCostBulkScan,
+      usdInrRate, aiCostMultiplier
     } = body;
+
+    // ── USD → INR RATE (tenant_ai_usages.cost_inr) ──────────────────────────
+    // Absent = leave unchanged; blank = clear (cost_inr goes back to NULL);
+    // otherwise a positive number. The ceiling only catches a typo such as a
+    // pasted paise figure — it is not a claim about where the rupee trades.
+    let rateUpdate: { usdInrRate?: string | null } = {};
+    if (usdInrRate !== undefined) {
+      if (usdInrRate === null || String(usdInrRate).trim() === '') {
+        rateUpdate = { usdInrRate: null };
+      } else {
+        const rate = Number(usdInrRate);
+        if (!Number.isFinite(rate) || rate <= 0 || rate >= 1000) {
+          return NextResponse.json({ error: 'USD → INR rate must be a number greater than 0 and below 1000.' }, { status: 400 });
+        }
+        rateUpdate = { usdInrRate: rate.toFixed(4) };
+      }
+    }
+
+    // ── FINAL COST MULTIPLIER (tenant_ai_usages.final_cost_inr) ─────────────
+    // Final cost = Gemini INR × this. Absent = unchanged; never blank (the
+    // column is NOT NULL, default 2). Upper bound only catches typos.
+    let multiplierUpdate: { aiCostMultiplier?: string } = {};
+    if (aiCostMultiplier !== undefined && aiCostMultiplier !== null && String(aiCostMultiplier).trim() !== '') {
+      const m = Number(aiCostMultiplier);
+      if (!Number.isFinite(m) || m <= 0 || m > 100) {
+        return NextResponse.json({ error: 'Final cost multiplier must be a number greater than 0 and at most 100.' }, { status: 400 });
+      }
+      multiplierUpdate = { aiCostMultiplier: m.toFixed(2) };
+    }
 
     // ── THE SAME PAIRING RULE /api/admin/smtp ENFORCES ──────────────────────
     // This route writes the very columns that broke email on 2 Sep, so guarding
@@ -117,7 +147,9 @@ export async function PUT(req: Request) {
           ...(aiCostRecordAnalysis !== undefined && { aiCostRecordAnalysis: String(aiCostRecordAnalysis) }),
           ...(aiCostCategoryAnalysis !== undefined && { aiCostCategoryAnalysis: String(aiCostCategoryAnalysis) }),
           ...(aiCostPortfolioAnalysis !== undefined && { aiCostPortfolioAnalysis: String(aiCostPortfolioAnalysis) }),
-          ...(aiCostBulkScan !== undefined && { aiCostBulkScan: String(aiCostBulkScan) })
+          ...(aiCostBulkScan !== undefined && { aiCostBulkScan: String(aiCostBulkScan) }),
+          ...rateUpdate,
+          ...multiplierUpdate,
         })
         // `eq` is imported at the top now. An inline `require()` in an ESM
         // route handler resolves at call time on every save and defeats
@@ -141,7 +173,9 @@ export async function PUT(req: Request) {
         ...(aiCostRecordAnalysis !== undefined && { aiCostRecordAnalysis: String(aiCostRecordAnalysis) }),
         ...(aiCostCategoryAnalysis !== undefined && { aiCostCategoryAnalysis: String(aiCostCategoryAnalysis) }),
         ...(aiCostPortfolioAnalysis !== undefined && { aiCostPortfolioAnalysis: String(aiCostPortfolioAnalysis) }),
-        ...(aiCostBulkScan !== undefined && { aiCostBulkScan: String(aiCostBulkScan) })
+        ...(aiCostBulkScan !== undefined && { aiCostBulkScan: String(aiCostBulkScan) }),
+        ...rateUpdate,
+        ...multiplierUpdate,
       });
     }
 
@@ -158,6 +192,8 @@ export async function PUT(req: Request) {
         note: [
           smtpHost && `SMTP ${smtpHost}:${port} (${smtpSecure ? 'implicit TLS' : 'STARTTLS'})`,
           typedPassword && 'SMTP password replaced',
+          'usdInrRate' in rateUpdate && `USD → INR rate ${rateUpdate.usdInrRate ?? 'cleared'}`,
+          multiplierUpdate.aiCostMultiplier && `AI final cost multiplier ×${multiplierUpdate.aiCostMultiplier}`,
         ].filter(Boolean).join(', ') || null,
       }),
       entityType: 'system_configs',

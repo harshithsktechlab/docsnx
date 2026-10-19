@@ -59,6 +59,12 @@ export const AI_ACTION_TO_REASON: Record<string, CreditReason> = {
   CATEGORY_ANALYSIS: CREDIT_REASONS.spend_category_analysis,
   PORTFOLIO_ANALYSIS: CREDIT_REASONS.spend_portfolio_analysis,
   BULK_SCAN: CREDIT_REASONS.spend_bulk_scan,
+  /**
+   * Reading ONE document's fields. Its own action so `tenant_ai_usages` can
+   * tell it apart from a batch scan, but priced and labelled exactly as a
+   * Power scan in the credit ledger — that is what it has always cost.
+   */
+  FIELD_READ: CREDIT_REASONS.spend_bulk_scan,
   DOC_CLASSIFY: CREDIT_REASONS.spend_doc_classify,
 };
 
@@ -100,6 +106,36 @@ export function creditAmountVariant(amount: number): 'success' | 'secondary' {
 /** 'grant' | 'spend', derived from the sign. Used by the ledger's direction filter. */
 export function creditDirection(amount: number): 'grant' | 'spend' {
   return amount >= 0 ? 'grant' : 'spend';
+}
+
+/**
+ * Display names for `tenant_ai_usages.action` — the AI task a call performed.
+ * Same wording as the credits page, plus "Field read", which the credit ledger
+ * files under Power scan (it is priced as one) but the usage log tells apart.
+ */
+export const AI_TASK_LABELS: Record<string, string> = {
+  RECORD_ANALYSIS: 'Record analysis',
+  CATEGORY_ANALYSIS: 'Category analysis',
+  PORTFOLIO_ANALYSIS: 'Portfolio analysis',
+  BULK_SCAN: 'Power scan',
+  FIELD_READ: 'Field read',
+  DOC_CLASSIFY: 'Document identified',
+};
+
+/** One line on what each task is, for the AI Usage page's help text. */
+export const AI_TASK_DESCRIPTIONS: Record<string, string> = {
+  BULK_SCAN: 'Power Scan pass 1 — one call per scan that sorts every page into records.',
+  FIELD_READ: 'Reading one document\'s fields (Power Scan pass 2, or an upload with a category).',
+  DOC_CLASSIFY: 'Working out what an uploaded document is (Documents Manager auto-fill).',
+  CATEGORY_ANALYSIS: 'AI insights over all records of one category.',
+  RECORD_ANALYSIS: 'AI insights on one record.',
+  PORTFOLIO_ANALYSIS: 'AI insights over the whole portfolio.',
+};
+
+/** Label for an action code; NULL is a row written before task tracking (0075). */
+export function aiTaskLabel(action: string | null | undefined): string {
+  if (!action || action === 'NONE') return 'Before tracking';
+  return AI_TASK_LABELS[action] ?? action;
 }
 
 /** Every reason code, for building the filter dropdown. */

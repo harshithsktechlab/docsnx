@@ -43,6 +43,8 @@ function makePlan(overrides: Partial<SubscriptionPlan> = {}): SubscriptionPlan {
  */
 function makeFakeTx(returnedBalance = 0, priorBalance = 0, accountType: string | null = 'personal') {
   const calls: {
+    locked?: boolean;
+    readBeforeLock?: boolean;
     set?: Record<string, unknown>;
     audit?: Record<string, unknown>;
     ledger?: Record<string, unknown>;
@@ -50,9 +52,15 @@ function makeFakeTx(returnedBalance = 0, priorBalance = 0, accountType: string |
 
   return {
     calls,
+    // lockTenantRow: SELECT … FOR UPDATE before the balance is read.
+    execute: async () => { calls.locked = true; return { rows: [] }; },
     query: {
       tenants: {
-        findFirst: async () => ({ aiCreditsBalance: priorBalance, accountType }),
+        findFirst: async () => {
+          // The read must come AFTER the lock, or the lock protects nothing.
+          calls.readBeforeLock = calls.readBeforeLock || !calls.locked;
+          return { aiCreditsBalance: priorBalance, accountType };
+        },
       },
     },
     update: () => ({
@@ -159,6 +167,10 @@ describe('adjustTenantCredits', () => {
     });
 
     expect(balance).toBe(150);
+    // Row locked before the balance was read (concurrent spends cannot both
+    // read the same starting balance).
+    expect(tx.calls.locked).toBe(true);
+    expect(tx.calls.readBeforeLock).toBe(false);
     expect(tx.calls.set).toHaveProperty('aiCreditsBalance');
     expect(tx.calls.audit).toMatchObject({
       tenantId: 'tenant-1',

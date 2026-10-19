@@ -32,6 +32,7 @@ import {
   Tag,
   Package,
   MessageCircle,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -56,6 +57,7 @@ interface DashboardSummary {
     totalVaultRecords: number;
     totalAiCreditsBalance: number;
     totalAiUsageCost: number;
+    totalAiUsageCostInr: number;
     estimatedMRR: number;
   };
   subscriptionBreakdown: {
@@ -147,6 +149,7 @@ export default function AdminDashboardPage() {
     { title: 'Discounts & Coupons', href: '/admin/discounts', icon: Tag },
     { title: 'Addons Catalog', href: '/admin/addons', icon: Package },
     { title: 'AI Key Hub', href: '/admin/ai-settings', icon: Cpu, badge: data?.aiKeyHealth.errorApiKeysCount ? 'ERROR' : undefined },
+    { title: 'AI Usage & Cost', href: '/admin/ai-usage', icon: BarChart3 },
     { title: 'SMTP Gateway', href: '/admin/smtp', icon: Mail },
     { title: 'WhatsApp Gateway', href: '/admin/whatsapp', icon: MessageCircle },
     { title: 'System Settings', href: '/admin/settings', icon: Sliders },
@@ -204,7 +207,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Admin Module Switcher Ribbon */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         {adminNavItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -318,7 +321,7 @@ export default function AdminDashboardPage() {
               )}
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground pt-3 border-t border-border/40">
-              <span>Total API Cost: ${data?.stats.totalAiUsageCost.toFixed(4) ?? '0.0000'}</span>
+              <span>Total API Cost: ${data?.stats.totalAiUsageCost.toFixed(4) ?? '0.0000'} · ₹{data?.stats.totalAiUsageCostInr?.toFixed(2) ?? '0.00'}</span>
               <span>Keys in Pool: {data?.aiKeyHealth.totalApiKeys ?? 0}</span>
             </div>
           </CardContent>
@@ -514,8 +517,11 @@ export default function AdminDashboardPage() {
                 <div className="mt-2 text-2xl font-extrabold text-foreground">
                   ${data?.stats.totalAiUsageCost.toFixed(4) ?? '0.0000'}
                 </div>
+                <div className="text-sm font-bold text-muted-foreground">
+                  ₹{data?.stats.totalAiUsageCostInr?.toFixed(2) ?? '0.00'}
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Cumulative LLM invocation cost recorded in tenantAiUsages.
+                  Cumulative LLM invocation cost recorded in tenantAiUsages. ₹ covers calls since INR tracking began.
                 </p>
               </CardContent>
             </Card>

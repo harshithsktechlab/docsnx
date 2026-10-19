@@ -4,6 +4,7 @@
  */
 
 import { db } from './db';
+import { aiCreditMultiplier } from './account/seatCounts';
 import { apiKeys, tenants, tenantAiUsages } from '../db/schema';
 import { eq, asc, sql } from 'drizzle-orm';
 import { GoogleGenAI } from '@google/genai';
@@ -323,27 +324,158 @@ export function buildClientFromKey(key: any) {
 
 // ─── Record Tenant AI Usage ───────────────────────────────────────────────────
 
-export async function recordTenantAiUsage(tenantId: string, modelName: string, promptTokens: number, completionTokens: number) {
-  try {
-    // Rates come from the published price table in aiModels.ts, keyed by the
-    // exact model id. The previous substring sniffing ("does it contain gpt-4")
-    // hardcoded gemini-2.5-flash's prices as the default for everything else,
-    // so moving to any other model silently under-reported spend in
-    // tenant_ai_usages while the billing screens kept looking healthy.
-    const { input: inputRate, output: outputRate } = getModelRates(modelName);
+export interface TenantAiUsageEntry {
+  tenantId: string;
+  modelName: string;
+  promptTokens: number;
+  completionTokens: number;
+  /** Gemini thoughtsTokenCount — billed at the output rate. */
+  thinkingTokens?: number;
+  /** Already included in promptTokens; stored for visibility only. */
+  cachedTokens?: number;
+  action?: string | null;
+  userId?: string | null;
+  companyId?: string | null;
+  keySource: 'pool' | 'env' | 'tenant';
+  apiKeyId?: string | null;
+  creditsCharged?: number | null;
+  /** system_configs.usd_inr_rate as read for this call; null when unset. */
+  usdInrRate?: number | null;
+  /** system_configs.ai_cost_multiplier as read for this call. */
+  costMultiplier?: number | null;
+  /** What the call was about — see AiUsageContext. */
+  context?: AiUsageContext | null;
+}
 
-    const cost = (promptTokens * inputRate) + (completionTokens * outputRate);
-    
-    await db.insert(tenantAiUsages).values({
-      tenantId,
-      modelName,
-      promptTokens,
-      completionTokens,
-      cost: cost.toString(), // drizzle decimal expects string
-    });
+/**
+ * What an AI call was ABOUT, stamped onto its tenant_ai_usages row.
+ *
+ * Everything is optional: callers pass what they know at AI time. The saved
+ * record id is usually NOT known then — it is linked afterwards by
+ * src/lib/aiUsageLink.ts — except in edit mode, where the record exists.
+ */
+export interface AiUsageContext {
+  /** One Power Scan request; shared by its BULK_SCAN and FIELD_READ rows. */
+  batchId?: string | null;
+  moduleKey?: string | null;
+  documentKey?: string | null;
+  fileCount?: number | null;
+  pageCount?: number | null;
+  /** Only when the record already exists (edit mode). */
+  documentId?: string | null;
+}
+
+/**
+ * USD and INR cost of one call. Pure, so the arithmetic is testable without a
+ * database.
+ *
+ * Thinking tokens are priced at the OUTPUT rate: Google's price table lists
+ * output "including thinking tokens", and `candidatesTokenCount` excludes them.
+ * Leaving them out under-reported every Gemini 3 call.
+ */
+export function computeAiUsageCost(
+  modelName: string,
+  promptTokens: number,
+  completionTokens: number,
+  thinkingTokens: number,
+  usdInrRate: number | null | undefined,
+  costMultiplier: number | null | undefined = null,
+): { costUsd: number; costInr: number | null; finalCostInr: number | null } {
+  // Rates come from the published price table in aiModels.ts, keyed by the
+  // exact model id. The previous substring sniffing ("does it contain gpt-4")
+  // hardcoded gemini-2.5-flash's prices as the default for everything else,
+  // so moving to any other model silently under-reported spend in
+  // tenant_ai_usages while the billing screens kept looking healthy.
+  const { input: inputRate, output: outputRate } = getModelRates(modelName);
+  const costUsd = (promptTokens * inputRate) + ((completionTokens + thinkingTokens) * outputRate);
+  const costInr = usdInrRate && usdInrRate > 0 ? costUsd * usdInrRate : null;
+  // Final cost = Gemini INR × the owner's multiplier. No INR, no final cost:
+  // a multiplied NULL must stay NULL rather than become a fake zero.
+  const finalCostInr = costInr !== null && costMultiplier && costMultiplier > 0 ? costInr * costMultiplier : null;
+  return { costUsd, costInr, finalCostInr };
+}
+
+/** Parses system_configs.usd_inr_rate (a decimal string) into a usable rate or null. */
+export function parseUsdInrRate(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : parseFloat(String(value ?? ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Same parsing for system_configs.ai_cost_multiplier (a positive decimal). */
+export const parseCostMultiplier = parseUsdInrRate;
+
+/** Non-negative integer or null — file/page counts from callers. */
+function countOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
+}
+
+let warnedNoInrRate = false;
+
+/**
+ * Writes one tenant_ai_usages row and returns its id (null if the write
+ * failed — logging must never fail the AI call it describes). The id is what
+ * callers hand back to the browser so the row can be linked to the record the
+ * user eventually saves.
+ */
+export async function recordTenantAiUsage(entry: TenantAiUsageEntry): Promise<string | null> {
+  try {
+    const thinkingTokens = entry.thinkingTokens || 0;
+    const usdInrRate = parseUsdInrRate(entry.usdInrRate);
+    const costMultiplier = parseCostMultiplier(entry.costMultiplier);
+    const { costUsd, costInr, finalCostInr } = computeAiUsageCost(
+      entry.modelName,
+      entry.promptTokens,
+      entry.completionTokens,
+      thinkingTokens,
+      usdInrRate,
+      costMultiplier,
+    );
+    const ctx = entry.context || {};
+
+    if (usdInrRate === null && !warnedNoInrRate) {
+      warnedNoInrRate = true;
+      console.warn('[AI] system_configs.usd_inr_rate is not set — tenant_ai_usages.cost_inr is being written as NULL. Set it in Admin → AI Settings.');
+    }
+
+    const rows = await db.insert(tenantAiUsages).values({
+      tenantId: entry.tenantId,
+      modelName: entry.modelName,
+      promptTokens: entry.promptTokens,
+      completionTokens: entry.completionTokens,
+      thinkingTokens,
+      cachedTokens: entry.cachedTokens || 0,
+      cost: costUsd.toString(), // drizzle decimal expects string
+      action: entry.action ?? null,
+      userId: entry.userId ?? null,
+      companyId: entry.companyId ?? null,
+      keySource: entry.keySource,
+      apiKeyId: entry.apiKeyId ?? null,
+      creditsCharged: entry.creditsCharged ?? null,
+      usdInrRate: usdInrRate === null ? null : usdInrRate.toString(),
+      costInr: costInr === null ? null : costInr.toString(),
+      costMultiplier: costMultiplier === null ? null : costMultiplier.toString(),
+      finalCostInr: finalCostInr === null ? null : finalCostInr.toString(),
+      batchId: ctx.batchId || null,
+      moduleKey: ctx.moduleKey ? String(ctx.moduleKey).slice(0, 64) : null,
+      documentKey: ctx.documentKey ? String(ctx.documentKey).slice(0, 100) : null,
+      fileCount: countOrNull(ctx.fileCount),
+      pageCount: countOrNull(ctx.pageCount),
+      documentId: ctx.documentId || null,
+    }).returning({ id: tenantAiUsages.id });
+    return rows?.[0]?.id ?? null;
   } catch (err) {
     console.error('Error logging tenant AI usage:', err);
+    return null;
   }
+}
+
+/**
+ * Puts the usage row id on the callback's result as `usageId`, so the ai.js
+ * entry point can return it to the route and on to the browser. Only when a row
+ * was actually written.
+ */
+function attachUsageId(result: any, usageId: string | null) {
+  if (usageId && result && typeof result === 'object') result.usageId = usageId;
 }
 
 // ─── Execute With Rotation ────────────────────────────────────────────────────
@@ -459,6 +591,11 @@ export async function executeTenantWithRotation(
    * caller meant before companies existed.
    */
   companyId?: string | null,
+  /**
+   * What the call was about (batch, category, size, existing record). Stored
+   * on the usage row only — it changes nothing about cost or permission.
+   */
+  usageContext?: AiUsageContext | null,
 ) {
   if (!tenantId) {
     return executeWithRotation(callFn);
@@ -479,7 +616,7 @@ export async function executeTenantWithRotation(
   if (actionName === 'RECORD_ANALYSIS') baseCost = parseFloat(configRes?.aiCostRecordAnalysis as string) || 1.00;
   else if (actionName === 'CATEGORY_ANALYSIS') baseCost = parseFloat(configRes?.aiCostCategoryAnalysis as string) || 2.00;
   else if (actionName === 'PORTFOLIO_ANALYSIS') baseCost = parseFloat(configRes?.aiCostPortfolioAnalysis as string) || 5.00;
-  else if (actionName === 'BULK_SCAN') baseCost = parseFloat(configRes?.aiCostBulkScan as string) || 10.00;
+  else if (actionName === 'BULK_SCAN' || actionName === 'FIELD_READ') baseCost = parseFloat(configRes?.aiCostBulkScan as string) || 10.00;
   /**
    * Naming ONE document's sub-category — no field extraction, no grouping.
    *
@@ -496,8 +633,12 @@ export async function executeTenantWithRotation(
     baseCost = (parseFloat(configRes?.aiCostBulkScan as string) || 10.00) / 10;
   }
 
-  const multiplier = (tenant.maxMembers || 1) + (tenant.extraMembers || 0);
+  // Plan seats + add-on seats of the workspace the call is made in — see
+  // aiCreditMultiplier for why not the tenant's legacy max_members columns.
+  const multiplier = await aiCreditMultiplier(tenantId, companyId);
   const requiredCredits = Math.ceil(baseCost * multiplier);
+  const usdInrRate = parseUsdInrRate(configRes?.usdInrRate);
+  const costMultiplier = parseCostMultiplier(configRes?.aiCostMultiplier);
 
 
   // 2. If tenant has custom key configured, execute with it (no credit cost)
@@ -520,7 +661,23 @@ export async function executeTenantWithRotation(
 
       // Track usage metrics
       if (result && typeof result === 'object' && result.promptTokens !== undefined) {
-        await recordTenantAiUsage(tenantId, clientInfo.model, result.promptTokens, result.completionTokens || 0);
+        const usageId = await recordTenantAiUsage({
+          tenantId,
+          modelName: clientInfo.model,
+          promptTokens: result.promptTokens,
+          completionTokens: result.completionTokens || 0,
+          thinkingTokens: result.thinkingTokens || 0,
+          cachedTokens: result.cachedTokens || 0,
+          action: actionName,
+          userId,
+          companyId,
+          keySource: 'tenant',
+          creditsCharged: 0,
+          usdInrRate,
+          costMultiplier,
+          context: usageContext,
+        });
+        attachUsageId(result, usageId);
       }
       
       return result;
@@ -543,7 +700,25 @@ export async function executeTenantWithRotation(
     
     // Log usage metrics for this tenant using platform key
     if (result && typeof result === 'object' && result.promptTokens !== undefined) {
-      await recordTenantAiUsage(tenantId, clientInfo.model, result.promptTokens, result.completionTokens || 0);
+      const usageId = await recordTenantAiUsage({
+        tenantId,
+        modelName: clientInfo.model,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens || 0,
+        thinkingTokens: result.thinkingTokens || 0,
+        cachedTokens: result.cachedTokens || 0,
+        action: actionName,
+        userId,
+        companyId,
+        // A null keyId is the GEMINI_API_KEY env fallback, not an api_keys row.
+        keySource: clientInfo.keyId ? 'pool' : 'env',
+        apiKeyId: clientInfo.keyId ?? null,
+        creditsCharged: requiredCredits,
+        usdInrRate,
+        costMultiplier,
+        context: usageContext,
+      });
+      attachUsageId(result, usageId);
     }
     
     // Deduct credits on success, and record the spend in the same transaction

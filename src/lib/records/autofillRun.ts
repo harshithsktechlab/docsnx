@@ -35,6 +35,7 @@ import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
 import { PdfPasswordError, processUpload } from '@/lib/documentProcessor';
 import { PDF_PASSWORD_INCORRECT, PDF_PASSWORD_REQUIRED } from '@/lib/records/autofillOutcome';
 import { extractCategoryFields } from '@/lib/ai';
+import type { AiUsageContext } from '@/lib/aiKeyManager';
 import { deriveDates } from '@/lib/records/derivedDates';
 import { findMember, indexMembers, normalizeName } from '@/lib/records/holderMatch';
 import { workspaceMembers } from './workspaceMembers';
@@ -240,6 +241,11 @@ export interface AutofillResult {
   searchText: string;
   /** A short phrase telling this document apart from others of its kind, for the title. '' when none. */
   titleDetail: string;
+  /**
+   * The tenant_ai_usages row this read wrote, or undefined when no AI call was
+   * made. Handed to the browser so the save can link it to the new record.
+   */
+  usageId?: string;
 }
 
 /**
@@ -271,6 +277,11 @@ export async function runAutofill(input: {
    */
   companyId?: string | null;
   spec?: readonly FieldSpec[];
+  /**
+   * Batch / existing-record context for the usage row. The category and the
+   * page count are filled in here from `categoryKey` and `aiFiles`.
+   */
+  usageContext?: AiUsageContext | null;
 }): Promise<AutofillResult> {
   const fields = input.spec ?? await loadCategoryFieldSpec(db, input.categoryKey);
   if (fields.length === 0) return { fields: {}, holderName: '', fieldCount: 0, searchText: '', titleDetail: '' };
@@ -283,7 +294,13 @@ export async function runAutofill(input: {
       documentName: display?.documentName ?? input.categoryKey.documentKey,
     },
     fields,
-  }, input.tenantId, input.userId, input.companyId ?? null);
+  }, input.tenantId, input.userId, input.companyId ?? null, {
+    ...(input.usageContext || {}),
+    moduleKey: input.categoryKey.moduleKey,
+    documentKey: input.categoryKey.documentKey,
+    pageCount: input.aiFiles.length,
+    fileCount: input.usageContext?.fileCount ?? 1,
+  });
 
   // "Warranty 12 months from purchase" names no date; compute the ones the
   // document only states as a period, never over one it printed.
@@ -296,5 +313,6 @@ export async function runAutofill(input: {
     fieldCount: fields.length,
     searchText: Array.isArray(result?.searchKeywords) ? result.searchKeywords.join('\n') : '',
     titleDetail: typeof result?.titleDetail === 'string' ? result.titleDetail : '',
+    usageId: typeof result?.usageId === 'string' ? result.usageId : undefined,
   };
 }

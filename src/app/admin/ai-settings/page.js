@@ -126,7 +126,10 @@ export default function AISettingsPage() {
     aiCostRecordAnalysis: 1,
     aiCostCategoryAnalysis: 2,
     aiCostPortfolioAnalysis: 5,
-    aiCostBulkScan: 10
+    aiCostBulkScan: 10,
+    // Kept as the typed string: '' means "not set", and cost_inr stays NULL.
+    usdInrRate: '',
+    aiCostMultiplier: '2'
   });
   const [aiCostsSaving, setAiCostsSaving] = useState(false);
 
@@ -144,7 +147,9 @@ export default function AISettingsPage() {
           aiCostRecordAnalysis: parseFloat(data.config.aiCostRecordAnalysis) || 1.00,
           aiCostCategoryAnalysis: parseFloat(data.config.aiCostCategoryAnalysis) || 2.00,
           aiCostPortfolioAnalysis: parseFloat(data.config.aiCostPortfolioAnalysis) || 5.00,
-          aiCostBulkScan: parseFloat(data.config.aiCostBulkScan) || 10.00
+          aiCostBulkScan: parseFloat(data.config.aiCostBulkScan) || 10.00,
+          usdInrRate: data.config.usdInrRate != null ? String(parseFloat(data.config.usdInrRate)) : '',
+          aiCostMultiplier: data.config.aiCostMultiplier != null ? String(parseFloat(data.config.aiCostMultiplier)) : '2'
         });
       }
     } catch (e) {
@@ -792,6 +797,36 @@ export default function AISettingsPage() {
                   disabled={aiCostsSaving}
                 />
               </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 border-t border-border/50 pt-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="usdInrRate">USD → INR Rate (₹ per $1)</Label>
+                <Input
+                  id="usdInrRate"
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  placeholder="Not set"
+                  value={aiCosts.usdInrRate}
+                  onChange={(e) => setAiCosts(prev => ({ ...prev, usdInrRate: e.target.value }))}
+                  disabled={aiCostsSaving}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="aiCostMultiplier">Final Cost Multiplier (×)</Label>
+                <Input
+                  id="aiCostMultiplier"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={aiCosts.aiCostMultiplier}
+                  onChange={(e) => setAiCosts(prev => ({ ...prev, aiCostMultiplier: e.target.value }))}
+                  disabled={aiCostsSaving}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-2 self-end">
+                The rate records the rupee (Gemini) cost of every AI call; the multiplier turns it into our final cost (final ₹ = Gemini ₹ × multiplier). Each call keeps the values in force when it ran, so changing them does not alter past figures. Leave the rate blank to stop recording INR.
+              </p>
             </div>
             <div className="flex justify-end pt-2">
               <Button type="submit" disabled={aiCostsSaving}>

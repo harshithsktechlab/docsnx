@@ -28,7 +28,18 @@ export async function GET(req: Request) {
       paymentRef: payments.paymentRef,
       tenantName: tenants.name,
       planName: subscriptionPlans.name,
-      addonName: addons.name
+      addonName: addons.name,
+      // The discount code used on this order and what it saved — shown on the
+      // Payments page under the method (a COUPON row is ₹0 BECAUSE of it).
+      couponCode: sql<string | null>`(
+        SELECT dc.code FROM discount_usages du
+        JOIN discount_codes dc ON dc.id = du.discount_code_id
+        WHERE du.payment_id = ${payments.id}
+        ORDER BY du.created_at LIMIT 1
+      )`,
+      amountSaved: sql<number>`(
+        SELECT COALESCE(SUM(du.amount_saved), 0) FROM discount_usages du WHERE du.payment_id = ${payments.id}
+      )`.mapWith(Number),
     })
     .from(payments)
     .leftJoin(tenants, eq(payments.tenantId, tenants.id))

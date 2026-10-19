@@ -36,7 +36,8 @@ import {
   MessageCircle,
   SlidersHorizontal,
   Building2,
-  Plus
+  Plus,
+  BarChart3
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -895,6 +896,9 @@ export default function Shell({ children }) {
     { name: 'Add-ons', path: '/admin/addons', icon: Puzzle },
     { name: 'Discounts', path: '/admin/discounts', icon: Tag },
     { name: 'AI Settings', path: '/admin/ai-settings', icon: Shield },
+    // Credits consumed and what they cost us in ₹ — by tenant, member,
+    // document, task, batch and model. See src/lib/aiUsageReport.ts.
+    { name: 'AI Usage & Cost', path: '/admin/ai-usage', icon: BarChart3 },
     // Per-field configuration for the 83 sub-categories: what is collected,
     // what is encrypted, what a scan reads, what a user must fill in.
     { name: 'Field Config', path: '/admin/document-fields', icon: SlidersHorizontal },

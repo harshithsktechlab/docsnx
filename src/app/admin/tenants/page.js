@@ -22,7 +22,9 @@ import { cn } from '@/lib/utils';
 import { storagePressure } from '@/lib/storagePressure';
 import { formatDate } from '@/lib/dateHelper';
 import { DEFAULT_GEMINI_MODEL } from '@/lib/aiModels';
+import { aiTaskLabel } from '@/lib/creditLedger';
 import PageContainer from '@/app/components/PageContainer';
+import CreditMeter from '@/app/components/CreditMeter';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
@@ -764,7 +766,10 @@ export default function TenantsPage() {
                           : 'Never'}
                       />
                     )}
-                    <DetailRow label="AI Credits" value={`${Number(detail.entitlements.aiCreditsBalance).toLocaleString()} / ${Number(detail.entitlements.planAiCredits).toLocaleString()}`} />
+                    <DetailRow label="AI credits left" value={Number(detail.entitlements.aiCreditsBalance || 0).toLocaleString('en-IN')} />
+                    <DetailRow label="Credits received (total)" value={Number(detail.entitlements.creditsGranted || 0).toLocaleString('en-IN')} />
+                    <DetailRow label="Credits used (total)" value={Number(detail.entitlements.creditsUsed || 0).toLocaleString('en-IN')} />
+                    <DetailRow label="Plan includes" value={`${Number(detail.entitlements.planAiCredits || 0).toLocaleString('en-IN')} credits per purchase`} />
                     <DetailRow label="Vault Mode" value={detail.tenant.vaultMode} />
                     <DetailRow label="AI Key" value={detail.tenant.hasCustomApiKey ? `Dedicated key (${detail.tenant.aiProvider})` : 'Shared platform pool'} />
                     <DetailRow label="AI Model" value={detail.tenant.aiModel} />
@@ -857,13 +862,32 @@ export default function TenantsPage() {
 
                   <DetailSection title="AI Usage by Model">
                     <DetailTable
-                      head={['Model', 'Calls', 'Prompt Tkn', 'Compl. Tkn', 'Cost']}
+                      head={['Model', 'Calls', 'Prompt Tkn', 'Compl. Tkn', 'Thinking Tkn', 'Cost $', 'Cost ₹']}
                       rows={detail.aiUsage.map(u => [
                         u.modelName,
                         Number(u.calls).toLocaleString(),
                         Number(u.promptTokens || 0).toLocaleString(),
                         Number(u.completionTokens || 0).toLocaleString(),
+                        Number(u.thinkingTokens || 0).toLocaleString(),
                         `$${Number(u.cost || 0).toFixed(4)}`,
+                        `₹${Number(u.costInr || 0).toFixed(2)}`,
+                      ])}
+                      empty="No AI calls recorded."
+                    />
+                  </DetailSection>
+
+                  <DetailSection title="AI Usage by Task">
+                    <DetailTable
+                      head={['Task', 'Calls', 'Prompt Tkn', 'Compl. Tkn', 'Thinking Tkn', 'Credits', 'Cost $', 'Cost ₹']}
+                      rows={(detail.aiUsageByAction || []).map(u => [
+                        aiTaskLabel(u.action),
+                        Number(u.calls).toLocaleString(),
+                        Number(u.promptTokens || 0).toLocaleString(),
+                        Number(u.completionTokens || 0).toLocaleString(),
+                        Number(u.thinkingTokens || 0).toLocaleString(),
+                        u.action ? Number(u.creditsCharged || 0).toLocaleString() : '—',
+                        `$${Number(u.cost || 0).toFixed(4)}`,
+                        u.action ? `₹${Number(u.costInr || 0).toFixed(2)}` : '—',
                       ])}
                       empty="No AI calls recorded."
                     />
@@ -1323,24 +1347,13 @@ export default function TenantsPage() {
                           </div>
                         </div>
 
-                        {/* AI Credits Balance */}
-                        <div className="flex justify-between items-center text-2xs font-bold mt-1 pt-1 border-t border-border/50">
-                          <span className="text-muted-foreground">AI Credits Bal.</span>
-                          <div className="flex items-center gap-1.5">
-                            <span className={cn("text-foreground", tenant.aiCreditsBalance <= 0 ? "text-danger-text" : "")}>
-                              {Number(tenant.aiCreditsBalance || 0).toLocaleString()} <span className="text-muted-foreground font-normal">/ {Number(tenant.planAiCredits || 0).toLocaleString()} (Limit)</span>
-                            </span>
-                            <Button
-                              type="button"
-                              variant="link"
-                              size="sm"
-                              onClick={() => openCreditsModal(tenant)}
-                              className="h-auto p-0 text-2xs font-bold"
-                            >
-                              Adjust
-                            </Button>
-                          </div>
-                        </div>
+                        {/* AI Credits — balance with the ledger totals that explain it */}
+                        <CreditMeter
+                          balance={tenant.credits?.balance ?? tenant.aiCreditsBalance}
+                          received={tenant.credits?.granted}
+                          used={tenant.credits?.used}
+                          onAdjust={() => openCreditsModal(tenant)}
+                        />
                       </div>
                     </div>
                     {/* Database Records Stats */}
@@ -1385,6 +1398,7 @@ export default function TenantsPage() {
                         <div className="flex flex-col">
                           <span className="text-xs text-muted-foreground">Calculated Cost</span>
                           <span className="text-sm font-extrabold text-emerald-500">${ai.cost.toFixed(4)}</span>
+                          <span className="text-xs font-bold text-muted-foreground">₹{Number(ai.costInr || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>

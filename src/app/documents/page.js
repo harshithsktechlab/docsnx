@@ -230,11 +230,20 @@ export default function DocumentsPage() {
    * different attachment never carries another document's words.
    */
   const scanSearchTextRef = useRef({ file: null, text: '' });
+  /**
+   * tenant_ai_usages ids the AI reads of a file wrote, posted with the save so
+   * the AI cost is attributed to the record created. Keyed by File like the
+   * search text, but ACCUMULATED: every read of the same file was billed.
+   */
+  const scanUsageRef = useRef({ file: null, ids: [] });
   const rememberScanText = (scannedFile, json) => {
     scanSearchTextRef.current = {
       file: scannedFile,
       text: typeof json?.searchText === 'string' ? json.searchText : '',
     };
+    const fresh = Array.isArray(json?.usageIds) ? json.usageIds : [];
+    const kept = scanUsageRef.current.file === scannedFile ? scanUsageRef.current.ids : [];
+    scanUsageRef.current = { file: scannedFile, ids: [...new Set([...kept, ...fresh])] };
   };
 
   // Master category list — the 82 seeded rows plus Uncategorized, identical for
@@ -624,6 +633,8 @@ export default function DocumentsPage() {
     try {
       const body = new FormData();
       body.append('file', selectedFile);
+      // Editing: the record exists, so the server links the read to it now.
+      if (editingDoc?.id) body.append('recordId', editingDoc.id);
       const pdfPassword = pdfPasswordFor(selectedFile);
       if (pdfPassword) body.append('pdfPassword', pdfPassword);
       // `postUpload`: this posts a file, so a 413 from nginx is on the table
@@ -917,6 +928,7 @@ export default function DocumentsPage() {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      if (editingDoc?.id) formData.append('recordId', editingDoc.id);
       const pdfPassword = pdfPasswordFor(selectedFile);
       if (pdfPassword) formData.append('pdfPassword', pdfPassword);
 
@@ -1278,6 +1290,9 @@ export default function DocumentsPage() {
     if (file) formData.append('files', file);
     if (file && scanSearchTextRef.current.file === file && scanSearchTextRef.current.text) {
       formData.append('searchText', scanSearchTextRef.current.text);
+    }
+    if (file && scanUsageRef.current.file === file && scanUsageRef.current.ids.length > 0) {
+      formData.append('aiUsageIds', JSON.stringify(scanUsageRef.current.ids));
     }
     formData.append('title', name);
     formData.append('categoryId', categoryId);

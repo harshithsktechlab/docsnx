@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { tenants, users, documents, passwords, tenantAiUsages, profiles, subscriptionPlans, tenantAddons, addons } from '@/db/schema';
+import { tenants, users, documents, passwords, tenantAiUsages, profiles, subscriptionPlans, tenantAddons, addons, creditTransactions } from '@/db/schema';
 import { eq, desc, sum, count, and, ne, isNull, sql } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { checkStorageLimit } from '@/lib/storage';
@@ -9,6 +9,7 @@ import { DEFAULT_GEMINI_MODEL } from '@/lib/aiModels';
 import { getDefaultPlan, newTenantPlanValues, recordSignupGrant } from '@/lib/planProvisioning';
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { serverError } from '@/lib/routeError';
+import { seatAllowance } from '@/lib/account/seatCounts';
 
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
     // Everything below is fleet-wide and grouped by tenant, run ONCE. This used
     // to be seven queries per tenant inside the map — a plain N+1 that grew
     // with the customer list.
-    const [memberRows, recordRows, credentialRows, adminRows, planRows, addonRows] = await Promise.all([
+    const [memberRows, recordRows, credentialRows, adminRows, planRows, addonRows, ledgerRows] = await Promise.all([
       db.select({ tenantId: users.tenantId, value: count() })
         .from(users)
         .where(isNull(users.deletedAt))
@@ -128,7 +129,19 @@ export async function GET(req: Request) {
         .from(tenantAddons)
         .innerJoin(addons, eq(tenantAddons.addonId, addons.id))
         .where(eq(tenantAddons.isActive, true)),
+
+      // Every credit a tenant has received and used, from the append-only
+      // ledger — what makes "490 left of 2,000 received · 1,630 used" add up.
+      // Same sums as /api/billing/credits shows the tenant itself.
+      db.select({
+        tenantId: creditTransactions.tenantId,
+        granted: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.amount} > 0 THEN ${creditTransactions.amount} ELSE 0 END), 0)`.mapWith(Number),
+        used: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.amount} < 0 THEN -${creditTransactions.amount} ELSE 0 END), 0)`.mapWith(Number),
+      })
+        .from(creditTransactions)
+        .groupBy(creditTransactions.tenantId),
     ]);
+    const ledgerByTenant = new Map(ledgerRows.map((r) => [r.tenantId, r]));
 
     const membersByTenant = new Map(memberRows.map((r) => [r.tenantId, Number(r.value)]));
     const recordsByTenant = new Map(recordRows.map((r) => [r.tenantId, r]));
@@ -178,10 +191,12 @@ export async function GET(req: Request) {
         ?? { name: 'Default Plan', maxMembers: 1, storageLimitGB: 1, aiCredits: 0 };
 
       const activeAddons = addonsByTenant.get(t.id) ?? [];
-      const maxMembers = activeAddons.reduce(
-        (total, addon) => total + (addon.extraMembers || 0),
-        planDetails.maxMembers,
-      );
+      // The household's seat allowance — plan seats + live add-on seats × qty —
+      // from the one helper POST /api/users enforces and AI credits are
+      // multiplied by (aiCreditMultiplier), so "Members x/N" here is exactly N
+      // in "base × N members" on the credit ledger.
+      const maxMembers = await seatAllowance(t.id, 'personal');
+      const ledger = ledgerByTenant.get(t.id);
 
       // The one read that cannot be grouped: it resolves the Drive bypass and
       // the add-on storage grant per tenant.
@@ -204,6 +219,12 @@ export async function GET(req: Request) {
           : null,
         planName: planDetails.name,
         planAiCredits: planDetails.aiCredits,
+        /** Balance, plus the ledger totals that explain it. */
+        credits: {
+          balance: t.aiCreditsBalance ?? 0,
+          granted: ledger?.granted ?? 0,
+          used: ledger?.used ?? 0,
+        },
         maxMembers: maxMembers,
         activeAddons: activeAddons,
         storageData: {
@@ -227,7 +248,9 @@ export async function GET(req: Request) {
       tenantId: tenantAiUsages.tenantId,
       promptTokens: sum(tenantAiUsages.promptTokens).mapWith(Number),
       completionTokens: sum(tenantAiUsages.completionTokens).mapWith(Number),
-      cost: sum(tenantAiUsages.cost).mapWith(Number)
+      thinkingTokens: sum(tenantAiUsages.thinkingTokens).mapWith(Number),
+      cost: sum(tenantAiUsages.cost).mapWith(Number),
+      costInr: sum(tenantAiUsages.costInr).mapWith(Number)
     })
     .from(tenantAiUsages)
     .groupBy(tenantAiUsages.tenantId);
@@ -237,13 +260,15 @@ export async function GET(req: Request) {
       usagesMap[usage.tenantId] = {
         promptTokens: usage.promptTokens || 0,
         completionTokens: usage.completionTokens || 0,
-        cost: Number(usage.cost || 0)
+        thinkingTokens: usage.thinkingTokens || 0,
+        cost: Number(usage.cost || 0),
+        costInr: Number(usage.costInr || 0)
       };
     });
 
     const tenantsWithUsage = tenantsResult.map(t => ({
       ...t,
-      aiUsage: usagesMap[t.id] || { promptTokens: 0, completionTokens: 0, cost: 0 }
+      aiUsage: usagesMap[t.id] || { promptTokens: 0, completionTokens: 0, thinkingTokens: 0, cost: 0, costInr: 0 }
     }));
 
     return NextResponse.json({ success: true, tenants: tenantsWithUsage });

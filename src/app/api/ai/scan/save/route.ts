@@ -94,6 +94,7 @@ import { belongsToWorkspace, categoryLabel } from '@/lib/documentCategories';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { serverError } from '@/lib/routeError';
 import { readCustomSubcategory } from '@/lib/records/customSubcategory';
+import { linkAiUsage } from '@/lib/aiUsageLink';
 
 /**
  * A bulk commit is minutes of Drive round trips, not milliseconds of SQL, and
@@ -288,6 +289,9 @@ export async function POST(req: Request) {
           // because a batch of re-scanned paperwork can want a different answer
           // for each page of it.
           keepBoth,
+          // The pass-2 usage row(s) /api/ai/scan returned on this record. A
+          // hint only — linkAiUsage scopes the write to this tenant itself.
+          aiUsageIds,
         } = record;
 
         const { scope: mod, resolved } = placements[index];
@@ -360,6 +364,7 @@ export async function POST(req: Request) {
             }),
             req, entityType: 'todos', entityId: created.id,
           });
+          await linkAiUsage(user.tenantId, aiUsageIds, { todoId: created.id });
           results.push({
             index, title: created.task, success: true, id: created.id, category,
             ...tokenFor('todo', mod, created.id),
@@ -385,6 +390,7 @@ export async function POST(req: Request) {
             }),
             req, entityType: 'emergency_contacts', entityId: created.id,
           });
+          await linkAiUsage(user.tenantId, aiUsageIds, { contactId: created.id });
           results.push({
             index, title: created.name, success: true, id: created.id, category,
             ...tokenFor('contact', mod, created.id),
@@ -544,6 +550,7 @@ export async function POST(req: Request) {
           entityId: created.id,
         });
 
+        await linkAiUsage(user.tenantId, aiUsageIds, { documentId: created.id });
         results.push({
           index,
           title: created.title, success: true, id: created.id, category,

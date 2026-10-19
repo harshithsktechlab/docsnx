@@ -22,6 +22,7 @@ import { formatDate } from '@/lib/dateHelper';
 import { toast } from 'sonner';
 import { DEFAULT_GEMINI_MODEL } from '@/lib/aiModels';
 import PageContainer from '@/app/components/PageContainer';
+import CreditMeter from '@/app/components/CreditMeter';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
@@ -721,13 +722,12 @@ export default function TenantsPage() {
                           </div>
                         </div>
 
-                        {/* AI Credits Balance */}
-                        <div className="flex justify-between items-center text-2xs font-bold mt-1 pt-1 border-t border-border/50">
-                          <span className="text-muted-foreground">AI Credits Bal.</span>
-                          <span className={cn("text-foreground", tenant.aiCreditsBalance <= 0 ? "text-danger-text" : "")}>
-                            {Number(tenant.aiCreditsBalance || 0).toLocaleString()} <span className="text-muted-foreground font-normal">/ {Number(tenant.planAiCredits || 0).toLocaleString()} (Limit)</span>
-                          </span>
-                        </div>
+                        {/* AI Credits — balance with the ledger totals that explain it */}
+                        <CreditMeter
+                          balance={tenant.credits?.balance ?? tenant.aiCreditsBalance}
+                          received={tenant.credits?.granted}
+                          used={tenant.credits?.used}
+                        />
                       </div>
                     </div>
                     {/* Database Records Stats */}
@@ -772,6 +772,7 @@ export default function TenantsPage() {
                         <div className="flex flex-col">
                           <span className="text-xs text-muted-foreground">Calculated Cost</span>
                           <span className="text-sm font-extrabold text-emerald-500">${ai.cost.toFixed(4)}</span>
+                          <span className="text-xs font-bold text-muted-foreground">₹{Number(ai.costInr || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>

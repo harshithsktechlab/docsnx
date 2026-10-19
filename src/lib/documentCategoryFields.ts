@@ -399,10 +399,12 @@ export const FIELD_FORMATS: Readonly<Record<string, FieldValidation>> = {
     message: 'Enter a valid email address',
   },
   registration_number: {
-    // Vehicles and companies share this key across two modules; the loose rule
-    // is the price of that, and the strict per-state format is not knowable.
-    pattern: '^[A-Za-z0-9][A-Za-z0-9 -]{3,24}$',
-    message: 'Enter the number as printed on the document',
+    // Vehicles, companies and civil certificates share this key across modules;
+    // the loose rule is the price of that, and the strict per-issuer format is
+    // not knowable. Registrars routinely print separators ("365/2021",
+    // "123(A)/2019"), so "/ . ( ) _" are allowed alongside space and hyphen.
+    pattern: '^[A-Za-z0-9][A-Za-z0-9 /.\\-()_]{2,39}$',
+    message: 'Enter the number as printed on the document (letters, digits and / - . ( ) allowed)',
   },
   // ── Dates that cannot be in the future ──
   date_of_birth: { notFuture: true, message: 'A date of birth cannot be in the future' },

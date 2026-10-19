@@ -193,6 +193,28 @@ describe('custom fields', () => {
   });
 });
 
+describe('registration number', () => {
+  const reg = (over: Partial<FieldSpec> = {}) =>
+    spec({
+      fieldKey: 'registration_number',
+      fieldLabel: 'Registration Number',
+      validation: FIELD_FORMATS.registration_number,
+      ...over,
+    });
+
+  it('accepts numbers as registrars print them, separators included', () => {
+    for (const v of ['365/2021', 'B-12/2020', '123(A)/2019', 'MH 31 AB 1234', 'REG.0042_21']) {
+      expect(validateField(reg(), v), v).toBeNull();
+    }
+  });
+
+  it('still rejects junk', () => {
+    for (const v of ['/2021', '@@@@', '--', '12']) {
+      expect(validateField(reg(), v), v).not.toBeNull();
+    }
+  });
+});
+
 describe('the seeded rules themselves', () => {
   it('every pattern in the dictionary compiles', () => {
     // A pattern that throws is skipped at runtime rather than failing closed,

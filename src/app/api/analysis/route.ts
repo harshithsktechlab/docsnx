@@ -171,7 +171,11 @@ export async function GET(req: Request) {
       ...r.fields,
     }));
 
-    const analysis = await generateCategoryAnalysis(moduleKey, categoryData, tenantId, user.id, companyId);
+    // Usage-row context: the scope analysed and how many records it covered.
+    const analysis = await generateCategoryAnalysis(moduleKey, categoryData, tenantId, user.id, companyId, {
+      moduleKey,
+      fileCount: categoryData.length,
+    });
     // `generateCategoryAnalysis` throws on failure now. This guard stays in case
     // it ever returns a failure again, because caching one overwrites the last
     // good analysis.

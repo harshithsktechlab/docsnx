@@ -55,6 +55,7 @@ import {
   AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, pdfPasswordFrom,
   pdfPasswordResponse, runAutofill, UNREADABLE_FILE_MESSAGE,
 } from '@/lib/records/autofillRun';
+import { linkAiUsageToExistingDocument, setAiUsageCategory } from '@/lib/aiUsageLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -128,7 +129,18 @@ export async function POST(req: Request) {
     // ── Pass 1: what is it? ───────────────────────────────────────────────
     const proposal = await classifyDocument(
       aiFiles, user.tenantId, user.id, companyId ? 'business' : 'personal', companyId,
+      { fileCount: 1, pageCount: aiFiles.length },
     );
+    // Usage rows this request wrote, handed back so the save can link them to
+    // the record that is created. See src/lib/aiUsageLink.ts.
+    const usageIds = proposal.usageId ? [proposal.usageId] : [];
+    // Classify's category is its OUTPUT — stamp it now that it is known.
+    if (proposal.usageId) {
+      await setAiUsageCategory(user.tenantId, proposal.usageId, proposal.moduleKey, proposal.documentKey);
+    }
+    // Editing a document that already exists: link the classify to it now
+    // (the field read below is linked the same way once it has run).
+    await linkAiUsageToExistingDocument(user.tenantId, usageIds, form.get('recordId'));
 
     // The pair the model returned is already checked against the seeded
     // taxonomy inside `classifyDocument` — the workspace's catch-all (Others:
@@ -183,6 +195,7 @@ export async function POST(req: Request) {
       holderName: proposal.holderName,
       pagesRead: aiFiles.length,
       pagesTotal,
+      usageIds,
     };
 
     /**
@@ -220,6 +233,9 @@ export async function POST(req: Request) {
     const result = await runAutofill({
       aiFiles, categoryKey, tenantId: user.tenantId, userId: user.id, companyId,
     });
+    if (result.usageId) usageIds.push(result.usageId);
+
+    await linkAiUsageToExistingDocument(user.tenantId, usageIds, form.get('recordId'));
 
     // The extract pass reads the holder off the document too, and it is
     // looking at the field the category declares for it rather than at a

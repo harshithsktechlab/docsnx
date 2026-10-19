@@ -82,7 +82,12 @@ function configFor(model) {
 
 /**
  * Unified content generation helper that works with both Gemini and OpenAI clients.
- * Returns { text, promptTokens, completionTokens }
+ * Returns { text, promptTokens, completionTokens, thinkingTokens, cachedTokens }
+ *
+ * `thinkingTokens` is Gemini's `thoughtsTokenCount`: NOT part of
+ * `candidatesTokenCount`, but billed at the output rate, so it is reported
+ * separately for recordTenantAiUsage to price. `cachedTokens` is already
+ * included in `promptTokens`; it is reported for visibility only.
  */
 async function generateContent({ client, model, provider }, contents) {
   // Apply AI Privacy Shield: sanitize all text prompts before transmitting to external AI models
@@ -114,7 +119,9 @@ async function generateContent({ client, model, provider }, contents) {
     return {
       text: response.choices[0]?.message?.content || '',
       promptTokens: response.usage?.prompt_tokens || 0,
-      completionTokens: response.usage?.completion_tokens || 0
+      completionTokens: response.usage?.completion_tokens || 0,
+      thinkingTokens: response.usage?.completion_tokens_details?.reasoning_tokens || 0,
+      cachedTokens: response.usage?.prompt_tokens_details?.cached_tokens || 0,
     };
   }
 
@@ -150,7 +157,9 @@ async function generateContent({ client, model, provider }, contents) {
         return {
           text: response.text || '',
           promptTokens: response.usageMetadata?.promptTokenCount || 0,
-          completionTokens: response.usageMetadata?.candidatesTokenCount || 0
+          completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+          thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+          cachedTokens: response.usageMetadata?.cachedContentTokenCount || 0,
         };
       } finally {
         await client.caches.delete({ name: cache.name }).catch(e => console.error('Cache delete error:', e));
@@ -165,7 +174,9 @@ async function generateContent({ client, model, provider }, contents) {
       return {
         text: response.text || '',
         promptTokens: response.usageMetadata?.promptTokenCount || 0,
-        completionTokens: response.usageMetadata?.candidatesTokenCount || 0
+        completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+        thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+        cachedTokens: response.usageMetadata?.cachedContentTokenCount || 0,
       };
     }
   } catch (error) {
@@ -191,7 +202,7 @@ async function generateContent({ client, model, provider }, contents) {
  * keeps working — the spend then reads as the household's, which is what every
  * caller meant before companies existed.
  */
-export async function generateRecordAnalysis(recordCategory, recordData, tenantId, userId, /** @type {string | null} */ companyId = null) {
+export async function generateRecordAnalysis(recordCategory, recordData, tenantId, userId, /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
   const profile = getAIProfile(recordCategory);
   try {
     const prompt = `Analyze this ${profile.name} (${recordCategory.toUpperCase()}) record and provide a hyper-concise JSON analysis.
@@ -222,12 +233,14 @@ export async function generateRecordAnalysis(recordCategory, recordData, tenantI
       async (clientInfo) => generateContent(clientInfo, [prompt]),
       userId,
       companyId,
+      usageContext,
     );
     
     const parsed = JSON.parse(stripMarkdownJson(res.text));
     return {
       ...parsed,
-      disclaimer: profile.mandatoryDisclaimer
+      disclaimer: profile.mandatoryDisclaimer,
+      usageId: res.usageId,
     };
   } catch (error) {
     console.error('AI record analysis error:', error);
@@ -299,7 +312,7 @@ export async function generateRecordAnalysis(recordCategory, recordData, tenantI
  * so no pair can resolve to them. They stay named directly, with the small
  * legacy schemas they have always had.
  */
-export async function scanMultipleFiles(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null) {
+export async function scanMultipleFiles(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
   // Built from the LIVE document_categories table, so a sub-category an operator
   // added is classifiable and one they retired is not offered. See
   // renderAiCategoryList() for the masking note.
@@ -419,9 +432,11 @@ Return only the raw JSON. Do not wrap in markdown code blocks.`;
       return {
         ...parsed,
         promptTokens: res.promptTokens,
-        completionTokens: res.completionTokens
+        completionTokens: res.completionTokens,
+        thinkingTokens: res.thinkingTokens,
+        cachedTokens: res.cachedTokens,
       };
-    }, userId, companyId);
+    }, userId, companyId, usageContext);
 
     return result;
   } catch (error) {
@@ -595,7 +610,7 @@ const FIELD_PROMPT_HINTS = {
  * audit logging. An unreadable field is omitted rather than guessed — a wrong
  * policy number the user did not notice is worse than an empty box.
  */
-export async function extractCategoryFields({ files, category, fields }, tenantId, userId, /** @type {string | null} */ companyId = null) {
+export async function extractCategoryFields({ files, category, fields }, tenantId, userId, /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
   /**
    * The fields worth ASKING for.
    *
@@ -672,7 +687,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
   "searchKeywords": ["<word or phrase>"]
 }`;
 
-  const result = await executeTenantWithRotation(tenantId, 'BULK_SCAN', async (clientInfo) => {
+  const result = await executeTenantWithRotation(tenantId, 'FIELD_READ', async (clientInfo) => {
     const contents = [systemPrompt];
 
     for (const file of files) {
@@ -723,8 +738,10 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
       // Read by executeTenantWithRotation for per-tenant usage accounting.
       promptTokens: res.promptTokens,
       completionTokens: res.completionTokens,
+      thinkingTokens: res.thinkingTokens,
+      cachedTokens: res.cachedTokens,
     };
-  }, userId, companyId);
+  }, userId, companyId, usageContext);
 
   return result;
 }
@@ -791,7 +808,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
  * Which is why the SAME document filed correctly through Power Scan and landed
  * in the catch-all here.
  */
-export async function classifyDocument(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null) {
+export async function classifyDocument(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
   // Built from the LIVE document_categories table, so a sub-category an operator
   // added is classifiable and one they retired is not offered. See
   // renderAiCategoryList() for the masking note.
@@ -899,6 +916,8 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
     let out = await ask(null);
     let promptTokens = out.res.promptTokens || 0;
     let completionTokens = out.res.completionTokens || 0;
+    let thinkingTokens = out.res.thinkingTokens || 0;
+    let cachedTokens = out.res.cachedTokens || 0;
     const refused = [...out.refused];
     let retried = false;
 
@@ -936,6 +955,8 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
       // tenant's own usage screens.
       promptTokens += second.res.promptTokens || 0;
       completionTokens += second.res.completionTokens || 0;
+      thinkingTokens += second.res.thinkingTokens || 0;
+      cachedTokens += second.res.cachedTokens || 0;
       refused.push(...second.refused);
 
       // The second answer only replaces the first if it actually filed the
@@ -985,8 +1006,10 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
       // both attempts' worth when there were two.
       promptTokens,
       completionTokens,
+      thinkingTokens,
+      cachedTokens,
     };
-  }, userId, companyId);
+  }, userId, companyId, usageContext);
 
   return result;
 }
@@ -994,7 +1017,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
 /**
  * Perform AI analysis for a specific category, providing a summary and item-level insights.
  */
-export async function generateCategoryAnalysis(category, categoryData, tenantId, userId, /** @type {string | null} */ companyId = null) {
+export async function generateCategoryAnalysis(category, categoryData, tenantId, userId, /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
   const profile = getAIProfile(category);
   try {
     const systemPrompt = `You are a professional financial planner and risk analyst assistant for a records vault SaaS platform called DocsNX.
@@ -1035,9 +1058,11 @@ Please perform the analysis.`;
         ...parsed,
         disclaimer: profile.mandatoryDisclaimer,
         promptTokens: res.promptTokens,
-        completionTokens: res.completionTokens
+        completionTokens: res.completionTokens,
+        thinkingTokens: res.thinkingTokens,
+        cachedTokens: res.cachedTokens,
       };
-    }, userId, companyId);
+    }, userId, companyId, usageContext);
 
     return result;
   } catch (error) {
@@ -1053,7 +1078,7 @@ Please perform the analysis.`;
 /**
  * Perform AI portfolio analysis for gaps, investment health, critical expiries, and recommendations.
  */
-export async function generatePortfolioAnalysis(portfolioData, tenantId, userId, /** @type {string | null} */ companyId = null) {
+export async function generatePortfolioAnalysis(portfolioData, tenantId, userId, /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
   try {
     const systemPrompt = `You are a professional financial planner and risk analyst assistant for a records vault SaaS platform called DocsNX.
 Analyze the user's workspace portfolio data (medical records, investments, insurance policies, documents, vehicles, warranties, contract agreements).
@@ -1104,9 +1129,11 @@ Please perform the analysis.`;
       return {
         ...parsed,
         promptTokens: res.promptTokens,
-        completionTokens: res.completionTokens
+        completionTokens: res.completionTokens,
+        thinkingTokens: res.thinkingTokens,
+        cachedTokens: res.cachedTokens,
       };
-    }, userId, companyId);
+    }, userId, companyId, usageContext);
 
     return result;
   } catch (error) {
