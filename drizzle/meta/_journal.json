@@ -526,6 +526,41 @@
       "when": 1786061461000,
       "tag": "0074_precious_metals_purchases",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1786062461000,
+      "tag": "0075_ai_usage_detail",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1786063461000,
+      "tag": "0076_ai_usage_attribution",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1786064461000,
+      "tag": "0077_manual_grant_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1786065461000,
+      "tag": "0078_credit_ledger_reconcile",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1786066461000,
+      "tag": "0079_payment_method_coupon_free",
+      "breakpoints": true
     }
   ]
 }
