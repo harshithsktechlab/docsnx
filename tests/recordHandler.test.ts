@@ -181,6 +181,7 @@ describe('the gate', () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler.mock.calls[0][0].keys).toEqual([
       { moduleKey: 'rentals_subscriptions', documentKey: 'rental_agreements' },
+      { moduleKey: 'rentals_subscriptions', documentKey: 'other' },
     ]);
   });
 

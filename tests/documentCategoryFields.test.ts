@@ -22,6 +22,8 @@ import {
   UNCATEGORIZED,
   categoryLabel as label,
   isBusinessModule,
+  isCatchAll,
+  isModuleOther,
 } from '../src/lib/documentCategories';
 import { prepareAiPayload, maskSensitiveText } from '../src/lib/aiPrivacyMasker';
 import { formFields } from '../src/lib/records/fieldValidation';
@@ -777,7 +779,9 @@ describe('Document category field dictionary', () => {
           // …and so do 0073's purchase bills.
           && !(p.moduleKey === 'warranty_amc' && p.documentKey === 'purchase_bills')
           // …and 0074's gold / silver / diamond purchases.
-          && !(p.moduleKey === 'bank_investments' && p.documentKey === 'precious_metals_purchases'),
+          && !(p.moduleKey === 'bank_investments' && p.documentKey === 'precious_metals_purchases')
+          // …and every module's own `other` (0084).
+          && !isModuleOther(p),
       );
       expect(stated).toHaveLength(expected.length);
       expect([...stated].sort()).toEqual(
@@ -793,8 +797,8 @@ describe('Document category field dictionary', () => {
       const business = DOCUMENT_CATEGORY_ENCRYPTED_FIELDS.filter(
         (p) => isBusinessModule(p.moduleKey),
       );
-      // 90 real categories plus the `biz_other` catch-all (0067).
-      expect(business).toHaveLength(91);
+      // 90 real categories, 15 module Others (0084) and the `biz_other` catch-all (0067).
+      expect(business).toHaveLength(106);
       const unsealed = business.filter((p) => p.encryptedFields.length === 0);
       expect(unsealed.map((p) => `${p.moduleKey}/${p.documentKey}`)).toEqual([]);
       // `reference_number` is the one every business category carries.
@@ -868,11 +872,21 @@ describe('Document category field dictionary', () => {
       expect(formFields(shown).map((f) => f.fieldKey)).toContain('account_number');
     });
 
-    it('marks inherited fields only on the catch-alls', () => {
+    it('marks inherited fields only on the catch-alls and the module Others', () => {
       for (const row of DOCUMENT_CATEGORY_FIELD_SEED) {
         if (!row.isInherited) continue;
-        expect(CATCH_ALLS.map(label)).toContain(label(row));
+        expect(isCatchAll(row) || isModuleOther(row), label(row)).toBe(true);
       }
+    });
+
+    it("gives a module's own Other the short form, sealing its module's fields behind it (0084)", () => {
+      const key = { moduleKey: 'insurance', documentKey: 'other' };
+      const visible = fieldsFor(key).filter((f) => !f.isInherited).map((f) => f.fieldKey);
+      expect(visible).toEqual(expect.arrayContaining(['issuer_name', 'reference_number', 'amount', 'expiry_date']));
+      expect(visible).not.toContain('policy_number');
+      expect(encryptedFieldsFor(key)).toContain('policy_number');
+      // Scoped to its module: nothing from Identity is inherited here.
+      expect(fieldsFor(key).map((f) => f.fieldKey)).not.toContain('aadhaar_number');
     });
   });
 

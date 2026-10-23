@@ -30,6 +30,7 @@ vi.mock('@/lib/auth', () => ({
   getUserFromRequest: vi.fn(async () => ({ id: 'u1', tenantId: 't1', role: 'TENANT_ADMIN' })),
   hasCompanyAccess: vi.fn(async () => true),
   hasPersonalAccess: vi.fn(() => true),
+  hasPermission: vi.fn(async () => true),
 }));
 vi.mock('@/lib/planGate', () => ({
   requireActivePlan: () => null,
@@ -122,7 +123,7 @@ describe('/api/analysis cacheOnly (opening the page must not spend credits)', ()
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ success: true, analysis: null, cached: false, creditCost: 2 });
+    expect(body).toEqual({ success: true, analysis: null, cached: false, creditCost: 2, canRefresh: true });
     expect(generateCategoryAnalysis).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();

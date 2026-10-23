@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { aiAnalysisCache } from '@/db/schema';
-import { getUserFromRequest, hasCompanyAccess, hasPersonalAccess } from '@/lib/auth';
+import { getUserFromRequest, hasCompanyAccess, hasPermission, hasPersonalAccess } from '@/lib/auth';
 import { requireActivePlan, requireActivePlanFor } from '@/lib/planGate';
 import { eq, and } from 'drizzle-orm';
 import { generateCategoryAnalysis } from '@/lib/ai';
@@ -137,6 +137,14 @@ export async function GET(req: Request) {
     const workspaceGate = requireActivePlanFor(user, companyId ?? null);
     if (workspaceGate) return workspaceGate;
 
+    /**
+     * May this member spend credits on a fresh analysis? The tenant admin sets
+     * it per member (`ai_analysis` in the permission matrix). Reading what is
+     * already saved is not gated by it — only the model call below is — and
+     * the answer rides on every response so the page can say so before a click.
+     */
+    const canRefresh = await hasPermission(user, 'ai_analysis', 'add');
+
     // Check cache first if not force refreshing
     //
     // The company is resolved ABOVE this rather than after it, which is the
@@ -164,7 +172,8 @@ export async function GET(req: Request) {
           },
           disclaimer: profile.mandatoryDisclaimer,
           cached: true,
-          updatedAt: cached.updatedAt
+          updatedAt: cached.updatedAt,
+          canRefresh,
         });
       }
     }
@@ -180,7 +189,19 @@ export async function GET(req: Request) {
         analysis: null,
         cached: false,
         creditCost: await categoryAnalysisCreditCost(),
+        canRefresh,
       });
+    }
+
+    // Everything past here is a billed model call.
+    if (!canRefresh) {
+      return NextResponse.json(
+        {
+          error: 'You do not have permission to refresh this analysis. Ask your account admin for access.',
+          errorCode: 'NO_REFRESH_PERMISSION',
+        },
+        { status: 403 },
+      );
     }
 
     // One query where there were fifteen branches. `prepareAiPayload` still
@@ -256,7 +277,8 @@ export async function GET(req: Request) {
       success: true,
       analysis: enrichedAnalysis,
       disclaimer: profile.mandatoryDisclaimer,
-      cached: false
+      cached: false,
+      canRefresh,
     });
   } catch (error: any) {
     // A classified AI failure carries a written, actionable sentence and its

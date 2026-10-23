@@ -116,11 +116,11 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     legacyEnvelope: 'documents',
     categories: [
       ...k('identity', 'aadhaar_card', 'pan_card', 'passport', 'voter_id',
-        'driving_license', 'birth_certificate', 'death_certificate', 'ration_card'),
+        'driving_license', 'birth_certificate', 'death_certificate', 'ration_card', 'other'),
       ...k('education', 'marksheets_certificates', 'degree_diploma',
-        'migration_transfer', 'entrance_exam_scorecards'),
+        'migration_transfer', 'entrance_exam_scorecards', 'other'),
       ...k('civil_government', 'marriage_certificate', 'domicile_certificate',
-        'caste_income_certificates', 'senior_citizen_card', 'oci_visa_residency'),
+        'caste_income_certificates', 'senior_citizen_card', 'oci_visa_residency', 'other'),
       ...k('other', 'uncategorized'),
     ],
   },
@@ -129,7 +129,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     path: '/medical',
     primaryModule: 'health_medical',
     categories: k('health_medical', 'records_prescriptions', 'vaccination_certificates',
-      'checkup_reports', 'discharge_summaries', 'insurance_claims', 'disability_certificate'),
+      'checkup_reports', 'discharge_summaries', 'insurance_claims', 'disability_certificate', 'other'),
   },
   lic_mediclaim: {
     ...DEFAULTS,
@@ -137,7 +137,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'insurance',
     legacyEnvelope: 'policies',
     categories: k('insurance', 'life_policies', 'health_policies', 'vehicle_policies',
-      'home_property_policies', 'term_policies', 'premium_receipts'),
+      'home_property_policies', 'term_policies', 'premium_receipts', 'other'),
   },
   bank_info: {
     ...DEFAULTS,
@@ -145,7 +145,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'bank_investments',
     legacyEnvelope: 'bankInfos',
     categories: k('bank_investments', 'bank_statements_passbooks',
-      'credit_card_statements', 'cheque_books', 'bank_locker_agreement', 'locker_items'),
+      'credit_card_statements', 'cheque_books', 'bank_locker_agreement', 'locker_items', 'other'),
   },
   trading: {
     ...DEFAULTS,
@@ -190,7 +190,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     // seeded category must be owned by exactly one scope — asserted by
     // tests/moduleVocabulary.test.ts — and removing it would orphan the pair.
     categories: k('vehicle', 'registration_certificate', 'puc_certificate',
-      'purchase_invoice', 'insurance_cross_ref'),
+      'purchase_invoice', 'insurance_cross_ref', 'other'),
   },
   tax_compliance: {
     ...DEFAULTS,
@@ -198,7 +198,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'tax_compliance',
     categories: [
       ...k('tax_compliance', 'tds_certificates', 'advance_tax_receipts',
-        'wealth_asset_declarations', 'pension_payment_order'),
+        'wealth_asset_declarations', 'pension_payment_order', 'other'),
       ...k('bank_investments', 'itr_form16'),
       // `business/gst_returns` used to be listed here. GST is a company's
       // return, and it now lives at `biz_tax/gst_returns` in the business
@@ -209,7 +209,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     ...DEFAULTS,
     path: '/wills-estate',
     primaryModule: 'property_legal',
-    categories: k('property_legal', 'will_nomination', 'power_of_attorney', 'divorce_custody'),
+    categories: k('property_legal', 'will_nomination', 'power_of_attorney', 'divorce_custody', 'other'),
   },
   // No `user_id` column before consolidation — every row was tenant-wide.
   warranty: {
@@ -218,7 +218,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'warranty_amc',
     legacyEnvelope: 'warranties',
     defaultIsGlobal: true,
-    categories: k('warranty_amc', 'appliance_warranties', 'amc_contracts', 'purchase_bills'),
+    categories: k('warranty_amc', 'appliance_warranties', 'amc_contracts', 'purchase_bills', 'other'),
   },
   rentals: {
     ...DEFAULTS,
@@ -226,20 +226,20 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'rentals_subscriptions',
     legacyEnvelope: 'contracts',
     defaultIsGlobal: true,
-    categories: k('rentals_subscriptions', 'rental_agreements', 'subscription_receipts'),
+    categories: k('rentals_subscriptions', 'rental_agreements', 'subscription_receipts', 'other'),
   },
   utility_bills: {
     ...DEFAULTS,
     path: '/utility-bills',
     primaryModule: 'utility_bills',
-    categories: k('utility_bills', 'electricity', 'gas', 'water'),
+    categories: k('utility_bills', 'electricity', 'gas', 'water', 'other'),
   },
   employment_payroll: {
     ...DEFAULTS,
     path: '/employment-payroll',
     primaryModule: 'employment',
     categories: k('employment', 'offer_appointment_letters', 'salary_slips',
-      'experience_relieving_letters', 'epf_uan_documents'),
+      'experience_relieving_letters', 'epf_uan_documents', 'other'),
   },
   // Added with 0065. Unlike the scopes above it never had a bespoke page, so it
   // is 1:1 with its module and lives on the generic `/modules` page, the way
@@ -249,7 +249,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     path: '/modules/travel',
     primaryModule: 'travel',
     categories: k('travel', 'flight_tickets', 'train_tickets', 'bus_tickets',
-      'hotel_bookings', 'cab_car_rentals', 'event_tickets'),
+      'hotel_bookings', 'cab_car_rentals', 'event_tickets', 'other'),
   },
 
   // ── BUSINESS SCOPES ──────────────────────────────────────────────────────
@@ -265,91 +265,91 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_registration`,
     primaryModule: 'biz_registration',
-    categories: k('biz_registration', 'certificate_of_incorporation', 'moa_aoa', 'partnership_deed', 'llp_agreement', 'udyam_registration', 'shop_establishment_license', 'pan_card', 'tan_certificate'),
+    categories: k('biz_registration', 'certificate_of_incorporation', 'moa_aoa', 'partnership_deed', 'llp_agreement', 'udyam_registration', 'shop_establishment_license', 'pan_card', 'tan_certificate', 'other'),
   },
   biz_tax: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_tax`,
     primaryModule: 'biz_tax',
-    categories: k('biz_tax', 'gst_registration', 'gst_returns', 'income_tax_returns', 'tds_certificates', 'advance_tax_challans', 'professional_tax_registration', 'tax_audit_reports'),
+    categories: k('biz_tax', 'gst_registration', 'gst_returns', 'income_tax_returns', 'tds_certificates', 'advance_tax_challans', 'professional_tax_registration', 'tax_audit_reports', 'other'),
   },
   biz_finance: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_finance`,
     primaryModule: 'biz_finance',
-    categories: k('biz_finance', 'balance_sheet', 'profit_loss_statement', 'cash_flow_statement', 'audited_financial_statements', 'bank_statements', 'ledger_trial_balance', 'invoices', 'credit_debit_notes'),
+    categories: k('biz_finance', 'balance_sheet', 'profit_loss_statement', 'cash_flow_statement', 'audited_financial_statements', 'bank_statements', 'ledger_trial_balance', 'invoices', 'credit_debit_notes', 'other'),
   },
   biz_banking: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_banking`,
     primaryModule: 'biz_banking',
-    categories: k('biz_banking', 'current_account_documents', 'loan_sanction_letters', 'loan_agreements', 'cash_credit_overdraft', 'bank_guarantee', 'letter_of_credit', 'cheque_rtgs_neft_records'),
+    categories: k('biz_banking', 'current_account_documents', 'loan_sanction_letters', 'loan_agreements', 'cash_credit_overdraft', 'bank_guarantee', 'letter_of_credit', 'cheque_rtgs_neft_records', 'other'),
   },
   biz_licenses: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_licenses`,
     primaryModule: 'biz_licenses',
-    categories: k('biz_licenses', 'trade_license', 'fssai_license', 'import_export_code', 'factory_license', 'fire_safety_certificate', 'pollution_control_clearance', 'industry_regulatory_licenses'),
+    categories: k('biz_licenses', 'trade_license', 'fssai_license', 'import_export_code', 'factory_license', 'fire_safety_certificate', 'pollution_control_clearance', 'industry_regulatory_licenses', 'other'),
   },
   biz_compliance: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_compliance`,
     primaryModule: 'biz_compliance',
-    categories: k('biz_compliance', 'roc_annual_filings', 'esi_registration_returns', 'epf_registration_returns', 'labour_law_compliance', 'statutory_audit_reports', 'board_resolutions'),
+    categories: k('biz_compliance', 'roc_annual_filings', 'esi_registration_returns', 'epf_registration_returns', 'labour_law_compliance', 'statutory_audit_reports', 'board_resolutions', 'other'),
   },
   biz_contracts: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_contracts`,
     primaryModule: 'biz_contracts',
-    categories: k('biz_contracts', 'vendor_supplier_agreements', 'client_customer_contracts', 'nda', 'lease_rent_agreements', 'employment_contracts', 'franchise_agreements', 'mou'),
+    categories: k('biz_contracts', 'vendor_supplier_agreements', 'client_customer_contracts', 'nda', 'lease_rent_agreements', 'employment_contracts', 'franchise_agreements', 'mou', 'other'),
   },
   biz_hr: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_hr`,
     primaryModule: 'biz_hr',
-    categories: k('biz_hr', 'offer_letters', 'appointment_letters', 'employment_contracts', 'hr_policy_documents', 'payroll_records', 'pf_esi_employee_records', 'performance_appraisals'),
+    categories: k('biz_hr', 'offer_letters', 'appointment_letters', 'employment_contracts', 'hr_policy_documents', 'payroll_records', 'pf_esi_employee_records', 'performance_appraisals', 'other'),
   },
   biz_ip: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_ip`,
     primaryModule: 'biz_ip',
-    categories: k('biz_ip', 'trademark_registration', 'patent_certificates', 'copyright_registration', 'trade_secret_documentation', 'domain_brand_ownership'),
+    categories: k('biz_ip', 'trademark_registration', 'patent_certificates', 'copyright_registration', 'trade_secret_documentation', 'domain_brand_ownership', 'other'),
   },
   biz_insurance: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_insurance`,
     primaryModule: 'biz_insurance',
-    categories: k('biz_insurance', 'business_property_insurance', 'professional_indemnity', 'employee_group_insurance', 'fire_theft_insurance', 'marine_cargo_insurance'),
+    categories: k('biz_insurance', 'business_property_insurance', 'professional_indemnity', 'employee_group_insurance', 'fire_theft_insurance', 'marine_cargo_insurance', 'other'),
   },
   biz_governance: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_governance`,
     primaryModule: 'biz_governance',
-    categories: k('biz_governance', 'board_meeting_minutes', 'agm_records', 'shareholder_agreements', 'statutory_registers', 'director_kyc'),
+    categories: k('biz_governance', 'board_meeting_minutes', 'agm_records', 'shareholder_agreements', 'statutory_registers', 'director_kyc', 'other'),
   },
   biz_procurement: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_procurement`,
     primaryModule: 'biz_procurement',
-    categories: k('biz_procurement', 'purchase_orders', 'vendor_contracts', 'quality_certifications', 'supplier_compliance'),
+    categories: k('biz_procurement', 'purchase_orders', 'vendor_contracts', 'quality_certifications', 'supplier_compliance', 'other'),
   },
   biz_sales: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_sales`,
     primaryModule: 'biz_sales',
-    categories: k('biz_sales', 'sales_agreements', 'marketing_collateral_approvals', 'customer_contracts_slas', 'warranty_documents'),
+    categories: k('biz_sales', 'sales_agreements', 'marketing_collateral_approvals', 'customer_contracts_slas', 'warranty_documents', 'other'),
   },
   biz_operations: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_operations`,
     primaryModule: 'biz_operations',
-    categories: k('biz_operations', 'property_lease_deeds', 'asset_registers', 'equipment_purchase_maintenance', 'utility_bills'),
+    categories: k('biz_operations', 'property_lease_deeds', 'asset_registers', 'equipment_purchase_maintenance', 'utility_bills', 'other'),
   },
   biz_travel: {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_travel`,
     primaryModule: 'biz_travel',
-    categories: k('biz_travel', 'flight_tickets', 'train_tickets', 'bus_tickets', 'hotel_bookings', 'cab_car_rentals', 'travel_expense_claims'),
+    categories: k('biz_travel', 'flight_tickets', 'train_tickets', 'bus_tickets', 'hotel_bookings', 'cab_car_rentals', 'travel_expense_claims', 'other'),
   },
   // 0067: the company's catch-all — last in the business rail since 0068 (see
   // navModulesOf). The scope gives a document filed under it a home page and a policy.

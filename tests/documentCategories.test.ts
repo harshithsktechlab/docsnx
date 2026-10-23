@@ -40,17 +40,18 @@ import { maskSensitiveText } from '../src/lib/aiPrivacyMasker';
  * `travel` (14) arrived in 0065. Bank & Investments gained `locker_items` in
  * 0070, which also removed the one-day `wealth` module 0069 had added.
  * Warranty & AMC gained `purchase_bills` in 0073, and Bank & Investments
- * `precious_metals_purchases` in 0074.
+ * `precious_metals_purchases` in 0074. 0084 gave every module but the
+ * catch-all its own `other`.
  */
-const EXPECTED_PERSONAL_COUNTS = [8, 12, 6, 8, 4, 6, 4, 4, 5, 3, 2, 3, 4, 6, 1];
+const EXPECTED_PERSONAL_COUNTS = [9, 13, 7, 9, 5, 7, 5, 5, 6, 4, 3, 4, 5, 7, 1];
 /**
  * Business modules 101..114, added by 0050, 115 `biz_travel` by 0065, and the
  * company catch-all 116 `biz_other` by 0067.
  */
-const EXPECTED_BUSINESS_COUNTS = [8, 7, 8, 7, 7, 6, 7, 7, 5, 5, 5, 4, 4, 4, 6, 1];
+const EXPECTED_BUSINESS_COUNTS = [9, 8, 9, 8, 8, 7, 8, 8, 6, 6, 6, 5, 5, 5, 7, 1];
 const EXPECTED_MODULE_COUNTS = [...EXPECTED_PERSONAL_COUNTS, ...EXPECTED_BUSINESS_COUNTS];
-const TOTAL_PERSONAL = 76;
-const TOTAL_BUSINESS = 91;
+const TOTAL_PERSONAL = 90;
+const TOTAL_BUSINESS = 106;
 const TOTAL_SUBCATEGORIES = TOTAL_PERSONAL + TOTAL_BUSINESS;
 
 const MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0023_master_taxonomy_realignment.sql');
@@ -61,6 +62,7 @@ const WEALTH_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0069_wealth_modu
 const FOLD_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0070_fold_wealth_into_bank.sql');
 const PURCHASE_BILLS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0073_purchase_bills_category.sql');
 const PRECIOUS_METALS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0074_precious_metals_purchases.sql');
+const MODULE_OTHER_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0084_module_other_subcategories.sql');
 
 /**
  * 0036 reaped the 15 tombstones 0023 left behind, once 0035 had removed their
@@ -93,7 +95,7 @@ describe('Document category taxonomy', () => {
       );
     });
 
-    it('has 167 sub-categories in total', () => {
+    it('has 196 sub-categories in total', () => {
       const total = DOCUMENT_CATEGORY_MODULES.reduce((n, m) => n + m.subCategories.length, 0);
       expect(total).toBe(TOTAL_SUBCATEGORIES);
       expect(EXPECTED_MODULE_COUNTS.reduce((a, b) => a + b, 0)).toBe(TOTAL_SUBCATEGORIES);
@@ -342,6 +344,32 @@ describe('Document category taxonomy', () => {
       expect(preciousSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
     });
 
+    /** 0084 gives every module but the two catch-alls its own `other`. */
+    const otherSql = readFileSync(MODULE_OTHER_MIGRATION_PATH, 'utf8');
+    const otherRows = Array.from(otherSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+
+    it('adds a module Other to all 29 modules additively in 0084', () => {
+      expect(otherRows).toHaveLength(29);
+      expect(otherRows.every((r) => r.documentKey === 'other')).toBe(true);
+      expect(otherRows.map((r) => r.moduleKey)).not.toEqual(
+        expect.arrayContaining(CATCH_ALL_MODULE_KEYS as string[]));
+      expect(otherSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(otherSql).not.toMatch(/UPDATE\s+"?document_categories|DELETE\s+FROM/i);
+    });
+
+    it("ends every module but the catch-alls with its own 'other'", () => {
+      for (const m of DOCUMENT_CATEGORY_MODULES) {
+        if (CATCH_ALL_MODULE_KEYS.includes(m.moduleKey)) continue;
+        expect(m.subCategories.at(-1)?.documentKey, m.moduleKey).toBe('other');
+      }
+    });
+
     it('adds the two travel modules additively in 0065', () => {
       expect(travelRows).toHaveLength(12);
       expect([...new Set(travelRows.map((r) => r.moduleKey))]).toEqual(['travel', 'biz_travel']);
@@ -361,6 +389,7 @@ describe('Document category taxonomy', () => {
         ...foldRows,
         ...purchaseRows,
         ...preciousRows,
+        ...otherRows,
       ]
         .map((r) => ({
           moduleNo: r.moduleNo,

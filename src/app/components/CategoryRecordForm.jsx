@@ -78,7 +78,7 @@ import HolderSelect, {
   ALL_MEMBERS, holderValues, unmatchedHolderError, HOLDER_REQUIRED_MESSAGE,
 } from '@/app/components/HolderSelect';
 import { holderRequired, holdersForWrite } from '@/lib/records/holderScope';
-import { isCatchAll } from '@/lib/documentCategories';
+import { acceptsCustomLabel } from '@/lib/documentCategories';
 import OthersLabelInput from '@/app/components/OthersLabelInput';
 
 /** A preset single holder ('', 'all' or an id) as the multi-member value. */
@@ -158,9 +158,9 @@ export default function CategoryRecordForm({
   // `[]` All members, else the chosen ids — see <HolderSelect multiple>.
   const [holderIds, setHolderIds] = useState(() => presetHolders(initialHolderId));
   const [customRows, setCustomRows] = useState([]);
-  /** The member's label, on the Others form only (0068). */
+  /** The member's label, on an "Other" form only (0068, 0084). */
   const [label, setLabel] = useState('');
-  const catchAll = isCatchAll({ moduleKey, documentKey });
+  const takesLabel = acceptsCustomLabel({ moduleKey, documentKey });
   /** `{ cards, text }` — see src/lib/records/linkedCards.ts. */
   const [cardsValue, setCardsValue] = useState({ cards: [], text: '' });
   const [file, setFile] = useState(null);
@@ -749,7 +749,7 @@ export default function CategoryRecordForm({
     }
     if (custom.length > 0) body.append(CUSTOM_FIELDS_KEY, JSON.stringify(custom));
     body.append('title', String(record[TITLE_KEY] ?? '').trim());
-    if (catchAll) body.append('customSubcategory', label);
+    if (takesLabel) body.append('customSubcategory', label);
     // Omitted entirely in a company workspace — see `holderForWrite`. Sending
     // '' there would read as an explicit "All members" and set is_global on a
     // record that belongs to the company, not to the household.
@@ -980,7 +980,7 @@ export default function CategoryRecordForm({
                 }}
               />
 
-              {catchAll && (
+              {takesLabel && (
                 <OthersLabelInput
                   id="record-label"
                   value={label}

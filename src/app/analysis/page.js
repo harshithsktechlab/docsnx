@@ -11,13 +11,15 @@ import {
   Activity,
   Car,
   Briefcase,
-  Shield
+  Shield,
+  Lock
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Modal } from '@/components/ui/Modal';
 import PageContainer from '@/app/components/PageContainer';
 import { cn } from '@/lib/utils';
 import { useWorkspaceApi } from '@/lib/net/useWorkspaceApi';
@@ -50,6 +52,15 @@ export default function AnalysisPage() {
   const [error, setError] = useState('');
   // What generating would cost, when the API said so. Only set on the empty state.
   const [creditCost, setCreditCost] = useState(null);
+  /**
+   * Whether the tenant admin lets this member spend credits on a fresh analysis
+   * (`ai_analysis` in the permission matrix). The API reports it on every
+   * response, including the cache-only read that opens the page, so it is known
+   * before the first click. Starts `true`: the server is the gate, and a button
+   * that refuses before anything has loaded would refuse admins too.
+   */
+  const [canRefresh, setCanRefresh] = useState(true);
+  const [showNoPermission, setShowNoPermission] = useState(false);
 
   /**
    * ── ONE PAGE, TWO WORKSPACES ──────────────────────────────────────────────
@@ -107,6 +118,17 @@ export default function AnalysisPage() {
         // a request that was still working and report it as a timeout.
         { timeoutMs: 180_000 });
       
+      if (typeof json.canRefresh === 'boolean') setCanRefresh(json.canRefresh);
+
+      if (json.errorCode === 'NO_REFRESH_PERMISSION') {
+        // Revoked since the page loaded. Say so in the popup, and put back the
+        // saved analysis this request cleared — reading it is still allowed.
+        setCanRefresh(false);
+        setShowNoPermission(true);
+        fetchAnalysis(category);
+        return;
+      }
+
       if (json.success && json.analysis) {
         setAnalysis(json.analysis);
       } else if (json.success) {
@@ -149,6 +171,15 @@ export default function AnalysisPage() {
     fetchAnalysis(activeCategory);
   }, [activeCategory, categories]);
 
+  /** Every button that would call the model goes through here. */
+  const requestRefresh = () => {
+    if (!canRefresh) {
+      setShowNoPermission(true);
+      return;
+    }
+    fetchAnalysis(activeCategory, true);
+  };
+
   const handleCategoryChange = (val) => {
     setActiveCategory(val);
   };
@@ -167,7 +198,7 @@ export default function AnalysisPage() {
           </p>
         </div>
         <Button 
-          onClick={() => fetchAnalysis(activeCategory, true)} 
+          onClick={requestRefresh}
           disabled={loading}
           className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center gap-2 rounded-xl transition-all duration-300 shadow-md shadow-primary/10"
         >
@@ -212,7 +243,7 @@ export default function AnalysisPage() {
           ) : error ? (
             <div className="flex flex-col items-center justify-center gap-4 py-20 bg-destructive/5 border border-destructive/20 rounded-2xl">
               <p className="text-danger-text font-medium">{error}</p>
-              <Button onClick={() => fetchAnalysis(activeCategory, true)} variant="outline">
+              <Button onClick={requestRefresh} variant="outline">
                 <RefreshCw className="mr-2 h-4 w-4" /> Try Again
               </Button>
             </div>
@@ -308,15 +339,32 @@ export default function AnalysisPage() {
               <Sparkles className="h-8 w-8 text-primary" />
               <p className="text-foreground font-medium">No analysis yet for this category.</p>
               <p className="text-sm text-muted-foreground max-w-md">
-                Generating one uses AI credits{creditCost ? ` (about ${creditCost})` : ''} from your workspace balance.
+                {canRefresh
+                  ? `Generating one uses AI credits${creditCost ? ` (about ${creditCost})` : ''} from your workspace balance.`
+                  : 'Generating one needs permission from your account admin.'}
               </p>
-              <Button onClick={() => fetchAnalysis(activeCategory, true)}>
+              <Button onClick={requestRefresh}>
                 <Sparkles className="mr-2 h-4 w-4" /> Generate analysis
               </Button>
             </div>
           )}
         </div>
       </Tabs>
+
+      <Modal
+        isOpen={showNoPermission}
+        onClose={() => setShowNoPermission(false)}
+        title="Permission required"
+        maxWidth="max-w-md"
+        footer={<Button onClick={() => setShowNoPermission(false)}>OK</Button>}
+      >
+        <div className="flex items-start gap-3">
+          <Lock className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-foreground">
+            You do not have permission to refresh this analysis. Please contact your account admin to get access.
+          </p>
+        </div>
+      </Modal>
     </PageContainer>
   );
 }

@@ -79,7 +79,7 @@ import MultiPageCapture from '@/app/components/MultiPageCapture';
 import { stashPendingFiles, takePendingFiles, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
 import { apiDownload } from '@/lib/net/apiRequest';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
-import { belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
+import { acceptsCustomLabel, belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
 import { utilityNavPath } from '@/lib/moduleRegistry';
 import { toastApiError } from '@/lib/net/toastApiError';
 
@@ -467,9 +467,9 @@ export default function DocumentsPage() {
     () => categoryOptions.find((c) => c.id === categoryId) ?? null,
     [categoryOptions, categoryId],
   );
-  /** The edit modal's chosen category is Others — show and send its label. */
-  const editIsCatchAll = useMemo(
-    () => isCatchAll(categoryOptions.find((c) => c.id === editCategoryId)),
+  /** The edit modal's chosen category is an "Other" — show and send its label. */
+  const editTakesLabel = useMemo(
+    () => acceptsCustomLabel(categoryOptions.find((c) => c.id === editCategoryId)),
     [categoryOptions, editCategoryId],
   );
   /**
@@ -1296,7 +1296,7 @@ export default function DocumentsPage() {
     }
     formData.append('title', name);
     formData.append('categoryId', categoryId);
-    if (isCatchAll(uploadCategory)) formData.append('customSubcategory', uploadLabel);
+    if (acceptsCustomLabel(uploadCategory)) formData.append('customSubcategory', uploadLabel);
     // Appended only where a member can own the record. `holderForWrite` answers
     // undefined in a company workspace, and OMITTING the key is not the same as
     // sending '': `holderFrom` keeps the two apart so `resolveHolder` can fall
@@ -1575,7 +1575,7 @@ export default function DocumentsPage() {
         // 'title', not 'name' — POST /api/documents rejects a missing title.
         uploadFormData.append('title', title);
         uploadFormData.append('categoryId', editCategoryId);
-        if (editIsCatchAll) uploadFormData.append('customSubcategory', editLabel);
+        if (editTakesLabel) uploadFormData.append('customSubcategory', editLabel);
         uploadFormData.append('file', editFile);
         uploadFormData.append('replaceId', editingDoc.id);
         // Omitted in a company workspace, as on the add form above — see
@@ -1620,7 +1620,7 @@ export default function DocumentsPage() {
         title,
         categoryId: editCategoryId,
         // Moving out of Others clears it server-side whatever is sent here.
-        customSubcategory: editIsCatchAll ? editLabel : null,
+        customSubcategory: editTakesLabel ? editLabel : null,
         // `undefined` in a company workspace, and `JSON.stringify` drops the key
         // — the omission `holderFrom` reads as "not sent". The personal branch
         // keeps its `|| null`: '' means "All members", which the route spells
@@ -2474,7 +2474,7 @@ export default function DocumentsPage() {
                 action="add"
               />
 
-              {isCatchAll(uploadCategory) && (
+              {acceptsCustomLabel(uploadCategory) && (
                 <OthersLabelInput
                   id="uploadLabel"
                   value={uploadLabel}
@@ -3027,7 +3027,7 @@ export default function DocumentsPage() {
                   className="md:col-span-2"
                   action="edit"
                 />
-                {editIsCatchAll && (
+                {editTakesLabel && (
                   <OthersLabelInput
                     id="editLabel"
                     value={editLabel}

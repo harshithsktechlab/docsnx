@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  DOCUMENT CATEGORY TAXONOMY — SINGLE SOURCE OF TRUTH (30 modules / 163)  ║
+ * ║  DOCUMENT CATEGORY TAXONOMY — SINGLE SOURCE OF TRUTH (31 modules / 196)  ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * Every document is filed under exactly one row of this taxonomy, resolved to
@@ -130,6 +130,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'birth_certificate', documentName: 'Birth Certificate' },
       { documentKey: 'death_certificate', documentName: 'Death Certificate' },
       { documentKey: 'ration_card', documentName: 'Ration Card' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -155,6 +156,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       // or bullion dealer's bill, a coin or bar, digital gold, an SGB. Where an
       // item is kept is a field; a locker's contents stay under `locker_items`.
       { documentKey: 'precious_metals_purchases', documentName: 'Gold / Silver / Diamond Purchase' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -168,6 +170,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'home_property_policies', documentName: 'Home / property insurance' },
       { documentKey: 'term_policies', documentName: 'Term insurance' },
       { documentKey: 'premium_receipts', documentName: 'Policy premium receipts' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -183,6 +186,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'power_of_attorney', documentName: 'Power of attorney' },
       { documentKey: 'khata_mutation_certificates', documentName: 'Khata / mutation certificates (state-specific land records)' },
       { documentKey: 'divorce_custody', documentName: 'Divorce decree / custody documents' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -194,6 +198,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'degree_diploma', documentName: 'Degree / diploma certificates' },
       { documentKey: 'migration_transfer', documentName: 'Migration and transfer certificates' },
       { documentKey: 'entrance_exam_scorecards', documentName: 'Entrance exam scorecards' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -207,6 +212,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'discharge_summaries', documentName: 'Hospital discharge summaries' },
       { documentKey: 'insurance_claims', documentName: 'Health insurance claim documents' },
       { documentKey: 'disability_certificate', documentName: 'Disability certificate' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -218,6 +224,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'salary_slips', documentName: 'Salary slips' },
       { documentKey: 'experience_relieving_letters', documentName: 'Experience / relieving letters' },
       { documentKey: 'epf_uan_documents', documentName: 'EPF UAN documents' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -232,6 +239,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       // and are listed here as well. Nothing is ever filed under this pair — see
       // src/lib/categoryMirrors.ts. The row stays because it IS the Vehicle tile.
       { documentKey: 'insurance_cross_ref', documentName: 'Vehicle insurance' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -244,6 +252,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'caste_income_certificates', documentName: 'Caste / income certificates' },
       { documentKey: 'senior_citizen_card', documentName: 'Senior citizen card' },
       { documentKey: 'oci_visa_residency', documentName: 'OCI card / visa / residency permits (NRI documents)' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -256,6 +265,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       // 0073. A shop's bill for goods bought — before it, a retail tax invoice
       // had nowhere to go and fell to Others.
       { documentKey: 'purchase_bills', documentName: 'Purchase bills / shopping invoices & receipts' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -265,6 +275,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
     subCategories: [
       { documentKey: 'rental_agreements', documentName: 'Rental agreements' },
       { documentKey: 'subscription_receipts', documentName: 'Subscription receipts / contracts (OTT, SaaS, gym, etc.)' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -275,6 +286,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'electricity', documentName: 'Electricity bills' },
       { documentKey: 'gas', documentName: 'Gas bills' },
       { documentKey: 'water', documentName: 'Water bills' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -286,6 +298,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'advance_tax_receipts', documentName: 'Advance tax payment receipts' },
       { documentKey: 'wealth_asset_declarations', documentName: 'Wealth / asset declaration documents' },
       { documentKey: 'pension_payment_order', documentName: 'Pension Payment Order (PPO) / retirement pension statements' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -305,6 +318,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'hotel_bookings', documentName: 'Hotel / stay booking confirmations' },
       { documentKey: 'cab_car_rentals', documentName: 'Cab / self-drive car rental bookings' },
       { documentKey: 'event_tickets', documentName: 'Event, movie & other tickets' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -344,6 +358,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'shop_establishment_license', documentName: 'Shop & Establishment License' },
       { documentKey: 'pan_card', documentName: 'PAN Card (Business)' },
       { documentKey: 'tan_certificate', documentName: 'TAN Certificate' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -358,6 +373,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'advance_tax_challans', documentName: 'Advance Tax Challans' },
       { documentKey: 'professional_tax_registration', documentName: 'Professional Tax Registration' },
       { documentKey: 'tax_audit_reports', documentName: 'Tax Audit Reports (Form 3CA / 3CB / 3CD)' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -373,6 +389,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'ledger_trial_balance', documentName: 'Ledger / Trial Balance' },
       { documentKey: 'invoices', documentName: 'Invoices (Sales & Purchase)' },
       { documentKey: 'credit_debit_notes', documentName: 'Credit / Debit Notes' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -387,6 +404,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'bank_guarantee', documentName: 'Bank Guarantee' },
       { documentKey: 'letter_of_credit', documentName: 'Letter of Credit' },
       { documentKey: 'cheque_rtgs_neft_records', documentName: 'Cheque Books / RTGS-NEFT Records' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -401,6 +419,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'fire_safety_certificate', documentName: 'Fire Safety Certificate' },
       { documentKey: 'pollution_control_clearance', documentName: 'Pollution Control Board Clearance' },
       { documentKey: 'industry_regulatory_licenses', documentName: 'Industry-specific Regulatory Licenses' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -414,6 +433,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'labour_law_compliance', documentName: 'Labour Law Compliance Records' },
       { documentKey: 'statutory_audit_reports', documentName: 'Statutory Audit Reports' },
       { documentKey: 'board_resolutions', documentName: 'Board Resolutions' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -428,6 +448,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'employment_contracts', documentName: 'Employment Contracts' },
       { documentKey: 'franchise_agreements', documentName: 'Franchise Agreements' },
       { documentKey: 'mou', documentName: 'Memorandum of Understanding (MOU)' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -442,6 +463,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'payroll_records', documentName: 'Payroll Records' },
       { documentKey: 'pf_esi_employee_records', documentName: 'PF / ESI Employee Records' },
       { documentKey: 'performance_appraisals', documentName: 'Performance Appraisal Records' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -454,6 +476,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'copyright_registration', documentName: 'Copyright Registration' },
       { documentKey: 'trade_secret_documentation', documentName: 'Trade Secret Documentation' },
       { documentKey: 'domain_brand_ownership', documentName: 'Domain / Brand Ownership Records' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -466,6 +489,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'employee_group_insurance', documentName: 'Employee Group Insurance' },
       { documentKey: 'fire_theft_insurance', documentName: 'Fire & Theft Insurance' },
       { documentKey: 'marine_cargo_insurance', documentName: 'Marine / Cargo Insurance' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -478,6 +502,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'shareholder_agreements', documentName: 'Shareholder Agreements' },
       { documentKey: 'statutory_registers', documentName: 'Statutory Registers (Members, Directors, Charges)' },
       { documentKey: 'director_kyc', documentName: 'Director KYC (DIN-related)' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -489,6 +514,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'vendor_contracts', documentName: 'Vendor Contracts' },
       { documentKey: 'quality_certifications', documentName: 'Quality Certifications' },
       { documentKey: 'supplier_compliance', documentName: 'Supplier Compliance Documents' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -500,6 +526,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'marketing_collateral_approvals', documentName: 'Marketing Collateral Approvals' },
       { documentKey: 'customer_contracts_slas', documentName: 'Customer Contracts / SLAs' },
       { documentKey: 'warranty_documents', documentName: 'Warranty Documents' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -511,6 +538,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'asset_registers', documentName: 'Asset Registers' },
       { documentKey: 'equipment_purchase_maintenance', documentName: 'Equipment Purchase / Maintenance Records' },
       { documentKey: 'utility_bills', documentName: 'Utility Bills (Business Premises)' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -525,6 +553,7 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'hotel_bookings', documentName: 'Hotel / stay booking confirmations' },
       { documentKey: 'cab_car_rentals', documentName: 'Cab / car rental bookings' },
       { documentKey: 'travel_expense_claims', documentName: 'Travel expense claims / reimbursements' },
+      { documentKey: 'other', documentName: 'Other' },
     ],
   },
   {
@@ -585,6 +614,32 @@ export function isCatchAll(key: { moduleKey?: unknown; documentKey?: unknown } |
   return Boolean(key)
     && CATCH_ALL_MODULE_KEYS.includes(key!.moduleKey as string)
     && key!.documentKey === UNCATEGORIZED.documentKey;
+}
+
+/**
+ * The document key of every real module's own "Other" (0084).
+ *
+ * Not a catch-all: the MODULE is known, only the sub-category is not, so the
+ * record stays in its module's list. Deliberately a new key rather than the
+ * `miscellaneous` 0023 retired and 0036 reaped — a key is a Drive path and an
+ * AAD binding, and reusing a dead one invites old ciphertext to match.
+ */
+export const MODULE_OTHER_KEY = 'other';
+
+/** Is this pair a module's own "Other" — `insurance/other`, `biz_hr/other`? */
+export function isModuleOther(key: { moduleKey?: unknown; documentKey?: unknown } | null | undefined): boolean {
+  return Boolean(key)
+    && key!.documentKey === MODULE_OTHER_KEY
+    && typeof key!.moduleKey === 'string'
+    && !CATCH_ALL_MODULE_KEYS.includes(key!.moduleKey);
+}
+
+/**
+ * May a document filed under this pair carry a member's own label
+ * (`documents.custom_subcategory`)? Under either kind of "Other", yes.
+ */
+export function acceptsCustomLabel(key: { moduleKey?: unknown; documentKey?: unknown } | null | undefined): boolean {
+  return isCatchAll(key) || isModuleOther(key);
 }
 
 export interface SeedCategoryRow {
@@ -937,7 +992,11 @@ export function renderAiCategoryList(
         // policies somewhere nothing lists them. Its canonical is still here,
         // under the module that owns it.
         .filter((s) => !isMirrorAlias({ moduleKey: m.moduleKey, documentKey: s.documentKey }))
-        .map((s) => `     - "${s.documentKey}": ${s.documentName}`)
+        // A module's own "Other" is a last resort WITHIN the module, stated as
+        // such so the model does not reach for it ahead of a real sub-category.
+        .map((s) => (isModuleOther({ moduleKey: m.moduleKey, documentKey: s.documentKey })
+          ? `     - "${s.documentKey}": ${s.documentName} (use ONLY when the document clearly belongs to this module but fits none of its other entries)`
+          : `     - "${s.documentKey}": ${s.documentName}`))
         .join('\n');
       // The hint goes on its OWN line, below the heading and above the
       // entries — the heading's exact shape is what the model pairs the two

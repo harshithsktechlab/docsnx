@@ -40,7 +40,7 @@ const { toTaxonomyRecordFromFields, REMINDER_FIELD_KEYS } = await import('@/lib/
 const {
   DOCUMENT_CATEGORY_FIELD_SPECS, encryptedFieldsFor, fieldsFor,
 } = await import('@/lib/documentCategoryFields');
-const { DOCUMENT_CATEGORY_SEED } = await import('@/lib/documentCategories');
+const { DOCUMENT_CATEGORY_SEED, isModuleOther } = await import('@/lib/documentCategories');
 const { NAV_MODULES, TENANT_SPECIFIC_PATHS, subCategoryPath } = await import('@/lib/moduleRegistry');
 
 const req = new Request('http://localhost/api/modules/identity/pan_card');
@@ -271,8 +271,10 @@ describe('mandatory fields', () => {
     // The two catch-alls are the exception and must stay so: they hold scans
     // whose module could not be identified, so demanding a specific field of
     // them would block the very records that most need somewhere to land.
-    const bare = DOCUMENT_CATEGORY_SEED.filter((row) =>
-      !fieldsFor(row).some((f) => f.isRequired && f.fieldKey !== 'document_title'));
+    // Each module's own `other` (0084) is the same holding bin one level down,
+    // and is left out of the count for the same reason.
+    const bare = DOCUMENT_CATEGORY_SEED.filter((row) => !isModuleOther(row)
+      && !fieldsFor(row).some((f) => f.isRequired && f.fieldKey !== 'document_title'));
     expect(bare.map((r) => `${r.moduleKey}/${r.documentKey}`))
       .toEqual(['other/uncategorized', 'biz_other/uncategorized']);
   });

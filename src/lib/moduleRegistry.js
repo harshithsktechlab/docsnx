@@ -233,6 +233,19 @@ export const TENANT_SPECIFIC_PATHS = [
  */
 // A Set because the two catch-alls are now in ALL_NAV_MODULES too; they stay
 // named here so they remain grantable even if the rail ever drops them again.
+/**
+ * ── ACTIONS, NOT DATA ──────────────────────────────────────────────────────
+ * Permission keys that gate something a member DOES rather than a table they
+ * read. `ai_analysis` is the Refresh / Generate button on the analysis page:
+ * a billed model call against the workspace's shared credits, so the tenant
+ * admin decides who may press it. `canAdd` is the grant; viewing a saved
+ * analysis stays gated by the record permissions, as it always was.
+ *
+ * Seeded to members of BOTH accounts — analysis exists in each — but kept out
+ * of SHARED_UTILITY_KEYS, whose meaning is "a table split by company_id".
+ */
+export const ACCOUNT_FEATURE_KEYS = ['ai_analysis'];
+
 export const PERMISSION_MODULE_KEYS = [...new Set([
   ...ALL_NAV_MODULES.map((m) => m.key),
   UNCATEGORIZED.moduleKey, // `other` — grantable, so an unfiled scan is reachable
@@ -241,6 +254,7 @@ export const PERMISSION_MODULE_KEYS = [...new Set([
   'audit_logs', // sidebar entry is TENANT_ADMIN-only (Account group in Shell.js);
                 // /api/audit-logs additionally hard-gates on role
   'invoices',   // reached from Billing, not the sidebar
+  ...ACCOUNT_FEATURE_KEYS,
 ])];
 
 /**
@@ -291,7 +305,8 @@ export const PERSONAL_PERMISSION_KEYS = PERMISSION_MODULE_KEYS.filter(
 );
 
 export const BUSINESS_PERMISSION_KEYS = PERMISSION_MODULE_KEYS.filter(
-  (key) => isBusinessModule(key) || SHARED_UTILITY_KEYS.includes(key),
+  (key) => isBusinessModule(key) || SHARED_UTILITY_KEYS.includes(key)
+    || ACCOUNT_FEATURE_KEYS.includes(key),
 );
 
 /**

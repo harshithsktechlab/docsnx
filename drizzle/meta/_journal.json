@@ -582,6 +582,20 @@
       "when": 1786069461000,
       "tag": "0082_shared_identity_memberships",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1786070461000,
+      "tag": "0083_ai_analysis_permission",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1786070521000,
+      "tag": "0084_module_other_subcategories",
+      "breakpoints": true
     }
   ]
 }

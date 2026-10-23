@@ -64,7 +64,7 @@ import ScanRecordFields, {
 import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
 import PageContainer from '@/app/components/PageContainer';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
-import { belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
+import { acceptsCustomLabel, belongsToWorkspace } from '@/lib/documentCategories';
 import OthersLabelInput from '@/app/components/OthersLabelInput';
 import { utilityNavPath } from '@/lib/moduleRegistry';
 import { takePendingFiles, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
@@ -1898,7 +1898,7 @@ export default function BulkScanPage() {
                               // no spec to render from.
                               updateRecordField(rIdx, 'moduleKey', picked?.moduleKey || '');
                               updateRecordField(rIdx, 'documentKey', picked?.documentKey || '');
-                              // A label belongs to Others (0068); it does not follow a re-file.
+                              // A label belongs to the "Other" it was given under; it does not follow a re-file.
                               updateRecordField(rIdx, 'customSubcategory', '');
                               // The values below are keyed by the OLD category's
                               // field keys. Kept, they would be posted as fields
@@ -1941,7 +1941,7 @@ export default function BulkScanPage() {
                               });
                             }}
                           />
-                          {isCatchAll(extractedData) && (
+                          {acceptsCustomLabel(extractedData) && (
                             <OthersLabelInput
                               id={`label-${rIdx}`}
                               value={extractedData.customSubcategory || ''}

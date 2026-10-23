@@ -19,6 +19,10 @@ const ROOT = path.join(__dirname, '..');
 const OTHERS = { moduleKey: 'other', documentKey: 'uncategorized', documentName: 'Others' };
 const BIZ_OTHERS = { moduleKey: 'biz_other', documentKey: 'uncategorized', documentName: 'Others' };
 const PAN = { moduleKey: 'identity', documentKey: 'pan_card', documentName: 'PAN Card' };
+// A module's own "Other" (0084) takes a label too.
+const INSURANCE_OTHER = { moduleKey: 'insurance', documentKey: 'other', documentName: 'Other' };
+const BIZ_HR_OTHER = { moduleKey: 'biz_hr', documentKey: 'other', documentName: 'Other' };
+const LIFE = { moduleKey: 'insurance', documentKey: 'life_policies', documentName: 'Life insurance policies' };
 
 describe('readCustomSubcategory', () => {
   it('keeps "not sent" apart from "sent blank"', () => {
@@ -53,6 +57,12 @@ describe('labelForCategory', () => {
     expect(labelForCategory(OTHERS, undefined)).toBeUndefined();
   });
 
+  it("keeps the label under a module's own Other (0084)", () => {
+    expect(labelForCategory(INSURANCE_OTHER, 'Pet insurance')).toBe('Pet insurance');
+    expect(labelForCategory(BIZ_HR_OTHER, 'Exit interview')).toBe('Exit interview');
+    expect(labelForCategory(LIFE, 'Pet insurance')).toBeNull();
+  });
+
   it('answers null for a real category, which is what clears it on a move', () => {
     expect(labelForCategory(PAN, 'Gym Membership')).toBeNull();
     expect(labelForCategory(PAN, undefined)).toBeNull();
@@ -65,6 +75,11 @@ describe('categoryDisplayName', () => {
     expect(categoryDisplayName(OTHERS, 'Gym Membership')).toBe('Gym Membership');
     expect(categoryDisplayName(OTHERS, null)).toBe('Others');
     expect(categoryDisplayName(PAN, 'stray')).toBe('PAN Card');
+  });
+
+  it("shows the label under a module's own Other, else 'Other'", () => {
+    expect(categoryDisplayName(INSURANCE_OTHER, 'Pet insurance')).toBe('Pet insurance');
+    expect(categoryDisplayName(INSURANCE_OTHER, null)).toBe('Other');
   });
 });
 

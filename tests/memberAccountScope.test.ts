@@ -29,6 +29,7 @@ vi.mock('@/lib/db', () => ({ db: {}, withTenant: vi.fn() }));
 
 const {
   SHARED_UTILITY_KEYS,
+  ACCOUNT_FEATURE_KEYS,
   PERSONAL_PERMISSION_KEYS,
   BUSINESS_PERMISSION_KEYS,
   PERMISSION_MODULE_KEYS,
@@ -52,7 +53,8 @@ describe('the two default grants divide the taxonomy', () => {
     // second gate behind it — the seeded rows ARE the gate.
     const overlap = PERSONAL_PERMISSION_KEYS
       .filter((k: string) => BUSINESS_PERMISSION_KEYS.includes(k))
-      .filter((k: string) => !SHARED_UTILITY_KEYS.includes(k));
+      .filter((k: string) => !SHARED_UTILITY_KEYS.includes(k))
+      .filter((k: string) => !ACCOUNT_FEATURE_KEYS.includes(k));
     expect(overlap, 'a record module in both grants is a member in both accounts').toEqual([]);
   });
 
@@ -80,10 +82,23 @@ describe('the two default grants divide the taxonomy', () => {
 
   it('gives a business member the company modules and the utilities, nothing else', () => {
     const unexpected = BUSINESS_PERMISSION_KEYS.filter(
-      (k: string) => !k.startsWith('biz_') && !SHARED_UTILITY_KEYS.includes(k));
+      (k: string) => !k.startsWith('biz_') && !SHARED_UTILITY_KEYS.includes(k)
+        && !ACCOUNT_FEATURE_KEYS.includes(k));
     expect(unexpected, 'a business member reaching a personal category').toEqual([]);
     // 15 business modules plus the `biz_other` catch-all (0067).
-    expect(BUSINESS_PERMISSION_KEYS).toHaveLength(16 + SHARED_UTILITY_KEYS.length);
+    expect(BUSINESS_PERMISSION_KEYS)
+      .toHaveLength(16 + SHARED_UTILITY_KEYS.length + ACCOUNT_FEATURE_KEYS.length);
+  });
+
+  it('lets a new member of either account refresh an analysis', async () => {
+    // Seeded to both, at Contributor, so the Refresh button works until the
+    // tenant admin says otherwise — and `View only` is how they say it.
+    expect(ACCOUNT_FEATURE_KEYS).toEqual(['ai_analysis']);
+    for (const rows of [DEFAULT_PERSONAL_PERMISSIONS, DEFAULT_BUSINESS_PERMISSIONS]) {
+      expect(await hasPermission(memberWith(rows), 'ai_analysis', 'add')).toBe(true);
+    }
+    const viewOnly = memberWith([{ module: 'ai_analysis', canView: true, canAdd: false }]);
+    expect(await hasPermission(viewOnly, 'ai_analysis', 'add')).toBe(false);
   });
 });
 

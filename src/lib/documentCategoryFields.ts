@@ -61,6 +61,7 @@ import {
   UNCATEGORIZED,
   isBusinessModule,
   isCatchAll,
+  isModuleOther,
 } from './documentCategories';
 import {
   ALERT_DAYS_BY_KEY,
@@ -2277,6 +2278,33 @@ function unionOfEveryCategory(): FieldSpec[] {
 }
 
 /**
+ * Every field ONE module's categories declare — the sealing policy for that
+ * module's own "Other" (0084), by the same fail-closed reasoning as
+ * `unionOfEveryCategory`, scoped to what is known: the module. An Insurance
+ * record nobody could place still carries a policy number, and it is sealed.
+ */
+function unionOfModule(moduleKey: string): FieldSpec[] {
+  const seen = new Set<string>();
+  const out: FieldSpec[] = [];
+  const sets: (readonly FieldSpec[])[] = Object.values(CATEGORY_FIELDS[moduleKey] ?? {});
+  if (isBusinessModule(moduleKey)) {
+    sets.push(
+      BUSINESS_MODULE_DEFAULTS[moduleKey] ?? BUSINESS_COMMON,
+      ...Object.values(BUSINESS_CATEGORY_FIELDS[moduleKey] ?? {}),
+    );
+    if (PERIODIC_BUSINESS_CATEGORIES[moduleKey]?.length) sets.push([PERIOD_FIELD]);
+  }
+  for (const fields of sets) {
+    for (const f of fields) {
+      if (seen.has(f.fieldKey)) continue;
+      seen.add(f.fieldKey);
+      out.push(unionField(f));
+    }
+  }
+  return out;
+}
+
+/**
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║   THE BUSINESS DEFAULT — one spec per business MODULE, not per category  ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
@@ -2836,6 +2864,19 @@ const RETIRED_UNION_FIELDS: readonly FieldSpec[] = [
 ];
 
 function specificFieldsFor(moduleKey: string, documentKey: string): readonly FieldSpec[] {
+  // A module's own "Other": the catch-all's short form, then that module's
+  // fields sealed behind it as `isInherited` — the same shape as below, over
+  // one module rather than all of them.
+  if (isModuleOther({ moduleKey, documentKey })) {
+    const ownKeys = new Set(CATCH_ALL_FIELDS.map((f) => f.fieldKey));
+    const baselineKeys = new Set([...BASELINE_LEADING, ...BASELINE_TRAILING].map((f) => f.fieldKey));
+    return [
+      ...CATCH_ALL_FIELDS,
+      ...unionOfModule(moduleKey)
+        .filter((f) => !ownKeys.has(f.fieldKey) && !baselineKeys.has(f.fieldKey))
+        .map((f) => ({ ...f, isInherited: true })),
+    ];
+  }
   const own = CATEGORY_FIELDS[moduleKey]?.[documentKey] ?? [];
   if (!isCatchAll({ moduleKey, documentKey })) {
     /**

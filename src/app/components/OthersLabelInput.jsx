@@ -1,12 +1,13 @@
 'use client';
 
 /**
- * The optional label a member gives a document filed under Others (0068).
+ * The optional label a member gives a document filed under an "Other" (0068,
+ * 0084) — the global Others or a module's own `<module>/other`.
  *
- * The classifier files what it cannot place under the catch-all; this is where
- * the member says what it actually is — "Gym Membership" — without inventing a
- * category. Callers render it only while the chosen category is a catch-all
- * (`isCatchAll`), and the server drops it for anything else, so one component
+ * This is where the member says what it actually is — "Gym Membership" —
+ * without inventing a category. Callers render it only while the chosen
+ * category takes a label (`acceptsCustomLabel`), and the server drops it for
+ * anything else, so one component
  * serves the upload form, the edit modal, the Power Scan grid and the Others
  * workspace alike.
  */
@@ -31,7 +32,7 @@ export default function OthersLabelInput({ id, value, onChange, disabled, error,
         <p className="text-xs text-destructive">{error}</p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Name what this is. Leave blank to keep it under Others.
+          Name what this is. Leave blank to keep the default name.
         </p>
       )}
     </div>

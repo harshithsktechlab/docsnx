@@ -34,7 +34,7 @@ import {
   stampIdentifiers,
   type FieldSpec,
 } from '@/lib/documentCategoryFields';
-import { DOCUMENT_CATEGORY_SEED, isBusinessModule, isCatchAll } from '@/lib/documentCategories';
+import { DOCUMENT_CATEGORY_SEED, isBusinessModule, isCatchAll, isModuleOther } from '@/lib/documentCategories';
 import {
   documentDisplay,
   documentFieldList,
@@ -45,7 +45,8 @@ import {
 // Every business category but `biz_other` (0067) — the catch-all is a holding
 // bin for documents nobody could identify, not a kind of document with a number.
 const BUSINESS_WITH_CATCH_ALL = DOCUMENT_CATEGORY_SEED.filter((c) => isBusinessModule(c.moduleKey));
-const BUSINESS = BUSINESS_WITH_CATCH_ALL.filter((c) => !isCatchAll(c));
+// Each module's own `other` (0084) is a holding bin in the same sense.
+const BUSINESS = BUSINESS_WITH_CATCH_ALL.filter((c) => !isCatchAll(c) && !isModuleOther(c));
 const specOf = (moduleKey: string, documentKey: string) => fieldsFor({ moduleKey, documentKey });
 const idsOf = (moduleKey: string, documentKey: string) => identifierFields(specOf(moduleKey, documentKey));
 const labelOf = (moduleKey: string, documentKey: string, fieldKey: string) =>

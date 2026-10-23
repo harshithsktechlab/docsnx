@@ -1,15 +1,16 @@
 /**
- * The member's label for a document filed under a catch-all (0068).
+ * The member's label for a document filed under an "Other" (0068, 0084).
  *
  * When the classifier cannot place a document it lands in Others
- * (`other/uncategorized`, or `biz_other/uncategorized` for a company). The
- * member may name what it is — "Gym Membership" — and Others groups by that
- * name. It is a per-document display string, NOT a category: the taxonomy is
+ * (`other/uncategorized`, or `biz_other/uncategorized` for a company), and a
+ * document whose module is known but sub-category is not goes to that module's
+ * own `<module>/other`. Under either, the member may name what it is — "Gym
+ * Membership" — and the list groups by that name. It is a per-document display string, NOT a category: the taxonomy is
  * global and its keys are the Drive path, so nothing here touches either.
  *
  * Browser-safe: imported by the forms as well as the write paths.
  */
-import { isCatchAll } from '@/lib/documentCategories';
+import { acceptsCustomLabel } from '@/lib/documentCategories';
 
 export const CUSTOM_SUBCATEGORY_MAX = 120;
 
@@ -41,22 +42,22 @@ export function customSubcategoryError(v: string | null | undefined): string | n
 
 /**
  * The label a write may store for this category. A label only means something
- * under a catch-all, so filing anywhere else stores null — which is also what
- * clears it when a document is moved out of Others.
+ * under an "Other", so filing anywhere else stores null — which is also what
+ * clears it when a document is moved out of one.
  */
 export function labelForCategory(
   key: { moduleKey?: unknown; documentKey?: unknown } | null | undefined,
   v: string | null | undefined,
 ): string | null | undefined {
-  if (!isCatchAll(key)) return null;
+  if (!acceptsCustomLabel(key)) return null;
   return typeof v === 'string' ? v.slice(0, CUSTOM_SUBCATEGORY_MAX) : v;
 }
 
-/** The sub-category name a list should show: the label under Others, else the category's. */
+/** The sub-category name a list should show: the label under an "Other", else the category's. */
 export function categoryDisplayName(
   categoryRef: { moduleKey?: string; documentKey?: string; documentName?: string } | null | undefined,
   label: string | null | undefined,
 ): string | undefined {
-  if (label && isCatchAll(categoryRef)) return label;
+  if (label && acceptsCustomLabel(categoryRef)) return label;
   return categoryRef?.documentName;
 }

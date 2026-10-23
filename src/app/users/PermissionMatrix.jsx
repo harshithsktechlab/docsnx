@@ -73,6 +73,7 @@ const MODULE_LABELS = {
   other: 'Others (unfiled scans)',
   audit_logs: 'Audit Logs',
   invoices: 'Invoices',
+  ai_analysis: 'AI Analysis — refresh / generate',
 };
 
 /**
