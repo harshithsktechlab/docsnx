@@ -15,6 +15,9 @@ import { checkStorageLimit } from '@/lib/storage';
 import { getDefaultPlan } from '@/lib/planProvisioning';
 import { hasDriveFileScope, refreshDriveQuotaIfStale } from '@/lib/googleDrive';
 import { serverError } from '@/lib/routeError';
+import { avatarUrl } from '@/lib/avatarImage';
+import { listSeats } from '@/lib/account/memberships';
+import { isWhatsAppEnabled } from '@/lib/whatsapp';
 
 export async function GET(req: Request) {
   try {
@@ -206,9 +209,30 @@ export async function GET(req: Request) {
       ? []
       : await accessibleCompanies({ ...safeUser, isExpired: plan.isExpired } as any);
 
+    // The photo itself is never in this payload — only the URL to fetch it from,
+    // versioned by `updated_at` so a new upload is a new URL. Null = initials.
+    const avatarRow = await db.query.userAvatars.findFirst({
+      where: (a, { eq }) => eq(a.userId, safeUser.id),
+      columns: { updatedAt: true },
+    });
+
+    // Every tenant this person belongs to (0082), for the account switcher, and
+    // the invitations still waiting for an answer. Ids and names only.
+    const seats = await listSeats(
+      safeUser.identityId,
+      safeUser.id,
+      { whatsappEnabled: await isWhatsAppEnabled() },
+    );
+
     return NextResponse.json({
       success: true,
-      user: { ...safeUserClean, isExpired: plan.isExpired },
+      memberships: seats.filter((s) => s.status === 'active'),
+      pendingInvites: seats.filter((s) => s.status === 'pending'),
+      user: {
+        ...safeUserClean,
+        isExpired: plan.isExpired,
+        avatarUrl: avatarRow ? avatarUrl(safeUser.id, avatarRow.updatedAt) : null,
+      },
       companies: companyList,
       isAmcLocked,
       planStatus: {

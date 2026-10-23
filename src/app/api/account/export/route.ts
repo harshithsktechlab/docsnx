@@ -1,3 +1,5 @@
+import { omitUserSecrets } from '@/lib/account/sharedIdentity';
+import { maskPendingSeat } from '@/lib/account/attachExisting';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import {
@@ -149,7 +151,9 @@ export async function GET(req: NextRequest) {
       generatedAt: new Date().toISOString(),
       compliance: 'DPDPA 2023 Data Principal Access Request',
       tenant: tenantData,
-      users: usersData,
+      // Not the raw rows: since 0082 a seat carries the PERSON's credentials and
+      // identity id, shared with their other tenants. See omitUserSecrets.
+      users: usersData.map((u) => maskPendingSeat(omitUserSecrets(u))),
       profiles: profilesData,
       records: {
         ...records,

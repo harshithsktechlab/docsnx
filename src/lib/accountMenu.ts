@@ -34,7 +34,7 @@
 
 import { utilityNavPath } from './moduleRegistry';
 
-export type AccountItemKey = 'members' | 'billing' | 'credits' | 'settings' | 'audit' | 'expired';
+export type AccountItemKey = 'members' | 'billing' | 'credits' | 'settings' | 'audit' | 'expired' | 'account';
 
 export interface AccountItem {
   key: AccountItemKey;
@@ -113,7 +113,11 @@ export function accountMenuItems(
 
   // The platform admin has no plan, no credits and no audit trail of their own:
   // the trail is tenant-owned and /api/audit-logs denies SUPER_ADMIN outright.
-  if (role === 'SUPER_ADMIN') return [];
+  // What they do have is a login, so their one row is their own account page
+  // (name, photo, password).
+  if (role === 'SUPER_ADMIN') {
+    return [{ key: 'account', name: 'My Account', path: '/admin/account' }];
+  }
 
   /** `/settings` from the household, `/settings?company=acme` from a company. */
   const here = (path: string, extra?: Record<string, string>) =>
@@ -141,6 +145,13 @@ export function accountMenuItems(
     ];
   }
 
+  // A member's one row. Billing, Members and the audit trail are the admin's
+  // (their routes bounce anyone else), but /settings carries the member's own
+  // account — name, photo, mobile, password — so it has to be reachable.
+  // Matched on the real role rather than "anything but admin", so an unknown
+  // or missing role still gets nothing.
+  if (role === 'STANDARD') return [settings];
+
   if (role !== 'TENANT_ADMIN') return [];
 
   return [
@@ -157,8 +168,9 @@ export function accountMenuItems(
 /**
  * The two letters in the avatar.
  *
- * There is no avatar column in the schema, so initials ARE the person image.
- * '?' rather than an empty circle for the moment before /api/auth/me answers.
+ * Shown when the person has not uploaded a photo (`user_avatars`, 0080) — and
+ * while one is loading. '?' rather than an empty circle for the moment before
+ * /api/auth/me answers.
  */
 export function getInitials(name?: string | null): string {
   if (!name) return '?';

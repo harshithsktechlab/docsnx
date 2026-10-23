@@ -43,21 +43,26 @@ vi.mock('@/lib/db', () => ({
   db: {
     query: {
       users: {
-        findFirst: async ({ where }: any) => {
+        // Since 0082 the lookup reads ALL of a person's live seats and picks one
+        // (src/lib/account/membershipPick.ts), so it asks for `findMany`.
+        findMany: async ({ where }: any) => {
           lastWhere = null;
           // Mirrors the shape Drizzle passes: (table, operators).
-          const columns = { email: 'email', phoneDial: 'phone_dial', deletedAt: 'deleted_at' };
+          const columns = {
+            email: 'email', phoneDial: 'phone_dial', deletedAt: 'deleted_at',
+            membershipStatus: 'membership_status',
+          };
           where(columns, {
             eq: (column: string, value: unknown) => {
-              // The deletedAt guard is not what these tests are about; the
-              // identifier predicate is the one worth capturing.
-              if (column !== 'deleted_at') lastWhere = { column, value };
+              // The deletedAt / status guards are not what these tests are
+              // about; the identifier predicate is the one worth capturing.
+              if (column !== 'deleted_at' && column !== 'membership_status') lastWhere = { column, value };
               return null;
             },
             and: () => null,
             isNull: () => null,
           });
-          return foundUser;
+          return foundUser ? [foundUser] : [];
         },
       },
     },

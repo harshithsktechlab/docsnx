@@ -4,7 +4,6 @@
  */
 
 import { db } from './db';
-import { aiCreditMultiplier } from './account/seatCounts';
 import { apiKeys, tenants, tenantAiUsages } from '../db/schema';
 import { eq, asc, sql } from 'drizzle-orm';
 import { GoogleGenAI } from '@google/genai';
@@ -28,7 +27,7 @@ export { AI_ERROR_CODES, AI_ERROR_MESSAGES, AI_STATUS };
 export type { AiErrorCode } from './aiErrors';
 
 // ─── Credit Costs (Dynamic) ───────────────────────────────────────────────────
-// Costs are now fetched dynamically from systemConfigs and multiplied by allowed members.
+// Costs are fetched dynamically from systemConfigs. One flat price per action.
 
 // ─── Error Classification ─────────────────────────────────────────────────────
 
@@ -633,10 +632,10 @@ export async function executeTenantWithRotation(
     baseCost = (parseFloat(configRes?.aiCostBulkScan as string) || 10.00) / 10;
   }
 
-  // Plan seats + add-on seats of the workspace the call is made in — see
-  // aiCreditMultiplier for why not the tenant's legacy max_members columns.
-  const multiplier = await aiCreditMultiplier(tenantId, companyId);
-  const requiredCredits = Math.ceil(baseCost * multiplier);
+  // A flat price per action: it does not scale with the workspace's seats. What
+  // an action costs us is tokens, which seats do not change. (It used to be
+  // `base × seat allowance`; ledger rows written then say "× N members".)
+  const requiredCredits = Math.ceil(baseCost);
   const usdInrRate = parseUsdInrRate(configRes?.usdInrRate);
   const costMultiplier = parseCostMultiplier(configRes?.aiCostMultiplier);
 
@@ -730,7 +729,7 @@ export async function executeTenantWithRotation(
     await spendTenantCredits(tenantId, {
       amount: requiredCredits,
       reason: AI_ACTION_TO_REASON[actionName] ?? CREDIT_REASONS.spend_record_analysis,
-      description: `${formatCreditReason(AI_ACTION_TO_REASON[actionName] ?? actionName)} — ${Math.ceil(requiredCredits)} credits (${baseCost} base × ${multiplier} members).`,
+      description: `${formatCreditReason(AI_ACTION_TO_REASON[actionName] ?? actionName)} — ${Math.ceil(requiredCredits)} credits.`,
       userId,
       companyId,
     });

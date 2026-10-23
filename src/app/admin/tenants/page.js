@@ -21,7 +21,6 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { storagePressure } from '@/lib/storagePressure';
 import { formatDate } from '@/lib/dateHelper';
-import { DEFAULT_GEMINI_MODEL } from '@/lib/aiModels';
 import { aiTaskLabel } from '@/lib/creditLedger';
 import PageContainer from '@/app/components/PageContainer';
 import CreditMeter from '@/app/components/CreditMeter';
@@ -91,9 +90,6 @@ export default function TenantsPage() {
   const [editTenant, setEditTenant] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
-    apiKey: '',
-    aiProvider: 'gemini',
-    aiModel: DEFAULT_GEMINI_MODEL,
     subscriptionPlanId: '',
     subscriptionExpiry: '',
     isActive: true,
@@ -101,7 +97,6 @@ export default function TenantsPage() {
     adminName: '',
     adminEmail: '',
     adminPassword: '',
-    clearApiKey: false,
     billingName: '',
     billingGst: '',
     billingAddress: '',
@@ -195,9 +190,6 @@ export default function TenantsPage() {
   const openAddForm = () => {
     setFormData({
       name: '',
-      apiKey: '',
-      aiProvider: 'gemini',
-      aiModel: DEFAULT_GEMINI_MODEL,
       subscriptionPlanId: '',
       subscriptionExpiry: '',
       isActive: true,
@@ -205,7 +197,6 @@ export default function TenantsPage() {
       adminName: '',
       adminEmail: '',
       adminPassword: '',
-      clearApiKey: false,
       billingName: '',
       billingGst: '',
       billingAddress: '',
@@ -220,12 +211,6 @@ export default function TenantsPage() {
   const openEditForm = (tenant) => {
     setFormData({
       name: tenant.name,
-      // Always blank. The listing no longer ships the stored key (it was the
-      // CIPHERTEXT, and putting it back through PUT re-encrypted it), so a blank
-      // field means "leave the key alone" — see `clearApiKey` to remove one.
-      apiKey: '',
-      aiProvider: tenant.aiProvider || 'gemini',
-      aiModel: tenant.aiModel || DEFAULT_GEMINI_MODEL,
       subscriptionPlanId: tenant.subscriptionPlanId || '',
       subscriptionExpiry: tenant.subscriptionExpiry ? new Date(tenant.subscriptionExpiry).toISOString().split('T')[0] : '',
       isActive: tenant.isActive ?? true,
@@ -233,7 +218,6 @@ export default function TenantsPage() {
       adminName: '',
       adminEmail: '',
       adminPassword: '',
-      clearApiKey: false,
       billingName: tenant.billingName || '',
       billingGst: tenant.billingGst || '',
       billingAddress: tenant.billingAddress || '',
@@ -293,8 +277,6 @@ export default function TenantsPage() {
     try {
       const payload = {
         name: formData.name,
-        aiProvider: formData.aiProvider,
-        aiModel: formData.aiModel,
         subscriptionPlanId: formData.subscriptionPlanId || null,
         subscriptionExpiry: formData.subscriptionExpiry || null,
         isActive: formData.isActive,
@@ -303,11 +285,7 @@ export default function TenantsPage() {
         billingAddress: formData.billingAddress,
         billingEmail: formData.billingEmail,
         billingPhone: formData.billingPhone,
-        contactName: formData.contactName,
-        // Omitted entirely when blank so an edit that never touches the field
-        // leaves the stored key untouched.
-        ...(formData.apiKey.trim() ? { apiKey: formData.apiKey.trim() } : {}),
-        ...(formData.clearApiKey ? { clearApiKey: true } : {})
+        contactName: formData.contactName
       };
 
       if (editTenant) {
@@ -737,7 +715,7 @@ export default function TenantsPage() {
                     />
                     <DetailRow label="Billing Cycle" value={detail.subscription.billingCycle} />
                     <DetailRow label="Monthly / Yearly / One-time" value={detail.plan ? `${detail.plan.price ?? '—'} / ${detail.plan.priceYearly ?? '—'} / ${detail.plan.priceOneTime ?? '—'}` : null} />
-                    <DetailRow label="Expires" value={detail.subscription.expiry ? formatDate(detail.subscription.expiry) : (detail.plan?.isLifetime ? 'Lifetime' : 'No expiry')} />
+                    <DetailRow label={detail.subscription.expiry && new Date(detail.subscription.expiry) < new Date() ? 'Expired' : 'Expires'} value={detail.subscription.expiry ? formatDate(detail.subscription.expiry) : (detail.plan?.isLifetime ? 'Lifetime' : 'No expiry')} />
                     <DetailRow label="Renewal Notice Stage" value={detail.subscription.planNoticeStage} />
                     <DetailRow label="AMC Last Paid" value={detail.subscription.amcLastPaidAt ? formatDate(detail.subscription.amcLastPaidAt) : null} />
                     <DetailRow label="AMC Next Due" value={detail.subscription.amcNextDueDate ? formatDate(detail.subscription.amcNextDueDate) : null} />
@@ -1001,49 +979,6 @@ export default function TenantsPage() {
                 </Button>
               </div>
 
-              <Separator className="my-1 border-border/40" />
-
-              <div className="text-xs font-bold text-primary uppercase tracking-wider">Tenant Private Key Provisioning (Optional)</div>
-              <p className="text-xs text-muted-foreground leading-relaxed -mt-2">
-                If provided, all AI scanning and tips for this tenant will use this key exclusively instead of the platform-wide keys pool.
-              </p>
-              <div className="flex flex-col gap-1.5">
-                <Label>API Key (Gemini/OpenAI)</Label>
-                <Input
-                  type="password"
-                  placeholder={editTenant?.hasCustomApiKey ? 'Key stored — leave blank to keep it' : 'api_key_...'}
-                  value={formData.apiKey}
-                  onChange={e => setFormData(prev => ({ ...prev, apiKey: e.target.value, clearApiKey: false }))}
-                  disabled={formData.clearApiKey}
-                />
-                {editTenant?.hasCustomApiKey && (
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={formData.clearApiKey}
-                      onChange={e => setFormData(prev => ({ ...prev, clearApiKey: e.target.checked, apiKey: '' }))}
-                    />
-                    Remove the stored key and fall back to the shared pool
-                  </label>
-                )}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label>AI Key Provider</Label>
-                  <select 
-                    className="flex h-9 w-full rounded-md border border-input bg-field px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    value={formData.aiProvider}
-                    onChange={e => setFormData(prev => ({ ...prev, aiProvider: e.target.value }))}
-                  >
-                    <option value="gemini">Google Gemini</option>
-                    <option value="openai">OpenAI</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label>AI Model Name</Label>
-                  <Input placeholder={DEFAULT_GEMINI_MODEL} value={formData.aiModel} onChange={e => setFormData(prev => ({ ...prev, aiModel: e.target.value }))} />
-                </div>
-              </div>
               {!editTenant && (
                 <>
                   <Separator className="my-1 border-border/40" />
@@ -1244,7 +1179,7 @@ export default function TenantsPage() {
                               "font-bold",
                               new Date(tenant.subscriptionExpiry) < new Date() ? "text-danger-text" : "text-emerald-500"
                             )}>
-                              Expires {formatDate(tenant.subscriptionExpiry)}
+                              {new Date(tenant.subscriptionExpiry) < new Date() ? 'Expired' : 'Expires'} {formatDate(tenant.subscriptionExpiry)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">No Expiry</span>

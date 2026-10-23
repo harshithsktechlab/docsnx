@@ -27,6 +27,8 @@ const pool = new pg.Pool({
  */
 const tenantScopedTables = [
   'users',
+  // Profile photos (drizzle/0080). Carries its own tenant_id.
+  'user_avatars',
   'documents',
   // Which members a document belongs to (drizzle/0066). Carries its own
   // tenant_id so it takes this simple policy, not the EXISTS shape below.
@@ -106,6 +108,12 @@ const userScopedTables = ['permissions', 'company_access'];
  * What protects it instead: nothing selects from it (there is no read API), and
  * `name` / `phone_number` are stored as encryptField() ciphertext. See the
  * comment on `deletedAccounts` in src/db/schema.ts.
+ */
+
+/**
+ * `identities` (drizzle/0081) is deliberately NOT registered above or below: it
+ * has no tenant_id — one person spans tenants — and is read before a tenant is
+ * known. Listing it would make CREATE POLICY fail and roll back every policy.
  */
 
 async function applyRLS() {

@@ -183,6 +183,7 @@ describe('Database Schema Validation', () => {
       'subscriptionPlans',
       'addons',
       'discountCodes',
+      'identities',
     ] as const;
 
     it.each(nonTenantTables)(

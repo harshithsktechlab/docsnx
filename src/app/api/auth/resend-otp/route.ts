@@ -38,14 +38,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email or mobile number is required' }, { status: 400 });
     }
 
-    const user = await findUserByIdentifier(loginIdentifier);
+    const whatsappEnabled = await isWhatsAppEnabled();
+    const user = await findUserByIdentifier(loginIdentifier, { intent: 'verify', whatsappEnabled });
 
     // Both non-cases answer exactly as the success path does — same shape, same
     // status, same sentence. The hints are empty, so the screen simply shows no
     // destination rather than a different message. A member whose sign-in is
     // off is a non-case too: no code is sent, and nothing says why, since this
     // route takes no password.
-    if (!user || isFullyVerified(user, { whatsappEnabled: await isWhatsAppEnabled() }) || isSignInDisabled(user)) {
+    if (!user || isFullyVerified(user, { whatsappEnabled }) || isSignInDisabled(user)) {
       return NextResponse.json({
         success: true,
         message: GENERIC,

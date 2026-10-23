@@ -48,6 +48,8 @@ export default function AnalysisPage() {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // What generating would cost, when the API said so. Only set on the empty state.
+  const [creditCost, setCreditCost] = useState(null);
 
   /**
    * ── ONE PAGE, TWO WORKSPACES ──────────────────────────────────────────────
@@ -86,19 +88,30 @@ export default function AnalysisPage() {
    */
   const [activeCategory, setActiveCategory] = useState('medical');
 
+  /**
+   * `isManual` is the ONLY way this page spends credits. Without it the request
+   * is `cacheOnly`: the API returns what this member has saved, or `null`, and
+   * never calls the model. Opening the page or switching tabs used to generate
+   * a fresh analysis whenever nothing was saved — a billed call against the
+   * workspace's shared wallet, made by whoever happened to look.
+   */
   const fetchAnalysis = async (category, isManual = false) => {
     setLoading(true);
     setError('');
     setAnalysis(null);
+    setCreditCost(null);
 
     try {
-      const { json } = await api(`/api/analysis?category=${category}${isManual ? '&refresh=true' : ''}`,
+      const { json } = await api(`/api/analysis?category=${category}${isManual ? '&refresh=true' : '&cacheOnly=true'}`,
         // A cold cache means several model calls; the 45s default would abandon
         // a request that was still working and report it as a timeout.
         { timeoutMs: 180_000 });
       
       if (json.success && json.analysis) {
         setAnalysis(json.analysis);
+      } else if (json.success) {
+        // Nothing saved yet: show the empty state, which offers to generate.
+        setCreditCost(json.creditCost ?? null);
       } else {
         setError(json.error || 'Failed to generate category analysis.');
       }
@@ -288,7 +301,20 @@ export default function AnalysisPage() {
               </div>
 
             </div>
-          ) : null}
+          ) : (
+            // Nothing saved for this member yet. Generating is a billed AI call
+            // against the workspace's credits, so it waits for a click.
+            <div className="flex flex-col items-center justify-center gap-4 py-20 bg-primary/5 border border-primary/20 rounded-2xl text-center">
+              <Sparkles className="h-8 w-8 text-primary" />
+              <p className="text-foreground font-medium">No analysis yet for this category.</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Generating one uses AI credits{creditCost ? ` (about ${creditCost})` : ''} from your workspace balance.
+              </p>
+              <Button onClick={() => fetchAnalysis(activeCategory, true)}>
+                <Sparkles className="mr-2 h-4 w-4" /> Generate analysis
+              </Button>
+            </div>
+          )}
         </div>
       </Tabs>
     </PageContainer>

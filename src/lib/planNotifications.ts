@@ -189,7 +189,10 @@ export async function notifyPlanExpiry(
   const { title, message } = copyFor(stage, plan?.name ?? null, daysLeft, half);
 
   const members = await db.query.users.findMany({
-    where: and(eq(users.tenantId, tenantId), isNull(users.deletedAt)),
+    // Active seats only: a pending invitation's `email` is the invited person's
+    // real address (0082), and a tenant they have not joined has no business
+    // mailing them about its plan.
+    where: and(eq(users.tenantId, tenantId), isNull(users.deletedAt), eq(users.membershipStatus, 'active')),
     columns: { id: true, name: true, email: true, role: true, accountScope: true },
   });
   const admin = members.find((m) => m.role === 'TENANT_ADMIN') || null;

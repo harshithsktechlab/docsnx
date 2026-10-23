@@ -1,3 +1,4 @@
+import { findUserByIdentifier } from '@/lib/authLookup';
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { db } from '@/lib/db';
@@ -51,8 +52,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
 
-    const userResult = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
-    const user = userResult[0];
+    // The shared pre-auth lookup, not a bare `LIMIT 1`: a person with several
+    // seats must be sent a link through one they can actually use, never through
+    // a pending invitation or a tenant whose admin switched their sign-in off.
+    // The reset applies to the person's one password, so which seat carries the
+    // token does not matter to what it does.
+    const user = await findUserByIdentifier(String(email));
 
     // A member whose sign-in the admin turned off gets the generic answer and
     // no link: a reset would be a way back in, and this route takes no

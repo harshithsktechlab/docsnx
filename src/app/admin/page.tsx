@@ -73,6 +73,15 @@ interface DashboardSummary {
     expiry: string;
     planName: string;
   }[];
+  expiredTenants: {
+    id: string;
+    name: string;
+    isActive: boolean;
+    expiry: string;
+    planName: string;
+  }[];
+  expiringCount: number;
+  expiredCount: number;
   overdueAmcTenants: {
     id: string;
     name: string;
@@ -288,7 +297,7 @@ export default function AdminDashboardPage() {
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground pt-3 border-t border-border/40">
               <span>Subscription Plans: {data?.subscriptionBreakdown.length ?? 0}</span>
-              <span className="text-orange-400 font-medium">Expiring Soon: {data?.expiringTenants.length ?? 0}</span>
+              <span className="text-orange-400 font-medium">Expiring Soon: {data?.expiringCount ?? 0} · Expired: {data?.expiredCount ?? 0}</span>
             </div>
           </CardContent>
         </Card>
@@ -422,7 +431,7 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-bold text-foreground flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-orange-400" />
-                    Expiring Subscriptions Watch (Next 30 Days)
+                    Subscription Expiry Watch (Expired + Next 30 Days)
                   </h3>
                   <Button variant="ghost" size="sm" onClick={() => router.push('/admin/tenants')} className="text-xs">
                     View All Tenants <ChevronRight className="w-3 h-3 ml-1" />
@@ -441,8 +450,13 @@ export default function AdminDashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
-                      {data?.expiringTenants.map((t) => (
-                        <tr key={t.id} className="hover:bg-muted/40 transition-colors">
+                      {[
+                        ...(data?.expiringTenants ?? []).map((t) => ({ ...t, expired: false })),
+                        ...(data?.expiredTenants ?? []).map((t) => ({ ...t, expired: true })),
+                      ].map((t) => {
+                        const daysLeft = Math.ceil((new Date(t.expiry).getTime() - Date.now()) / 86400000);
+                        return (
+                        <tr key={`${t.expired ? 'x' : 'e'}-${t.id}`} className="hover:bg-muted/40 transition-colors">
                           <td className="py-3 px-3 font-semibold text-foreground">{t.name}</td>
                           <td className="py-3 px-3">
                             <Badge variant="outline" className="text-xs">
@@ -450,15 +464,22 @@ export default function AdminDashboardPage() {
                             </Badge>
                           </td>
                           <td className="py-3 px-3">
-                            {t.isActive ? (
-                              <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-xs">
-                                Active
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs">
-                                Suspended
-                              </Badge>
-                            )}
+                            <div className="flex flex-wrap gap-1">
+                              {t.expired ? (
+                                <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-xs">
+                                  Expired
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-orange-500/10 text-orange-400 border-orange-500/20 text-xs">
+                                  Expires in {Math.max(daysLeft, 0)}d
+                                </Badge>
+                              )}
+                              {!t.isActive && (
+                                <Badge className="bg-muted text-muted-foreground border-border text-xs">
+                                  Suspended
+                                </Badge>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-3 text-muted-foreground font-medium">
                             {t.expiry ? formatDate(t.expiry) : 'N/A'}
@@ -474,11 +495,12 @@ export default function AdminDashboardPage() {
                             </Button>
                           </td>
                         </tr>
-                      ))}
-                      {(!data?.expiringTenants || data.expiringTenants.length === 0) && (
+                        );
+                      })}
+                      {!data?.expiringTenants?.length && !data?.expiredTenants?.length && (
                         <tr>
                           <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                            No subscription plans are expiring within the next 30 days.
+                            No subscription plans have expired or are expiring within the next 30 days.
                           </td>
                         </tr>
                       )}

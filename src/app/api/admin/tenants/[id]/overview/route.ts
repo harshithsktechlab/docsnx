@@ -329,8 +329,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       // Seats granted by the plan plus every LIVE add-on — an expired add-on
       // still shows in the list above but must not inflate the entitlement.
       entitlements: {
-        // The same allowance POST /api/users enforces and AI credits are
-        // multiplied by — see aiCreditMultiplier in src/lib/account/seatCounts.ts.
+        // The same allowance POST /api/users enforces.
         maxMembers: seats,
         aiCreditsBalance: tenant.aiCreditsBalance,
         /** Ledger totals that explain the balance: received − used = balance. */

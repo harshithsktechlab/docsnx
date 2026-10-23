@@ -37,7 +37,18 @@ describe('accountMenuItems', () => {
     ]);
   });
 
-  it('offers a plain member nothing but Logout', () => {
+  it('offers a member their own Settings (name, photo, password) and nothing admin-only', () => {
+    // /settings carries the member's self-service account section. Billing,
+    // Members, AI Credits and Audit Logs bounce a non-admin, so they stay out.
+    expect(accountMenuItems({ role: 'STANDARD' })).toEqual([
+      { key: 'settings', name: 'Settings', path: '/settings' },
+    ]);
+    expect(accountMenuItems({ role: 'STANDARD' }, false, 'acme')).toEqual([
+      { key: 'settings', name: 'Settings', path: '/settings?company=acme' },
+    ]);
+  });
+
+  it('offers an unrecognised role nothing but Logout', () => {
     // Logout is not a row — it is unconditional and lives in the component —
     // so an empty list here means a menu holding exactly Logout.
     expect(accountMenuItems({ role: 'MEMBER' })).toEqual([]);
@@ -45,10 +56,11 @@ describe('accountMenuItems', () => {
     expect(accountMenuItems({})).toEqual([]);
   });
 
-  it('offers a super admin nothing but Logout: no plan, no credits, no trail', () => {
+  it('offers a super admin only their own account: no plan, no credits, no trail', () => {
     // /api/audit-logs denies SUPER_ADMIN outright — the trail is tenant-owned.
-    expect(accountMenuItems({ role: 'SUPER_ADMIN' })).toEqual([]);
-    expect(accountMenuItems({ role: 'SUPER_ADMIN' }, true)).toEqual([]);
+    const own = [{ key: 'account', name: 'My Account', path: '/admin/account' }];
+    expect(accountMenuItems({ role: 'SUPER_ADMIN' })).toEqual(own);
+    expect(accountMenuItems({ role: 'SUPER_ADMIN' }, true)).toEqual(own);
   });
 
   it('survives a null viewer — /api/auth/me has not answered yet', () => {
@@ -131,10 +143,11 @@ describe('accountMenuItems', () => {
       expect(paths({ role: 'MEMBER' }, true, 'acme')).toEqual([PLAN_LOCK_PATH, '/settings?company=acme']);
     });
 
-    it('still offers a member nothing, and a super admin nothing', () => {
+    it('still offers a member nothing, and a super admin only their account page', () => {
       // A company in the URL is not a promotion.
       expect(accountMenuItems({ role: 'MEMBER' }, false, 'acme')).toEqual([]);
-      expect(accountMenuItems({ role: 'SUPER_ADMIN' }, false, 'acme')).toEqual([]);
+      expect(accountMenuItems({ role: 'SUPER_ADMIN' }, false, 'acme'))
+        .toEqual([{ key: 'account', name: 'My Account', path: '/admin/account' }]);
     });
   });
 });

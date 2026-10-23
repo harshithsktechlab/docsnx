@@ -50,3 +50,9 @@ export const authRateLimiter = new RateLimiter(10, 15 * 60 * 1000);
 // Sharing authRateLimiter would let a few Apply presses burn the caller's
 // registration budget and lock them out of signing up.
 export const discountPreviewRateLimiter = new RateLimiter(15, 15 * 60 * 1000);
+
+// Signed-in credential changes (POST /api/account/password, and /api/account/profile
+// when it re-checks the current password). Keyed by USER id, not IP: the caller is
+// already authenticated, and what is being protected is the password check — a
+// stolen session must not be able to use these routes to guess the current password.
+export const accountSecretRateLimiter = new RateLimiter(8, 15 * 60 * 1000);

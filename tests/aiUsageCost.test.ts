@@ -42,20 +42,6 @@ vi.mock('../src/lib/fieldCrypto', () => ({ decryptField: (v: any) => v }));
 const spendTenantCredits = vi.fn(async (..._args: any[]) => undefined);
 vi.mock('../src/lib/planProvisioning', () => ({ spendTenantCredits: (...a: any[]) => spendTenantCredits(...a) }));
 
-/**
- * The credit multiplier is the workspace's seat allowance (plan + add-on
- * seats) — mocked here; seatCounts has its own tests. `seatCalls` records the
- * axis each call asked about.
- */
-let seats = 1;
-const seatCalls: any[] = [];
-vi.mock('../src/lib/account/seatCounts', () => ({
-  aiCreditMultiplier: async (tenantId: string, companyId?: string | null) => {
-    seatCalls.push({ tenantId, companyId: companyId ?? null });
-    return Math.max(1, seats);
-  },
-}));
-
 let mod: typeof import('../src/lib/aiKeyManager');
 
 // gemini-3.1-flash-lite: $0.25 / 1M input, $1.50 / 1M output (src/lib/aiModels.ts).
@@ -65,8 +51,6 @@ beforeEach(async () => {
   vi.clearAllMocks();
   inserts = [];
   poolKeys = [];
-  seats = 1;
-  seatCalls.length = 0;
   tenantRow = { id: 't-1', maxMembers: 1, extraMembers: 0, aiCreditsBalance: 1000, apiKey: null };
   configRow = { aiCostBulkScan: '10.00', usdInrRate: '96.5150', aiCostMultiplier: '2.00' };
   delete process.env.GEMINI_API_KEY;
@@ -185,9 +169,8 @@ describe('executeTenantWithRotation → tenant_ai_usages row', () => {
 
   it('records a FIELD_READ on the env key, charged as a Power scan', async () => {
     process.env.GEMINI_API_KEY = 'env-key';
-    // The legacy tenants.max_members columns must NOT drive the price any more.
+    // Neither the legacy tenants.max_members columns nor seats drive the price.
     tenantRow = { ...tenantRow, maxMembers: 9, extraMembers: 9 };
-    seats = 4;
 
     const out: any = await mod.executeTenantWithRotation('t-1', 'FIELD_READ', callFn, 'u-9', 'c-2', {
       batchId: 'batch-7', moduleKey: 'identity', documentKey: 'pan_card', pageCount: 2,
@@ -195,9 +178,8 @@ describe('executeTenantWithRotation → tenant_ai_usages row', () => {
     // The row id travels back on the result, for the browser to send with the save.
     expect(out.usageId).toBe('usage-1');
 
-    // Power scan base 10 × 4 seats, asked for the company the call came from.
-    expect(seatCalls).toEqual([{ tenantId: 't-1', companyId: 'c-2' }]);
-    expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({ amount: 40, reason: 'spend_bulk_scan' }));
+    // Power scan: a flat 10 credits, whatever the workspace's seats.
+    expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({ amount: 10, reason: 'spend_bulk_scan' }));
     expect(inserts).toHaveLength(1);
     expect(inserts[0]).toMatchObject({
       action: 'FIELD_READ',
@@ -205,7 +187,7 @@ describe('executeTenantWithRotation → tenant_ai_usages row', () => {
       companyId: 'c-2',
       keySource: 'env',
       apiKeyId: null,
-      creditsCharged: 40,
+      creditsCharged: 10,
       thinkingTokens: 20,
       usdInrRate: '96.515',
       costMultiplier: '2',
@@ -217,11 +199,13 @@ describe('executeTenantWithRotation → tenant_ai_usages row', () => {
     expect(inserts[0].costInr).not.toBeNull();
   });
 
-  it('charges at least the base cost when the workspace has no seats', async () => {
+  it('charges the flat price and words the ledger line without a seat count', async () => {
     process.env.GEMINI_API_KEY = 'env-key';
-    seats = 0;
     await mod.executeTenantWithRotation('t-1', 'RECORD_ANALYSIS', callFn, 'u-1');
-    expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({ amount: 1 }));
+    expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({
+      amount: 1,
+      description: expect.not.stringContaining('members'),
+    }));
   });
 
   it("records the tenant's own key as free", async () => {

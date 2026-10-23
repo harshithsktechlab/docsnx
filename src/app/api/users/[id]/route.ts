@@ -6,7 +6,7 @@ import { eq, and, count, inArray, isNull } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { toDialString, isBlankPhone } from '@/lib/phone';
-import { validateUserContacts } from '@/lib/userContactValidation';
+import { contactEditProblem } from '@/lib/userContactValidation';
 import {
   isDuplicatePhone, DUPLICATE_PHONE_MESSAGE,
   isDuplicateEmail, DUPLICATE_EMAIL_MESSAGE,
@@ -16,6 +16,8 @@ import { serverError } from '@/lib/routeError';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
 import { workspaceMemberScope } from '@/lib/account/workspaceMemberScope';
+import { hasOtherLiveSeats, omitUserSecrets, sharedIdentityResponse } from '@/lib/account/sharedIdentity';
+import { maskPendingSeat } from '@/lib/account/attachExisting';
 import { companyAccess } from '@/db/schema';
 import { companySeatCap, seatPredicate } from '@/lib/account/seatCounts';
 import {
@@ -58,7 +60,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { passwordHash, ...safeUser } = user;
+    const safeUser = maskPendingSeat(omitUserSecrets(user));
     return NextResponse.json({ success: true, user: safeUser });
   } catch (error) {
     return serverError(error, 'loading user details');
@@ -108,6 +110,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       companyIds: reqCompanyIds,
     } = await req.json();
 
+    // ── THE ROLE MUST BE ONE A TENANT ADMIN MAY GRANT ───────────────────────
+    // POST /api/users has always refused SUPER_ADMIN; this route took any value
+    // of the enum, so an admin could promote a seat into the platform role and
+    // from there reach every tenant. Only the two tenant roles are grantable,
+    // and not on a seat that is still an unanswered invitation — the person has
+    // not agreed to join yet, let alone as an admin.
+    if (role !== undefined && currentUser.role === 'TENANT_ADMIN') {
+      if (role !== 'STANDARD' && role !== 'TENANT_ADMIN') {
+        return NextResponse.json({ error: 'That role cannot be assigned.' }, { status: 400 });
+      }
+      if (role !== targetUser.role && targetUser.membershipStatus === 'pending') {
+        return NextResponse.json({ error: 'Their role can be changed once they accept the invitation.' }, { status: 400 });
+      }
+    }
+
     // ── VALIDATE THE CONTACTS THIS EDIT WOULD LEAVE BEHIND ─────────────────
     // A PATCH-shaped body, so each field is only being changed if it was sent.
     // The check has to run against the MERGED result rather than the payload:
@@ -119,24 +136,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     // Optional for a member, so '' is a deliberate clear, not a missing field.
     const cleanEmail = email !== undefined ? (String(email || '').trim().toLowerCase() || null) : undefined;
 
-    const contactCheck = validateUserContacts({
-      role: effectiveRole,
-      email: cleanEmail !== undefined ? cleanEmail : targetUser.email,
-      phoneNumber: phoneNumber !== undefined ? phoneNumber : targetUser.phoneNumber,
-    });
-    if (!contactCheck.isValid) {
-      const errorMsg = contactCheck.errors.phoneNumber || contactCheck.errors.email || 'Invalid contact details';
-      return NextResponse.json({ error: errorMsg }, { status: 400 });
-    }
-
-    // A member's mobile is optional, but one who HAS access signs in with their
-    // number or their email — clearing both would lock them out silently.
+    // The merged result is checked by the same rules PATCH /api/account/profile
+    // applies to a person editing themselves.
     const mergedPhone = phoneNumber !== undefined ? phoneNumber : targetUser.phoneNumber;
     const mergedEmail = cleanEmail !== undefined ? cleanEmail : targetUser.email;
-    if (effectiveRole === 'STANDARD' && !targetUser.signInDisabledAt && isBlankPhone(mergedPhone) && !mergedEmail) {
-      return NextResponse.json({
-        error: 'This member has access, so they need a mobile number or an email to sign in.',
-      }, { status: 400 });
+    const contactProblem = contactEditProblem({
+      role: effectiveRole,
+      email: mergedEmail,
+      phoneNumber: mergedPhone,
+      signInDisabled: !!targetUser.signInDisabledAt,
+    });
+    if (contactProblem) {
+      return NextResponse.json({ error: contactProblem }, { status: 400 });
     }
 
     /**
@@ -156,6 +167,17 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         { email: mergedEmail, phoneNumber: isBlankPhone(mergedPhone) ? null : mergedPhone },
         await isWhatsAppEnabled(),
       );
+
+    // ── A PERSON WHO BELONGS ELSEWHERE OWNS THEIR OWN SIGN-IN (0082) ────────
+    // Password, email and mobile are shared by every seat the person holds, so
+    // an admin changing them here would change them for the person's other
+    // accounts too. Unchanged values pass — the details dialog re-sends them.
+    const changesCredentials = Boolean(password)
+      || (phoneNumber !== undefined && toDialString(phoneNumber) !== (targetUser.phoneDial ?? null))
+      || (cleanEmail !== undefined && cleanEmail !== targetUser.email);
+    if (changesCredentials && await hasOtherLiveSeats(targetUser)) {
+      return sharedIdentityResponse();
+    }
 
     const updateData: any = {};
     if (autoEnable) updateData.signInDisabledAt = null;
@@ -389,7 +411,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       })
       : null;
 
-    const { passwordHash: _, ...safeUser } = updatedUser;
+    const safeUser = maskPendingSeat(omitUserSecrets(updatedUser));
     return NextResponse.json({ success: true, user: safeUser, invite });
   } catch (error) {
     if (isDuplicatePhone(error)) {

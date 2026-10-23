@@ -79,3 +79,32 @@ export function validateUserContacts({
     errors,
   };
 }
+
+/**
+ * The first reason an edit to someone's contacts must be refused, or null.
+ *
+ * Both writers of an existing account's contacts — an admin editing a member
+ * (PUT /api/users/[id]) and a person editing themselves (PATCH
+ * /api/account/profile) — have to apply the SAME two rules to the MERGED result
+ * (current values overlaid with whatever the request sent), so they share this:
+ *
+ *   1. the contacts left behind must satisfy `validateUserContacts` for the role;
+ *   2. a member who can sign in must keep a mobile number or an email, since
+ *      either is their login — clearing both locks them out silently.
+ */
+export function contactEditProblem(input: {
+  role: ContactValidationInput['role'];
+  email?: string | null;
+  phoneNumber?: string | null;
+  /** `users.signInDisabledAt` is set — nothing to lock out. */
+  signInDisabled?: boolean;
+}): string | null {
+  const check = validateUserContacts(input);
+  if (!check.isValid) {
+    return check.errors.phoneNumber || check.errors.email || 'Invalid contact details';
+  }
+  if (input.role === 'STANDARD' && !input.signInDisabled && isBlankPhone(input.phoneNumber) && !input.email) {
+    return 'A member who can sign in needs a mobile number or an email to sign in with.';
+  }
+  return null;
+}

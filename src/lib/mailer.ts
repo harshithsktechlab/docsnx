@@ -192,6 +192,51 @@ export async function sendMemberInviteEmail(
 }
 
 /**
+ * The invitation for someone who ALREADY has an account (0082): there is no
+ * password to set and no code to enter, only a sign-in and an Accept button.
+ * Deliberately names the inviting workspace so the person can tell it from a
+ * phishing mail — and says nothing about their other accounts.
+ */
+export async function sendMembershipInviteEmail(
+  email: string,
+  name: string,
+  inviterName: string,
+  workspaceName: string,
+  loginLink: string,
+) {
+  try {
+    const mailer = await getMailer();
+    if (!mailer) {
+      console.warn('No email provider configured in systemConfig. Cannot send membership invite.');
+      return { success: false, message: 'Email provider not configured' };
+    }
+    const { send, from, platformName } = mailer;
+    const info = await send({
+      from,
+      to: email,
+      subject: `${inviterName} invited you to join ${workspaceName} on ${platformName}`,
+      text: `Hello ${name},\n\n${inviterName} invited you to join ${workspaceName} on ${platformName}.\n\nSign in as usual and choose Accept on the invitation. No new password or code is needed:\n\n${loginLink}\n\nIf you weren't expecting this, sign in and choose Decline, or ignore this email.\n`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <h2 style="color: #0f172a; margin-top: 0;">You're invited to join ${escapeHtml(workspaceName)}</h2>
+          <p style="color: #475569; font-size: 15px;">Hello <strong>${escapeHtml(name)}</strong>,</p>
+          <p style="color: #475569; font-size: 15px;"><strong>${escapeHtml(inviterName)}</strong> invited you to join <strong>${escapeHtml(workspaceName)}</strong> on ${platformName}.</p>
+          <div style="margin: 24px 0; text-align: center;">
+            <a href="${loginLink}" style="display: inline-block; padding: 12px 24px; font-size: 15px; font-weight: bold; color: #ffffff; background-color: #7c3aed; border-radius: 8px; text-decoration: none;">Sign in to accept</a>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">Sign in as usual and choose Accept on the invitation. No new password or code is needed.</p>
+          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">If you weren't expecting this, sign in and choose Decline, or ignore this email.</p>
+        </div>
+      `,
+    });
+    return { success: true, messageId: info.messageId };
+  } catch (error: any) {
+    console.error('Failed to send membership invite email via the email provider:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Prove the transport works, and say exactly why when it does not.
  *
  * Every other sender in this file swallows its failure and returns

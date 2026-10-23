@@ -5,7 +5,11 @@ import { eq, and, ne, or, sql, count, isNull, inArray } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
+import {
+  CANNOT_ADD_MESSAGE, hasSeatIn, isPlatformOperator, maskPendingSeat, matchExistingPerson,
+} from '@/lib/account/attachExisting';
 import { seatAllowance, seatPredicate, seatUsage } from '@/lib/account/seatCounts';
+import { omitUserSecrets } from '@/lib/account/sharedIdentity';
 import { parseQueryParams, buildListQueryHelper } from '@/lib/api-pagination';
 import { validateUserContacts } from '@/lib/userContactValidation';
 import { toDialString, isBlankPhone } from '@/lib/phone';
@@ -171,16 +175,14 @@ export async function GET(req: Request) {
     // nothing on the screen needs them — and 0052 would otherwise have added a
     // second one to the payload.
     const safeUsers = tenantUsers.map(u => {
-      const {
-        passwordHash,
-        emailVerificationOtp, phoneVerificationOtp,
-        resetToken,
-        ...safe
-      } = u;
+      // Every stored secret AND the cross-tenant identity id — see omitUserSecrets.
+      const safe = omitUserSecrets(u);
       // An admin holds no rows — `hasCompanyAccess` short-circuits for them —
       // so theirs is empty here and the member screen does not offer them a
       // checklist that could not take anything away.
-      return { ...safe, companyIds: grantsByUser.get(u.id) ?? [] };
+      // A pending seat carries the invited person's real contacts (0082); the
+      // admin only knew one of them, so both are masked until they accept.
+      return { ...maskPendingSeat(safe), companyIds: grantsByUser.get(u.id) ?? [] };
     });
 
     /**
@@ -409,11 +411,45 @@ export async function POST(req: Request) {
       }, { status: 403 });
     }
 
+    /**
+     * ── SOMEONE WHO ALREADY HAS AN ACCOUNT (0082) ───────────────────────────
+     *
+     * The mobile number / email may belong to a person who already holds a
+     * Personal account or a seat in another business. That used to be a hard
+     * "already registered" refusal; now it is the same person being given a
+     * second seat, with no re-verification — their identity is already proved.
+     *
+     * The seat is created PENDING and invisible to sign-in until the person
+     * accepts it, signed in, from their own account. And the admin is answered
+     * exactly as for a new member: nothing here confirms that the contacts
+     * matched anybody — see src/lib/account/attachExisting.ts.
+     *
+     * Only a STANDARD member can be attached. An admin-role seat created through
+     * the API keeps the old path, and its duplicate check.
+     */
+    const typedDial = toDialString(phoneNumber);
+    let attachTo: { id: string } | null = null;
+    if (newRole === 'STANDARD') {
+      const match = await matchExistingPerson({ email: cleanEmail, phoneDial: typedDial });
+      if (match.kind === 'conflict') {
+        return NextResponse.json({ error: CANNOT_ADD_MESSAGE }, { status: 400 });
+      }
+      if (match.kind === 'one') {
+        if (await isPlatformOperator(match.identity.id)) {
+          return NextResponse.json({ error: CANNOT_ADD_MESSAGE }, { status: 400 });
+        }
+        if (await hasSeatIn(match.identity.id, currentUser.tenantId)) {
+          return NextResponse.json({ error: 'This person is already a member of this account.' }, { status: 400 });
+        }
+        attachTo = { id: match.identity.id };
+      }
+    }
+
     // Check if email already exists — only when one was given. An unguarded
     // `eq(u.email, null)` would be a `= NULL` predicate: it matches nothing, so
     // this happened to be harmless, but the `email.toLowerCase()` above it was
     // a TypeError on every member added without an address.
-    if (cleanEmail) {
+    if (cleanEmail && !attachTo) {
       const existingUserByEmail = await db.query.users.findFirst({
         where: (u, { eq, and, isNull }) => and(isNull(u.deletedAt), eq(u.email, cleanEmail)),
       });
@@ -442,7 +478,9 @@ export async function POST(req: Request) {
       { email: email ? String(email) : null, phoneNumber: isBlankPhone(phoneNumber) ? null : phoneNumber },
       await isWhatsAppEnabled(),
     );
-    const signInOn = newRole !== 'STANDARD' || (wantsAccess && reachable);
+    // An attached seat never waits on the admin's sign-in switch: it is gated by
+    // `membership_status = 'pending'` until the person accepts.
+    const signInOn = !!attachTo || newRole !== 'STANDARD' || (wantsAccess && reachable);
 
     // No password from the admin: an unusable one until the member sets theirs.
     const passwordHash = await hashPassword(password || crypto.randomBytes(32).toString('hex'));
@@ -451,6 +489,10 @@ export async function POST(req: Request) {
       // 1. Create the user
       const [user] = await tx.insert(users).values({
         tenantId: currentUser.tenantId,
+        // For an attached seat the 0082 trigger overwrites email, mobile and
+        // password with the person's own, whatever is written here.
+        identityId: attachTo?.id,
+        membershipStatus: attachTo ? 'pending' : 'active',
         email: cleanEmail,
         passwordHash,
         name,
@@ -470,7 +512,8 @@ export async function POST(req: Request) {
         signInDisabledAt: signInOn ? null : new Date(),
         // Set only when the admin chose a password; an invited member finishes
         // on /activate, and login sends them there until then.
-        activatedAt: password ? new Date() : null,
+        // An attached seat is activated when the person ACCEPTS it, not here.
+        activatedAt: !attachTo && password ? new Date() : null,
         role: newRole,
       }).returning();
 
@@ -545,11 +588,11 @@ export async function POST(req: Request) {
       await writeAudit({
         tenantId: currentUser.tenantId,
         userId: currentUser.id,
-        action: ACTIONS.user.create,
-        details: auditSentence('create', {
+        action: attachTo ? ACTIONS.auth.membership_invited : ACTIONS.user.create,
+        details: auditSentence(attachTo ? 'membership_invited' : 'create', {
           kind: 'member',
           name,
-          note: `as a ${role || 'STANDARD'} user`,
+          note: attachTo ? 'invited to join; they accept when they sign in' : `as a ${role || 'STANDARD'} user`,
         }),
         req,
         entityType: 'users',
@@ -560,20 +603,42 @@ export async function POST(req: Request) {
     });
 
     // After the commit: the member exists whatever the messaging does.
-    const invite = newRole === 'STANDARD' && signInOn && !password
+    // The invitation is sent under the SAME condition for a new member and for an
+    // existing person (access granted, and the typed contacts reachable). If an
+    // existing person were always notified, an admin granting no access could
+    // tell from the presence of `invite` in the reply that the number is already
+    // registered. The pending seat is there for the person either way — they see
+    // it on their next sign-in — and any invitation goes to THEIR contacts.
+    const notify = attachTo ? wantsAccess && reachable : signInOn && !password;
+    const invite = newRole === 'STANDARD' && notify
       ? await sendMemberInvite({
         tenantId: currentUser.tenantId,
         actor: currentUser,
+        // `newUser` is the row AS INSERTED, so for an attached seat these are
+        // the person's own contacts — the invitation goes where they live, not
+        // to whatever the admin typed.
         member: { id: newUser.id, name: newUser.name, email: newUser.email, phoneNumber: newUser.phoneNumber },
         req,
+        kind: attachTo ? 'accept' : 'activate',
+        workspaceName: tenant.name,
       })
       : null;
 
-    const { passwordHash: _, ...safeUser } = newUser;
+    const safeUser = omitUserSecrets(newUser);
+    // The invitation went to the PERSON's contacts, which may include one the
+    // admin never typed. Report only the channels the admin supplied, so
+    // `email: 'sent'` cannot reveal that an address is on file.
+    const reportedInvite = attachTo && invite
+      ? {
+        whatsapp: typedDial ? invite.whatsapp : 'skipped',
+        email: cleanEmail ? invite.email : 'skipped',
+        delivered: invite.delivered,
+      }
+      : invite;
     return NextResponse.json({
       success: true,
-      user: safeUser,
-      invite,
+      user: maskPendingSeat(safeUser),
+      invite: reportedInvite,
       // Access was given but nothing can reach them: the screen asks for a contact.
       inviteBlocked: wantsAccess && !reachable,
     }, { status: 201 });

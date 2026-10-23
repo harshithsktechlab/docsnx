@@ -192,9 +192,7 @@ export async function GET(req: Request) {
 
       const activeAddons = addonsByTenant.get(t.id) ?? [];
       // The household's seat allowance — plan seats + live add-on seats × qty —
-      // from the one helper POST /api/users enforces and AI credits are
-      // multiplied by (aiCreditMultiplier), so "Members x/N" here is exactly N
-      // in "base × N members" on the credit ledger.
+      // from the one helper POST /api/users enforces.
       const maxMembers = await seatAllowance(t.id, 'personal');
       const ledger = ledgerByTenant.get(t.id);
 

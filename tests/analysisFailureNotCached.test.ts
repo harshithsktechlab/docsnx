@@ -16,7 +16,10 @@ const insert = vi.fn(() => ({ values: async () => {} }));
 const update = vi.fn(() => ({ set: () => ({ where: async () => {} }) }));
 vi.mock('@/lib/db', () => ({
   db: {
-    query: { aiAnalysisCache: { findFirst: (...a: any[]) => findFirst(...(a as [])) } },
+    query: {
+      aiAnalysisCache: { findFirst: (...a: any[]) => findFirst(...(a as [])) },
+      systemConfigs: { findFirst: async () => ({ aiCostCategoryAnalysis: '2.00' }) },
+    },
     insert: (...a: any[]) => insert(...(a as [])),
     update: (...a: any[]) => update(...(a as [])),
   },
@@ -108,5 +111,52 @@ describe('/api/analysis failure handling', () => {
     expect(res.status).toBe(502);
     expect(insert).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/analysis cacheOnly (opening the page must not spend credits)', () => {
+  it('with nothing saved reports the gap and the cost, and never calls the model', async () => {
+    findFirst.mockResolvedValue(undefined);
+
+    const res = await GET(req('&cacheOnly=true'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ success: true, analysis: null, cached: false, creditCost: 2 });
+    expect(generateCategoryAnalysis).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('serves a saved analysis without calling the model', async () => {
+    findFirst.mockResolvedValue({ id: 'c1', analysisData: { summary: 'saved' }, updatedAt: new Date() });
+
+    const res = await GET(req('&cacheOnly=true'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.cached).toBe(true);
+    expect(body.analysis.summary).toBe('saved');
+    expect(generateCategoryAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('treats a cached failure placeholder as nothing saved', async () => {
+    findFirst.mockResolvedValue({ id: 'c1', analysisData: { error: 'old failure' } });
+
+    const res = await GET(req('&cacheOnly=true'));
+    const body = await res.json();
+
+    expect(body.analysis).toBeNull();
+    expect(generateCategoryAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('refresh=true still generates even if cacheOnly is also sent', async () => {
+    findFirst.mockResolvedValue(undefined);
+    generateCategoryAnalysis.mockResolvedValue({ summary: 'fresh', recommendations: [], itemsAnalysis: [] });
+
+    const res = await GET(req('&cacheOnly=true&refresh=true'));
+
+    expect(res.status).toBe(200);
+    expect(generateCategoryAnalysis).toHaveBeenCalledTimes(1);
   });
 });

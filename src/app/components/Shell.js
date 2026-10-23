@@ -68,6 +68,7 @@ import { moduleIcon } from '@/lib/moduleIcons';
 import ModuleFlyout from '@/app/components/ModuleFlyout';
 import WorkspaceSwitcher from '@/app/components/WorkspaceSwitcher';
 import AccountMenu from '@/app/components/AccountMenu';
+import PendingInvites from '@/app/components/PendingInvites';
 import useUploadPicker from '@/app/components/useUploadPicker';
 import useBackNavigation, { brandHomePath } from '@/app/components/useBackNavigation';
 import { usePermittedCategories, navModulesFrom } from '@/lib/usePermittedCategories';
@@ -243,6 +244,12 @@ export default function Shell({ children }) {
   const [user, setUser] = useState(null);
   /** The companies this member may reach. Empty for a personal-only account. */
   const [companies, setCompanies] = useState([]);
+  /**
+   * The tenants this person belongs to and the invitations still waiting for an
+   * answer (0082), from the same /me read as `user`.
+   */
+  const [memberships, setMemberships] = useState([]);
+  const [pendingInvites, setPendingInvites] = useState([]);
   const [planState, setPlanState] = useState(null);
   // Owned by src/components/ThemeToggle.tsx, not by local state: the header
   // button and the Appearance card on /more both write it, and two independent
@@ -487,6 +494,8 @@ export default function Shell({ children }) {
       } else {
         setUser(data.user);
         setCompanies(Array.isArray(data.companies) ? data.companies : []);
+        setMemberships(Array.isArray(data.memberships) ? data.memberships : []);
+        setPendingInvites(Array.isArray(data.pendingInvites) ? data.pendingInvites : []);
         setPlanState(data.planStatus || null);
         // Warn on the way to full, not only once uploads start failing. Deduped
         // per state inside the helper — this runs on every navigation.
@@ -632,6 +641,18 @@ export default function Shell({ children }) {
     };
     window.addEventListener('docsnx:companies-changed', onCompaniesChanged);
     return () => window.removeEventListener('docsnx:companies-changed', onCompaniesChanged);
+  }, []);
+
+  // The person changed their own name or photo on /settings — re-read ONLY the
+  // user so the header's avatar and name catch up without a navigation. Not
+  // `loadUser`, for the same reason as the companies listener above.
+  useEffect(() => {
+    const onMeChanged = async () => {
+      const data = await clientGetMe();
+      if (data.success) setUser(data.user);
+    };
+    window.addEventListener('docsnx:me-changed', onMeChanged);
+    return () => window.removeEventListener('docsnx:me-changed', onMeChanged);
   }, []);
 
   // Route guard to redirect SUPER_ADMIN users away from tenant-specific URLs reactively.
@@ -1564,7 +1585,7 @@ export default function Shell({ children }) {
                 Credits, Settings, Audit Logs and Logout. Logout used to be a
                 bare red button right here, between Bell and Theme — the one
                 destructive control in the row, one mis-click away. */}
-            <AccountMenu user={user} planLocked={planLocked} activeCompanyId={activeCompanyId} variant="desktop" />
+            <AccountMenu user={user} planLocked={planLocked} activeCompanyId={activeCompanyId} memberships={memberships} variant="desktop" />
           </header>
         )}
         {/* Mobile Header */}
@@ -1699,7 +1720,7 @@ export default function Shell({ children }) {
                   arithmetic described above is unchanged. It opens the bottom
                   sheet — which is also the only route a phone has to Billing
                   and Settings now that the rail's Account group is gone. */}
-              <AccountMenu user={user} planLocked={planLocked} activeCompanyId={activeCompanyId} variant="mobile" />
+              <AccountMenu user={user} planLocked={planLocked} activeCompanyId={activeCompanyId} memberships={memberships} variant="mobile" />
             </div>
           </header>
         )}
@@ -1740,6 +1761,12 @@ export default function Shell({ children }) {
               </button>
             )}
           </div>
+        )}
+
+        {/* Invitations to join another account (0082) wait here until answered.
+            Accepting reloads, so the account menu offers the new account. */}
+        {!isEmbedded && pendingInvites.length > 0 && (
+          <PendingInvites invites={pendingInvites} onAnswered={() => window.location.reload()} />
         )}
 
         {/* Page Content */}

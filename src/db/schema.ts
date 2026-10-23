@@ -157,9 +157,68 @@ export const tenants = pgTable("tenants", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
+/**
+ * The PERSON, as distinct from their seat in a tenant (`users`). Added by 0081.
+ *
+ * PHASE 1 — a MIRROR. `users` is still the source of truth for credentials and
+ * every read; two triggers (users_identity_insert / users_identity_sync, see
+ * drizzle/0081_identities.sql) keep this table in step so no write site changes
+ * yet. Do not write here from application code until phase 2 flips the
+ * direction and drops the triggers.
+ *
+ * Has no tenant_id by design: a person spans tenants, and it is read before a
+ * tenant is known (login). So it carries no RLS policy — see
+ * GLOBAL_UNPOLICIED_TABLES in tests/rlsCoverage.test.ts. Column meanings are
+ * those documented on the same-named `users` columns below.
+ */
+export const identities = pgTable("identities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: varchar("email", { length: 255 }),
+  phoneNumber: varchar("phone_number", { length: 50 }),
+  phoneDial: varchar("phone_dial", { length: 20 }),
+  passwordHash: text("password_hash").notNull(),
+  requiresPasswordChange: boolean("requires_password_change").default(true).notNull(),
+  resetToken: varchar("reset_token", { length: 255 }),
+  resetTokenExpiry: timestamp("reset_token_expiry", { withTimezone: true }),
+  emailVerified: boolean("email_verified").default(false).notNull(),
+  emailVerificationOtp: varchar("email_verification_otp", { length: 255 }),
+  emailVerificationOtpExpiry: timestamp("email_verification_otp_expiry", { withTimezone: true }),
+  phoneVerified: boolean("phone_verified").default(false).notNull(),
+  phoneVerificationOtp: varchar("phone_verification_otp", { length: 255 }),
+  phoneVerificationOtpExpiry: timestamp("phone_verification_otp_expiry", { withTimezone: true }),
+  consentDataProcessing: boolean("consent_data_processing").default(false).notNull(),
+  consentTimestamp: timestamp("consent_timestamp", { withTimezone: true }),
+  consentIpAddress: varchar("consent_ip_address", { length: 45 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => {
+  return {
+    /** One live identity per handset / address — the rule `users` enforces today, moved to the person. */
+    phoneDialIdx: uniqueIndex("identities_phone_dial_uq")
+      .on(table.phoneDial)
+      .where(sql`phone_dial IS NOT NULL AND deleted_at IS NULL`),
+    emailIdx: uniqueIndex("identities_email_uq")
+      .on(table.email)
+      .where(sql`email IS NOT NULL AND deleted_at IS NULL`),
+  };
+});
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  /**
+   * The person this seat belongs to (0081). NULLABLE in phase 1 — the insert
+   * sites do not set it, a BEFORE INSERT trigger does. Phase 2 sets it in code
+   * and makes it NOT NULL.
+   */
+  identityId: uuid("identity_id").references(() => identities.id),
+  /**
+   * 'pending' | 'active' | 'declined' | 'removed' (0081). 'pending' is an
+   * invitation the person has not accepted; only 'active' seats count toward
+   * member limits and may sign in to this tenant. Every pre-0081 row is 'active'.
+   */
+  membershipStatus: varchar("membership_status", { length: 16 }).default('active').notNull(),
   /**
    * NULLABLE since 0040, and no longer carrying a table-level UNIQUE.
    *
@@ -331,42 +390,30 @@ export const users = pgTable("users", {
 }, (table) => {
   return {
     /**
-     * One live account per handset, PLATFORM-WIDE. Added by 0039.
+     * Lookup indexes for a handset / address (0082). They were UNIQUE
+     * (`users_phone_dial_uq` 0039, `users_email_uq` 0040) while one `users` row
+     * was one person; a person may now hold a seat in several tenants, so the
+     * same number legitimately appears on more than one row.
      *
-     * Not tenant-scoped, and it cannot be: sign-in resolves the number before
-     * there is a session, so there is no tenant to scope by. The consequence is
-     * a product rule, not just a constraint — one person cannot hold a member
-     * seat in two tenants under the same mobile number.
+     * Uniqueness moved to `identities` (identities_phone_dial_uq /
+     * identities_email_uq) and, per tenant, to `users_identity_tenant_uq` below.
+     * The triggers from 0081/0082 still raise `users_phone_dial_uq` /
+     * `users_email_uq` BY NAME for a clash, because src/lib/dbErrors.ts matches
+     * on those names — they no longer exist as indexes.
      *
-     * Partial on two counts. `phone_dial IS NOT NULL` because a great many rows
-     * have no number and NULLs must not collide (Postgres would allow that
-     * anyway; the predicate keeps the index small). `deleted_at IS NULL` because
-     * a soft-deleted account must not hold its number hostage against the person
-     * re-registering — and it matches the sign-in lookup, which filters the same
-     * way.
+     * Partial on `deleted_at IS NULL` like the sign-in lookup that uses them.
      */
-    phoneDialIdx: uniqueIndex("users_phone_dial_uq")
+    phoneDialIdx: index("users_phone_dial_idx")
       .on(table.phoneDial)
       .where(sql`phone_dial IS NOT NULL AND deleted_at IS NULL`),
-
-    /**
-     * One live account per email address. Added by 0040, replacing the baseline
-     * `users_email_unique` table constraint.
-     *
-     * The constraint had to go because the column became nullable and a plain
-     * UNIQUE cannot carry a predicate. Shaped exactly like the phone index
-     * above, and for the same two reasons: NULLs must not collide (many member
-     * rows now have no address at all), and a soft-deleted account must not
-     * hold an address hostage against the person re-registering.
-     *
-     * NOTE the second half is a REAL RELAXATION of the old constraint: two
-     * soft-deleted rows may now share an address, and a live row may take one a
-     * deleted row still holds. That matches how `users_phone_dial_uq` and the
-     * sign-in lookup in src/lib/authLookup.ts already treat deleted rows.
-     */
-    emailIdx: uniqueIndex("users_email_uq")
+    emailIdx: index("users_email_idx")
       .on(table.email)
       .where(sql`email IS NOT NULL AND deleted_at IS NULL`),
+
+    /** One live membership per person per tenant (0081). Phase 2 relies on it. */
+    identityTenantIdx: uniqueIndex("users_identity_tenant_uq")
+      .on(table.identityId, table.tenantId)
+      .where(sql`deleted_at IS NULL`),
   };
 });
 
@@ -422,6 +469,22 @@ export const profiles = pgTable("profiles", {
   educationDetails: jsonb("education_details"),
   shoppingDetails: jsonb("shopping_details"),
   legalDetails: jsonb("legal_details"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * A member's profile photo (0080). Its own table so the base64 payload is never
+ * loaded by the `users` reads that getUserFromRequest, /api/auth/me and the
+ * roster make. Written only by /api/account/avatar, which resizes-and-caps it.
+ */
+export const userAvatars = pgTable("user_avatars", {
+  userId: uuid("user_id").references(() => users.id, { onDelete: 'cascade' }).primaryKey(),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  /** Sniffed from the bytes by the server, never taken from the client. */
+  contentType: varchar("content_type", { length: 50 }).notNull(),
+  /** Base64 of the image bytes. */
+  data: text("data").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

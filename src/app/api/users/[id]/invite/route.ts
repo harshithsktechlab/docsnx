@@ -60,8 +60,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       actor: currentUser,
       member: { id: member.id, name: member.name, email: member.email, phoneNumber: member.phoneNumber },
       req,
+      // A pending seat belongs to someone who already has a password (0082):
+      // they sign in and accept, they do not "set up" anything.
+      kind: member.membershipStatus === 'pending' ? 'accept' : 'activate',
+      workspaceName: currentUser.tenant?.name,
     });
-    return NextResponse.json({ success: true, invite });
+    // For a pending seat the invitation went to contacts the admin may never have
+    // typed; per-channel outcomes would reveal which exist.
+    return NextResponse.json({
+      success: true,
+      invite: member.membershipStatus === 'pending' ? { delivered: invite.delivered } : invite,
+    });
   } catch (error) {
     return serverError(error, 'sending a member invite');
   }

@@ -237,24 +237,3 @@ export async function activeAddonSeats(
     return total + (row.addon?.[column] || 0) * storedQuantity(row.quantity);
   }, 0);
 }
-
-/**
- * The member count an AI action's credit cost is multiplied by:
- * `credits = ceil(base cost × this)`.
- *
- * It is the workspace's SEAT ALLOWANCE — plan seats plus live add-on seats —
- * the same number `POST /api/users` enforces and the admin Tenants card shows
- * as "Members x/N". A call made inside a company uses that company's business
- * allowance; the household uses the personal one.
- *
- * It used to read `tenants.max_members + tenants.extra_members`, legacy columns
- * nothing writes since 0032, so a 4-seat plan was charged ×1 while one tenant
- * whose stale columns said 2 + 5 was charged ×7.
- *
- * Never below 1: a workspace with no plan (or a company with no business seats)
- * still pays the base cost, not nothing.
- */
-export async function aiCreditMultiplier(tenantId: string, companyId?: string | null): Promise<number> {
-  const seats = await seatAllowance(tenantId, companyId ? 'business' : 'personal');
-  return Math.max(1, Number.isFinite(seats) ? Math.floor(seats) : 1);
-}

@@ -41,7 +41,9 @@ import {
   CreditCard,
   ChevronDown,
   Lock,
+  ArrowLeftRight,
   LogOut,
+  PlusCircle,
   Settings,
   Sparkles,
   User,
@@ -49,9 +51,11 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { anchorMenu } from '@/components/ui/row-actions-menu';
 import { clientLogout } from '@/lib/clientAuth';
+import { clientSwitchTenant } from '@/lib/clientMemberships';
 import { accountMenuItems, getInitials } from '@/lib/accountMenu';
 
 /** The desktop panel's width. A number because anchorMenu does maths with it. */
@@ -69,6 +73,7 @@ const ROW_ICON = {
   settings: Settings,
   audit: Activity,
   expired: Lock,
+  account: User,
 };
 
 export default function AccountMenu({
@@ -87,6 +92,11 @@ export default function AccountMenu({
    * off the URL.
    */
   activeCompanyId = null,
+  /**
+   * Every tenant this person belongs to (0082), from /api/auth/me. Only an
+   * account OTHER than the current one is offered; one entry means no switcher.
+   */
+  memberships = [],
   /** 'desktop' → anchored panel; 'mobile' → bottom sheet. */
   variant = 'desktop',
   className,
@@ -148,6 +158,22 @@ export default function AccountMenu({
   // hangs over the destination.
   useEffect(() => { setOpen(false); }, [pathname]);
 
+  const otherAccounts = memberships.filter((m) => !m.current);
+  // A member with no account of their own can open one (a person owns at most one).
+  const canOpenOwn = user?.role === 'STANDARD' && !memberships.some((m) => m.role === 'TENANT_ADMIN');
+
+  const handleSwitch = async (account) => {
+    const res = await clientSwitchTenant(account.userId);
+    if (!res.success) {
+      close();
+      toast.error(res.error || 'Could not switch accounts.');
+      return;
+    }
+    // A full navigation, so the shell, plan state and every cache reload
+    // against the other tenant rather than showing the previous one's data.
+    window.location.assign('/dashboard');
+  };
+
   const handleLogout = async () => {
     close();
     await clientLogout();
@@ -171,11 +197,15 @@ export default function AccountMenu({
   };
 
   const avatar = (
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-primary to-orange-500 text-2xs font-black text-white">
-      {/* The schema has no avatar column, so initials are the person image. The
-          icon is for the moment before /api/auth/me answers, when there is no
-          name to take letters from and 'U' would be a guess. */}
-      {user?.name ? initials : <User size={15} />}
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-tr from-primary to-orange-500 text-2xs font-black text-white">
+      {user?.avatarUrl ? (
+        // Their uploaded photo (user_avatars). Initials are the fallback for
+        // everyone who has not added one; the icon is for the moment before
+        // /api/auth/me answers, when there is no name to take letters from and
+        // 'U' would be a guess.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : user?.name ? initials : <User size={15} />}
     </span>
   );
 
@@ -246,11 +276,42 @@ export default function AccountMenu({
         );
       })}
 
+      {(otherAccounts.length > 0 || canOpenOwn) && (
+        <>
+          {items.length > 0 && <div className="my-1 h-px bg-border/60" />}
+          {otherAccounts.length > 0 && (
+            <span className="px-1 pt-1 text-2xs font-bold uppercase tracking-widest text-faint">
+              Switch account
+            </span>
+          )}
+          {otherAccounts.map((account) => (
+            <button
+              key={account.userId}
+              type="button"
+              role="menuitem"
+              disabled={!account.canEnter}
+              onClick={() => handleSwitch(account)}
+              title={account.canEnter ? undefined : 'Sign in again to finish verifying this account'}
+              className={cn(rowClass(false), 'disabled:cursor-not-allowed disabled:opacity-50')}
+            >
+              <ArrowLeftRight size={isMobile ? 16 : 14} className="shrink-0" />
+              <span className="truncate">{account.tenantName}</span>
+            </button>
+          ))}
+          {canOpenOwn && (
+            <Link href="/account/new" onClick={close} role="menuitem" className={rowClass(isActivePath('/account/new'))}>
+              <PlusCircle size={isMobile ? 16 : 14} className="shrink-0" />
+              <span className="truncate">Open my own account</span>
+            </Link>
+          )}
+        </>
+      )}
+
       {/* A rule rather than a gap: Logout is the one row here that does not
           navigate somewhere you can come back from. `items` is empty for a
-          plain member and a SUPER_ADMIN, and a divider above the only row on
-          screen would be a line under nothing. */}
-      {items.length > 0 && <div className="my-1 h-px bg-border/60" />}
+          plain member, and a divider above the only row on screen would be a
+          line under nothing. */}
+      {(items.length > 0 || otherAccounts.length > 0 || canOpenOwn) && <div className="my-1 h-px bg-border/60" />}
 
       <button
         type="button"

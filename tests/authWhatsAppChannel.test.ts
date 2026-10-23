@@ -67,6 +67,11 @@ vi.mock('@/lib/account/erasedAccountLookup', () => ({
 vi.mock('@/lib/rateLimit', () => ({
   authRateLimiter: { check: () => ({ success: true, resetTime: Date.now() + 60_000 }) },
 }));
+// The route resolves the address through the shared pre-auth lookup (0082) so a
+// person with several seats is sent a link through one they can use.
+vi.mock('@/lib/authLookup', () => ({
+  findUserByIdentifier: async () => foundUsers[0] ?? null,
+}));
 vi.mock('@/lib/fieldCrypto', () => ({ hashToken: (t: string) => `hashed:${t}` }));
 // Only `writeAudit` touches the database. The action vocabulary and the
 // sentence builder are pure, so the REAL ones run here — a stubbed ACTIONS

@@ -114,6 +114,10 @@ export async function getUserFromRequest(req: Request): Promise<AuthUser | null>
     // that does it.
     if (user.deletedAt || user.signInDisabledAt) return null;
 
+    // A seat that is still an unanswered invitation (or was declined / removed)
+    // is not an account the person can use, whatever token they hold (0082).
+    if (user.membershipStatus !== 'active') return null;
+
     // Remove password hash for security
     const { passwordHash, ...safeUser } = user;
     

@@ -57,7 +57,11 @@ export async function POST(req: Request) {
     // Email or mobile, in any spelling — see src/lib/authLookup.ts. The number
     // is matched on the normalised `phone_dial`, not the display value, so the
     // three ways of writing one handset all land on the same account.
-    const user = await findUserByIdentifier(loginIdentifier);
+    // A person who belongs to several tenants has one seat per tenant, all with
+    // this same password. `intent: 'login'` picks a seat they can actually sign
+    // in to — see src/lib/account/membershipPick.ts.
+    const whatsappEnabled = await isWhatsAppEnabled();
+    const user = await findUserByIdentifier(loginIdentifier, { intent: 'login', whatsappEnabled });
 
     if (!user) {
       // No live account — but was there one? An admin who erased their
@@ -102,7 +106,7 @@ export async function POST(req: Request) {
     // messages at someone else's inbox or handset without already holding their
     // credentials. It used to refuse without issuing anything, leaving the
     // person to find the Resend button on a screen they had never seen.
-    if (!isFullyVerified(user, { whatsappEnabled: await isWhatsAppEnabled() })) {
+    if (!isFullyVerified(user, { whatsappEnabled })) {
       const {
         emailHint, phoneHint, issued, delivered, channels, needsEmailCode, needsPhoneCode,
       } = await issueOtpChallenge(user);

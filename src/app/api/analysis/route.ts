@@ -18,6 +18,22 @@ function isFailedAnalysis(data: unknown): boolean {
   return typeof data === 'object' && data !== null && 'error' in data;
 }
 
+/**
+ * What a fresh category analysis costs, for the page's "Generate" button. Same
+ * arithmetic as `executeTenantWithRotation` (`ceil(base)`, a flat price), so
+ * the figure shown is the figure charged. Purely informational: a failure here
+ * must never block the cache read, so it is null.
+ */
+async function categoryAnalysisCreditCost(): Promise<number | null> {
+  try {
+    const config = await db.query.systemConfigs.findFirst();
+    const base = parseFloat(config?.aiCostCategoryAnalysis as string) || 2.0;
+    return Math.ceil(base);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const user = await getUserFromRequest(req);
@@ -35,6 +51,9 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const forceRefresh = searchParams.get('refresh') === 'true';
+    // Opening the page asks with this set: serve what is saved, never call the
+    // model. Generating is a separate, explicit request (no param, or refresh).
+    const cacheOnly = searchParams.get('cacheOnly') === 'true' && !forceRefresh;
     const category = searchParams.get('category');
 
     if (!category) {
@@ -148,6 +167,20 @@ export async function GET(req: Request) {
           updatedAt: cached.updatedAt
         });
       }
+    }
+
+    // Nothing saved for this member in this workspace. The cache is per member
+    // on purpose — what the model is shown depends on which records THIS member
+    // may view (`recordContextFor` below) — so another member's answer is not a
+    // substitute. Report the gap and what filling it would cost, and stop: no
+    // records read, no model call, no credits spent.
+    if (cacheOnly) {
+      return NextResponse.json({
+        success: true,
+        analysis: null,
+        cached: false,
+        creditCost: await categoryAnalysisCreditCost(),
+      });
     }
 
     // One query where there were fifteen branches. `prepareAiPayload` still

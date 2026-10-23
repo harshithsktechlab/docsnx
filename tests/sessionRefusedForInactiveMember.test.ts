@@ -25,6 +25,7 @@ const req = new Request('http://localhost/api/auth/me');
 const LIVE = {
   id: 'u1', role: 'STANDARD', passwordHash: 'x', permissions: [],
   tenant: { isActive: true }, deletedAt: null, signInDisabledAt: null,
+  membershipStatus: 'active',
 };
 
 beforeEach(() => { row = LIVE; });
@@ -43,6 +44,13 @@ describe('getUserFromRequest', () => {
 
   it('refuses a removed member', async () => {
     row = { ...LIVE, deletedAt: new Date() };
+    expect(await getUserFromRequest(req)).toBeNull();
+  });
+
+  // 0082: a seat that is an unanswered invitation (or was declined / removed) is
+  // not an account, whatever token the person holds from their OTHER seat.
+  it.each(['pending', 'declined', 'removed'])('refuses a seat whose membership is %s', async (status) => {
+    row = { ...LIVE, membershipStatus: status };
     expect(await getUserFromRequest(req)).toBeNull();
   });
 });

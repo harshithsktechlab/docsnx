@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tenants, users, profiles, companies } from '@/db/schema';
-import { hashPassword, signToken } from '@/lib/auth';
+import { comparePassword, hashPassword, signToken } from '@/lib/auth';
+import { attachSessionCookie } from '@/lib/account/memberships';
 import { newTenantPlanValues, recordSignupGrant } from '@/lib/planProvisioning';
 import { validateUserContacts } from '@/lib/userContactValidation';
 import { defaultWorkspaceName } from '@/lib/workspaceName';
@@ -207,7 +208,52 @@ export async function POST(req: Request) {
     // loop is only the part that has to go and count rows for it.
     const retiring: NonNullable<typeof byEmail>[] = [];
 
-    for (const row of unique) {
+    /**
+     * ── A MEMBER OPENING AN ACCOUNT OF THEIR OWN (0082) ─────────────────────
+     *
+     * The address AND the number both belong to ONE existing person, and that
+     * person holds only member seats (they were added to somebody's workspace).
+     * They are not "already registered" in the sense this route refuses — they
+     * have no account of their own — so the new tenant becomes a second seat on
+     * the SAME identity rather than a new person.
+     *
+     * Ownership is proved by their EXISTING password, before anything is
+     * created or sent. That is deliberate: a code sent from here to an address
+     * the caller merely typed would make /register a pump aimed at somebody
+     * else's phone, which is exactly what the pending-signup branch below
+     * refuses to be. The password typed on the form is therefore not a NEW
+     * password; the 0082 trigger forces the seat to carry the person's own.
+     *
+     * A wrong password falls through to the loop below and is refused with the
+     * same words as before, so nothing here confirms that the contacts matched.
+     */
+    let attachIdentityId: string | null = null;
+    if (byEmail && byPhone && byEmail.identityId && byEmail.identityId === byPhone.identityId) {
+      const seats = await db.query.users.findMany({
+        where: (users, { eq, and, isNull }) => and(
+          isNull(users.deletedAt),
+          eq(users.identityId, byEmail.identityId as string),
+        ),
+        columns: { id: true, role: true, activatedAt: true },
+      });
+      if (seats.length > 0 && seats.every((s) => s.role === 'STANDARD')) {
+        if (!seats.some((s) => s.activatedAt)) {
+          // Invited, never set up: their stored password is random, so there is
+          // nothing to prove it with. /activate is the door that sends them a code.
+          const message = 'You were added to an account but have not set it up yet. Use “Set up my account” on the sign-in page first, then come back to open your own account.';
+          return NextResponse.json({
+            error: message,
+            fieldErrors: { email: message },
+            requiresActivation: true,
+          }, { status: 409 });
+        }
+        if (await comparePassword(password, byEmail.passwordHash)) {
+          attachIdentityId = byEmail.identityId;
+        }
+      }
+    }
+
+    for (const row of attachIdentityId ? [] : unique) {
       // Everyone still live in that row's workspace, the row itself included.
       // A count of one is the proof that nothing was ever built behind it —
       // an account that never had a session cannot have added a member.
@@ -348,6 +394,9 @@ export async function POST(req: Request) {
 
       const [user] = await tx.insert(users).values({
         tenantId: tenant.id,
+        // Set for a member opening their own account: the seat then shares the
+        // person's identity (and, via the 0082 trigger, their credentials).
+        identityId: attachIdentityId ?? undefined,
         email: lowerEmail,
         passwordHash,
         name,
@@ -395,7 +444,9 @@ export async function POST(req: Request) {
         details: auditSentence('register', {
           kind: 'account',
           name: workspaceName,
-          note: 'its admin was created and is pending first-login verification',
+          note: attachIdentityId
+            ? 'opened by an existing member of another account; it signs in with their existing password'
+            : 'its admin was created and is pending first-login verification',
         }),
         req,
         entityType: 'tenants',
@@ -413,6 +464,19 @@ export async function POST(req: Request) {
 
       return { tenant, user };
     });
+
+    // An existing member whose proved contacts already cover everything an admin
+    // must verify has nothing left to prove: start the session here, exactly as
+    // sign-in would, and let the page carry on to choosing a plan.
+    if (attachIdentityId && isFullyVerified(result.user, { whatsappEnabled: await isWhatsAppEnabled() })) {
+      const response = NextResponse.json({
+        success: true,
+        requireVerification: false,
+        message: 'Your account is ready. Choose a plan to activate it.',
+      });
+      attachSessionCookie(response, req, signToken({ userId: result.user.id, role: result.user.role }));
+      return response;
+    }
 
     // ── ONE CODE, TWO CHANNELS, ONE PLACE THAT KNOWS HOW ────────────────────
     // This route used to mint, hash, store and send its own — the fourth copy

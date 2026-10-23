@@ -141,6 +141,17 @@ vi.mock('@/lib/audit', async () => ({
 
 vi.mock('@/lib/moduleRegistry', () => ({ defaultPermissionsFor: () => [] }));
 
+// Person matching (0082) is exercised in tests/attachExistingMember.test.ts. These
+// suites are about the new-member path, where nobody already holds the contacts.
+vi.mock('@/lib/account/attachExisting', () => ({
+  matchExistingPerson: async () => ({ kind: 'none' }),
+  isPlatformOperator: async () => false,
+  hasSeatIn: async () => false,
+  maskPendingSeat: (seat: any) => seat,
+  CANNOT_ADD_MESSAGE: 'cannot add',
+}));
+
+
 const { POST: createUser } = await import('@/app/api/users/route');
 const { DUPLICATE_PHONE_MESSAGE, DUPLICATE_EMAIL_MESSAGE } = await import('@/lib/dbErrors');
 const { validateUserContacts } = await import('@/lib/userContactValidation');

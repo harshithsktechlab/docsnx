@@ -38,6 +38,11 @@ vi.mock('@/lib/account/erasedAccountLookup', async () => ({
 vi.mock('@/lib/mailer', () => ({ sendPasswordResetEmail }));
 vi.mock('@/lib/whatsapp', () => ({ sendPasswordResetWhatsApp: vi.fn(async () => ({ success: true })) }));
 vi.mock('@/lib/appUrl', () => ({ getAppBaseUrl: () => 'https://example.test' }));
+// The route resolves the address through the shared pre-auth lookup (0082) so a
+// person with several seats is sent a link through one they can use.
+vi.mock('@/lib/authLookup', () => ({
+  findUserByIdentifier: async () => foundUsers[0] ?? null,
+}));
 vi.mock('@/lib/fieldCrypto', () => ({ hashToken: (t: string) => `hashed:${t}` }));
 vi.mock('@/lib/clientIp', () => ({ getClientIp: () => '203.0.113.9' }));
 vi.mock('@/lib/rateLimit', () => ({

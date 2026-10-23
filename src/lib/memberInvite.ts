@@ -26,7 +26,7 @@ import { users } from '@/db/schema';
 import { toDialString } from './phone';
 import { getAppBaseUrl } from './appUrl';
 import { isWhatsAppEnabled, sendWhatsAppTemplate } from './whatsapp';
-import { sendMemberInviteEmail } from './mailer';
+import { sendMemberInviteEmail, sendMembershipInviteEmail } from './mailer';
 import { writeAudit, ACTIONS, auditSentence } from './audit';
 
 export const DEFAULT_INVITE_TEMPLATE = 'member_invite';
@@ -92,11 +92,19 @@ export async function sendMemberInvite(input: {
   actor: { id: string; name?: string | null };
   member: InviteTarget;
   req?: Request;
+  /**
+   * 'activate' (default): a brand-new member who must choose a password.
+   * 'accept': someone who already has an account (0082) — the link is the plain
+   * sign-in page, where the invitation waits for them, and `workspaceName` names
+   * what they are being invited to.
+   */
+  kind?: 'activate' | 'accept';
+  workspaceName?: string | null;
 }): Promise<InviteOutcome> {
-  const { tenantId, actor, member, req } = input;
+  const { tenantId, actor, member, req, kind = 'activate', workspaceName } = input;
   const channels = inviteChannels(member, await isWhatsAppEnabled());
   const inviter = (actor.name || '').trim() || 'Your family';
-  const link = activateLink(req);
+  const link = kind === 'accept' ? `${getAppBaseUrl(req)}/login` : activateLink(req);
   const template = process.env.WHATSAPP_INVITE_TEMPLATE?.trim() || DEFAULT_INVITE_TEMPLATE;
 
   const [wa, mail] = await Promise.all([
@@ -104,7 +112,10 @@ export async function sendMemberInvite(input: {
       ? sendWhatsAppTemplate(member.phoneNumber, template, [inviter, link]).catch(() => ({ success: false }))
       : Promise.resolve(null),
     channels.email
-      ? sendMemberInviteEmail(member.email!, member.name || 'there', inviter, link).catch(() => ({ success: false }))
+      ? (kind === 'accept'
+        ? sendMembershipInviteEmail(member.email!, member.name || 'there', inviter, (workspaceName || '').trim() || 'a workspace', link)
+        : sendMemberInviteEmail(member.email!, member.name || 'there', inviter, link)
+      ).catch(() => ({ success: false }))
       : Promise.resolve(null),
   ]);
 

@@ -306,7 +306,7 @@ export default function CreditHistoryPage() {
           <CardHeader className="px-0 pt-0 pb-4">
             <CardTitle className="text-lg uppercase tracking-wider text-muted-foreground">Action Costs</CardTitle>
             <CardDescription>
-              Costs are calculated from your member allowance ({aiCosts.multiplier} members).
+              Each AI action costs a fixed number of credits.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-0 pb-0">
@@ -323,9 +323,6 @@ export default function CreditHistoryPage() {
                     </span>
                   </div>
                   <span className="text-3xl font-black text-foreground">{aiCosts.costs[tile.key]}</span>
-                  <span className="text-xs text-muted-foreground mt-1">
-                    ({aiCosts.baseCosts[tile.key]} base × {aiCosts.multiplier} members)
-                  </span>
                 </div>
               ))}
             </div>

@@ -202,6 +202,9 @@ const COLUMNS = {
   ],
 };
 
+/** Rows-per-page choices; the API caps a page at 100. */
+const PAGE_SIZES = [10, 25, 50, 100];
+
 /** Clicking a row in one tab narrows the page and moves to the next level down. */
 const DRILL = {
   tenant: (r) => (r.tenantId ? { set: { tenantId: r.tenantId }, tab: 'member' } : null),
@@ -291,6 +294,7 @@ export default function AiUsagePage() {
   const [error, setError] = useState('');
   const [sort, setSort] = useState({ sortBy: null, sortOrder: 'desc' });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [reloadKey, setReloadKey] = useState(0);
 
   /** Writes changes into the URL; null removes a key. */
@@ -337,6 +341,7 @@ export default function AiUsagePage() {
 
   // A new tab or new filters start at page 1 with that tab's default sort.
   useEffect(() => { setPage(1); setSort({ sortBy: null, sortOrder: 'desc' }); }, [tab, filterQuery]);
+  useEffect(() => { setPage(1); }, [pageSize]);
 
   // The active tab's table.
   const tableQuery = useMemo(() => {
@@ -352,7 +357,7 @@ export default function AiUsagePage() {
     setLoadingTable(true);
     const q = new URLSearchParams(tableQuery);
     q.set('page', String(page));
-    q.set('limit', '25');
+    q.set('limit', String(pageSize));
     apiCall(`/api/admin/ai-usage?${q}`).then(({ res, json }) => {
       if (!live) return;
       if (res?.ok && json?.success) setTable({ rows: json.rows || [], pagination: json.pagination });
@@ -360,7 +365,7 @@ export default function AiUsagePage() {
       setLoadingTable(false);
     });
     return () => { live = false; };
-  }, [tableQuery, page, reloadKey]);
+  }, [tableQuery, page, pageSize, reloadKey]);
 
   const onSort = (key) => setSort((s) => ({
     sortBy: key,
@@ -615,18 +620,29 @@ export default function AiUsagePage() {
             </Table>
           </div>
 
-          {table.pagination && table.pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
+          {table.pagination && table.pagination.totalCount > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>
                 {formatCount(table.pagination.totalCount)} rows · page {table.pagination.page} of {table.pagination.totalPages}
               </span>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" disabled={page <= 1 || loadingTable} onClick={() => setPage((p) => p - 1)}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button size="sm" variant="outline" disabled={page >= table.pagination.totalPages || loadingTable} onClick={() => setPage((p) => p + 1)}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span>Rows per page</span>
+                  <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                    <SelectTrigger className="h-8 w-[72px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PAGE_SIZES.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={page <= 1 || loadingTable} onClick={() => setPage((p) => p - 1)}>
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={page >= table.pagination.totalPages || loadingTable} onClick={() => setPage((p) => p + 1)}>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           )}

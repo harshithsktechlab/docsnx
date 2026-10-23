@@ -119,16 +119,30 @@ export async function GET(req: Request) {
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
-    const expiringTenants = allTenants
-      .filter((t) => t.subscriptionExpiry && new Date(t.subscriptionExpiry) <= thirtyDaysFromNow)
-      .slice(0, 8)
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        isActive: t.isActive,
-        expiry: t.subscriptionExpiry,
-        planName: t.subscriptionPlanId ? planMap.get(t.subscriptionPlanId)?.name || 'Custom' : 'Trial / Default',
-      }));
+    // Soft-deleted tenants are gone from the platform; they must not show up as
+    // "Suspended" rows here. Expired and still-to-expire are separate lists —
+    // the old single `<= now + 30d` filter had no lower bound, so tenants that
+    // lapsed months ago filled the "next 30 days" watch.
+    const watchable = allTenants
+      .filter((t) => !t.deletedAt && t.subscriptionExpiry)
+      .sort((a, b) => new Date(a.subscriptionExpiry!).getTime() - new Date(b.subscriptionExpiry!).getTime());
+
+    const toWatchRow = (t: (typeof allTenants)[number]) => ({
+      id: t.id,
+      name: t.name,
+      isActive: t.isActive,
+      expiry: t.subscriptionExpiry,
+      planName: t.subscriptionPlanId ? planMap.get(t.subscriptionPlanId)?.name || 'Custom' : 'Trial / Default',
+    });
+
+    const expiredAll = watchable.filter((t) => new Date(t.subscriptionExpiry!) < now);
+    const expiringAll = watchable.filter((t) => {
+      const e = new Date(t.subscriptionExpiry!);
+      return e >= now && e <= thirtyDaysFromNow;
+    });
+    // Expired most-recently-lapsed first; expiring soonest first.
+    const expiredTenants = expiredAll.slice(-8).reverse().map(toWatchRow);
+    const expiringTenants = expiringAll.slice(0, 8).map(toWatchRow);
 
     const overdueAmcTenants = allTenants
       .filter((t) => t.amcNextDueDate && new Date(t.amcNextDueDate) <= thirtyDaysFromNow)
@@ -193,6 +207,9 @@ export async function GET(req: Request) {
       },
       subscriptionBreakdown,
       expiringTenants,
+      expiredTenants,
+      expiringCount: expiringAll.length,
+      expiredCount: expiredAll.length,
       overdueAmcTenants,
       aiKeyHealth: {
         totalApiKeys,

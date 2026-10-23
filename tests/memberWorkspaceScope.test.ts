@@ -98,6 +98,16 @@ vi.mock('@/lib/whatsapp', () => ({
   sendWhatsAppTemplate: async () => ({ success: true }),
 }));
 
+// Person matching (0082) is exercised in tests/attachExistingMember.test.ts. This
+// suite is about the new-member path, where nobody already holds the contacts.
+vi.mock('@/lib/account/attachExisting', () => ({
+  matchExistingPerson: async () => ({ kind: 'none' }),
+  isPlatformOperator: async () => false,
+  hasSeatIn: async () => false,
+  maskPendingSeat: (seat: any) => seat,
+  CANNOT_ADD_MESSAGE: 'cannot add',
+}));
+
 vi.mock('@/lib/db', () => {
   let table = '';
   const chain: any = {

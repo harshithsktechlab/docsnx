@@ -60,6 +60,7 @@ import {
   userVaultKeys,
 } from '@/db/schema';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
+import { hasOtherLiveSeats } from '@/lib/account/sharedIdentity';
 import { deletedDocumentState, visibleDocument } from '@/lib/records/documentVisibility';
 import {
   invalidateAnalysisCache,
@@ -237,6 +238,7 @@ export async function revokeMemberAccess(
     .set({
       deletedAt: now,
       updatedAt: now,
+      membershipStatus: 'removed',
       email: tombstoneEmail(target.email),
       // Bearer secrets. Each of these is a way back into an account whose
       // access was just revoked.
@@ -294,16 +296,29 @@ export async function setMemberSignIn(
     eq(userDevices.userId, targetId),
   ));
 
+  // The bearer secrets are the PERSON's, shared with every seat they hold
+  // (0082): clearing them here would fan out and cancel a reset link or code in
+  // their other tenants. Turning THIS seat's sign-in off already stops it being
+  // entered (getUserFromRequest refuses it), so nothing is left unprotected.
+  const seat = await tx.select({ id: users.id, identityId: users.identityId })
+    .from(users)
+    .where(and(eq(users.id, targetId), eq(users.tenantId, user.tenantId)))
+    .limit(1)
+    .then((rows) => rows[0]);
+  const shared = seat ? await hasOtherLiveSeats(seat) : false;
+
   await tx.update(users)
     .set({
       signInDisabledAt: now,
       updatedAt: now,
-      resetToken: null,
-      resetTokenExpiry: null,
-      emailVerificationOtp: null,
-      emailVerificationOtpExpiry: null,
-      phoneVerificationOtp: null,
-      phoneVerificationOtpExpiry: null,
+      ...(shared ? {} : {
+        resetToken: null,
+        resetTokenExpiry: null,
+        emailVerificationOtp: null,
+        emailVerificationOtpExpiry: null,
+        phoneVerificationOtp: null,
+        phoneVerificationOtpExpiry: null,
+      }),
     })
     .where(and(eq(users.id, targetId), eq(users.tenantId, user.tenantId)));
 }

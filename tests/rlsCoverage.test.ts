@@ -77,6 +77,10 @@ const GLOBAL_UNPOLICIED_TABLES = [
   // the taxonomy is identical for every tenant and a super admin is a platform
   // role, so there is no tenant column to write a policy over.
   'document_category_field_overrides', // added in drizzle/0037
+  // The PERSON, shared by every tenant they belong to (drizzle/0081). It has no
+  // tenant_id because one identity spans tenants, and it is read before a tenant
+  // is known (login) — the same position `users` is in at that moment.
+  'identities',
 ] as const;
 
 function readSchema(): string {

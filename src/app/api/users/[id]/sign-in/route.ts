@@ -24,6 +24,7 @@ import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { setMemberSignIn } from '@/lib/account/memberRemoval';
 import { workspaceMemberScope } from '@/lib/account/workspaceMemberScope';
+import { hasOtherLiveSeats, sharedIdentityResponse } from '@/lib/account/sharedIdentity';
 import { sendMemberInvite } from '@/lib/memberInvite';
 
 const bodySchema = z.object({
@@ -97,6 +98,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           error: 'WhatsApp is not connected and this member has no email, so their verification code cannot be sent. Connect WhatsApp under Admin → WhatsApp, or add an email for this member, then give access.',
         }, { status: 400 });
       }
+    }
+
+    // An admin-chosen password would replace the person's password everywhere
+    // they hold a seat (0082) — only the person may do that.
+    if (enabled && password && await hasOtherLiveSeats(targetUser)) {
+      return sharedIdentityResponse();
     }
 
     const passwordHash = enabled && password ? await hashPassword(password) : undefined;

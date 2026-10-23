@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import PageContainer from '@/app/components/PageContainer';
+import AccountSettings from '@/app/components/AccountSettings';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
@@ -71,6 +72,8 @@ export default function SettingsPage() {
 
   const [loading, setLoading] = useState(true);
   const [member, setMember] = useState<any | null>(null);
+  // The signed-in person, for the editable Account section (admins and members).
+  const [meUser, setMeUser] = useState<any | null>(null);
   const [integration, setIntegration] = useState<GoogleIntegration | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
@@ -147,6 +150,7 @@ export default function SettingsPage() {
         router.push('/admin/settings');
         return;
       }
+      setMeUser(me.user);
       setWorkspaceName(me.user?.tenant?.name || '');
       setAccountType(me.user?.tenant?.accountType || 'personal');
       setCompanies(Array.isArray(me.companies) ? me.companies : []);
@@ -178,6 +182,16 @@ export default function SettingsPage() {
     const rest = params.toString();
     router.replace(rest ? `/settings?${rest}` : '/settings');
   }, [router]);
+
+  // After a save in the Account section: pull the fresh name / photo so this
+  // page and the header (which refetches on focus and navigation) agree.
+  const refreshMe = useCallback(async () => {
+    const me = await clientGetMe();
+    if (!me.success) return;
+    setMeUser(me.user);
+    setMember((prev: any) => (prev ? { ...me.user, planStatus: prev.planStatus } : prev));
+    window.dispatchEvent(new Event('docsnx:me-changed'));
+  }, []);
 
   const persistEnabled = async (enabled: boolean) => {
     if (!integration) return;
@@ -346,17 +360,6 @@ export default function SettingsPage() {
   }
 
   if (member) {
-    // Plain markup rather than the Card primitives used below: those components
-    // are untyped JS, and every prop passed to one from a .tsx file raises a
-    // spurious "children does not exist" error. The admin half of this page
-    // predates that and carries the noise; new code need not add to it.
-    const rows: Array<[string, string]> = [
-      ['Name', member.name || '—'],
-      ['Email', member.email || '—'],
-      ['Workspace', workspaceName || '—'],
-      ['Role', String(member.role || '').replace(/_/g, ' ').toLowerCase() || '—'],
-    ];
-
     return (
       <PageContainer width="form" className="pb-12">
         <div className="flex flex-col gap-1.5 animate-fade-in">
@@ -369,23 +372,14 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        <section className="rounded-2xl border border-border/50 bg-card backdrop-blur shadow-glass p-6 flex flex-col gap-4 animate-fade-in">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-bold text-primary">Account</h2>
-            <p className="text-xs text-muted-foreground">How you are identified in this workspace.</p>
-          </div>
-          <dl className="flex flex-col gap-3 text-xs">
-            {rows.map(([label, value]) => (
-              <div
-                key={label}
-                className="flex items-center justify-between gap-4 border-b border-border/40 pb-2 last:border-b-0 last:pb-0"
-              >
-                <dt className="text-muted-foreground font-semibold">{label}</dt>
-                <dd className="font-bold text-foreground">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+        {/* Keyed on the user so a refetch after a save resets the form's
+            baseline to what the server now holds. */}
+        <AccountSettings
+          key={`${meUser?.id}:${meUser?.name}:${meUser?.email}:${meUser?.phoneNumber}`}
+          user={meUser || member}
+          workspaceName={workspaceName}
+          onChanged={refreshMe}
+        />
 
         <section className="rounded-2xl border border-border/50 bg-card backdrop-blur shadow-glass p-6 flex flex-col gap-1 animate-fade-in">
           <h2 className="text-lg font-bold text-foreground">Workspace settings</h2>
@@ -581,6 +575,14 @@ export default function SettingsPage() {
             so this tab is admin-only by construction. The API check is still
             the real gate. */}
         <TabsContent value="account" className="space-y-6">
+          {meUser && (
+            <AccountSettings
+              key={`${meUser.id}:${meUser.name}:${meUser.email}:${meUser.phoneNumber}`}
+              user={meUser}
+              workspaceName={workspaceName}
+              onChanged={refreshMe}
+            />
+          )}
           <Card className="border-destructive/40 bg-destructive/5 backdrop-blur shadow-glass animate-fade-in">
             <CardHeader>
               <CardTitle className="text-lg font-bold text-danger-text flex items-center gap-2">

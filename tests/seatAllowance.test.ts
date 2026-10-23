@@ -34,7 +34,7 @@ vi.mock('@/lib/db', () => {
   };
 });
 
-import { aiCreditMultiplier, seatAllowance, seatUsage } from '@/lib/account/seatCounts';
+import { seatAllowance, seatUsage } from '@/lib/account/seatCounts';
 
 const TENANT = '11111111-0000-4000-8000-000000000001';
 const ACME = '3f4e0b2a-0000-4000-8000-0000000000ac';
@@ -86,20 +86,5 @@ describe('seatUsage', () => {
   it('never reports negative remaining after a downgrade', async () => {
     state.used = 9;
     expect(await seatUsage(TENANT, 'personal')).toEqual({ used: 9, limit: 6, remaining: 0 });
-  });
-});
-
-describe('aiCreditMultiplier', () => {
-  it('is the household allowance for a household call', async () => {
-    expect(await aiCreditMultiplier(TENANT, null)).toBe(5 + 1);
-  });
-
-  it("is the company's business allowance for a company call", async () => {
-    expect(await aiCreditMultiplier(TENANT, ACME)).toBe(10 + 2);
-  });
-
-  it('never drops below 1 — a company with no business seats still pays the base cost', async () => {
-    state.tenant = { subscriptionPlanId: 'p', businessPlanId: null, extraMembersPerCompany: 0 };
-    expect(await aiCreditMultiplier(TENANT, ACME)).toBe(1);
   });
 });

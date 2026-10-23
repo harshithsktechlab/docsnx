@@ -47,7 +47,13 @@ export async function POST(req: Request) {
     // Email or mobile: someone who signed in with their number must be able to
     // finish with it too, rather than being asked for an address they may not
     // have been the one to choose.
-    const user = await findUserByIdentifier(loginIdentifier);
+    // Whether a WhatsApp code is owed depends on whether one can be delivered.
+    const channelOpts = { whatsappEnabled: await isWhatsAppEnabled() };
+
+    // `intent: 'verify'`: a person with several seats is taken to the one that
+    // still owes a code, so this screen finishes the account they were told to
+    // verify rather than one that already works.
+    const user = await findUserByIdentifier(loginIdentifier, { intent: 'verify', ...channelOpts });
 
     // ── AN UNKNOWN IDENTIFIER LOOKS LIKE A WRONG CODE ───────────────────────
     // Same sentence, same status. This endpoint takes no password, so a
@@ -69,9 +75,6 @@ export async function POST(req: Request) {
     // rather than an error keeps the legitimate case — a double-submitted form,
     // or a resend clicked after the first code already went through — from
     // reading as a failure.
-    // Whether a WhatsApp code is owed depends on whether one can be delivered.
-    const channelOpts = { whatsappEnabled: await isWhatsAppEnabled() };
-
     if (isFullyVerified(user, channelOpts)) {
       return NextResponse.json({
         success: false,

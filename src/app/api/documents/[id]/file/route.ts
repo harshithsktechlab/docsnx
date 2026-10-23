@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { documents } from '@/db/schema';
-import { getUserFromRequest } from '@/lib/auth';
+import { getUserFromRequest, hasCompanyAccess } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { canReachRecord } from '@/lib/records/handler';
 import { openDocumentFile } from '@/lib/vault/vaultFiles';
@@ -70,6 +70,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     if (!(await canReachRecord(user, 'documents', doc, 'view'))) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    // The category permission says nothing about WHICH company the file is in:
+    // two companies share one tenant, so a member holding the business modules
+    // but no grant for this company could otherwise fetch its bytes by id. The
+    // sibling /api/records/[module]/[id]/file makes the same check.
+    if (doc.companyId && !(await hasCompanyAccess(user, doc.companyId))) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 

@@ -26,6 +26,14 @@
  */
 import { db } from './db';
 import { isEmailIdentifier, toDialString } from './phone';
+import { pickSeat, type PickIntent } from './account/membershipPick';
+
+export interface FindUserOptions {
+  /** See `pickSeat` — which of a person's several seats this call wants. */
+  intent?: PickIntent;
+  /** Needed for `intent` to judge "fully verified"; omit and WhatsApp is assumed on. */
+  whatsappEnabled?: boolean;
+}
 
 /**
  * The account an identifier names, or `null`.
@@ -33,36 +41,42 @@ import { isEmailIdentifier, toDialString } from './phone';
  * Accepts an email address or a mobile number in any spelling PhoneInput or a
  * human might produce ('9876543210', '+919876543210', '+91 98765 43210') — the
  * number is normalised through `toDialString` and matched against
- * `users.phone_dial`, which is indexed and unique over live rows.
+ * `users.phone_dial`, which is indexed over live rows.
+ *
+ * Since 0082 the same email / number may sit on SEVERAL live rows — one per
+ * tenant the person belongs to — all with identical credentials. This returns
+ * the one seat `pickSeat` chooses for the caller's `intent`. Only `active`
+ * seats are candidates: a `pending` invitation is not an account the person can
+ * sign in to until they accept it.
  *
  * Returns `null` rather than throwing for every miss, including a phone-shaped
  * string too short to be a real number. Callers answer all of them with the
  * same generic response, so the reason never reaches the browser.
  */
-export async function findUserByIdentifier(identifier: string | null | undefined) {
+export async function findUserByIdentifier(
+  identifier: string | null | undefined,
+  options: FindUserOptions = {},
+) {
   const trimmed = (identifier || '').trim();
   if (!trimmed) return null;
 
-  if (isEmailIdentifier(trimmed)) {
-    return (await db.query.users.findFirst({
-      where: (users, { eq, and, isNull }) => and(
-        isNull(users.deletedAt),
-        eq(users.email, trimmed.toLowerCase()),
-      ),
-      with: { tenant: true },
-    })) ?? null;
+  let dial: string | null = null;
+  const byEmail = isEmailIdentifier(trimmed);
+  if (!byEmail) {
+    // Junk and half-typed numbers stop here rather than becoming a `phone_dial
+    // IS NULL` predicate, which would match the many rows that have no number.
+    dial = toDialString(trimmed);
+    if (!dial) return null;
   }
 
-  // Junk and half-typed numbers stop here rather than becoming a `phone_dial IS
-  // NULL` predicate, which would match the many rows that have no number at all.
-  const dial = toDialString(trimmed);
-  if (!dial) return null;
-
-  return (await db.query.users.findFirst({
+  const seats = await db.query.users.findMany({
     where: (users, { eq, and, isNull }) => and(
       isNull(users.deletedAt),
-      eq(users.phoneDial, dial),
+      eq(users.membershipStatus, 'active'),
+      byEmail ? eq(users.email, trimmed.toLowerCase()) : eq(users.phoneDial, dial as string),
     ),
     with: { tenant: true },
-  })) ?? null;
+  });
+
+  return pickSeat(seats, options.intent, { whatsappEnabled: options.whatsappEnabled }) ?? null;
 }

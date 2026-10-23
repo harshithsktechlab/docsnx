@@ -143,6 +143,8 @@ export const ACTIONS = {
   auth: {
     password_reset_requested: 'auth.password_reset_requested',
     password_reset_completed: 'auth.password_reset_completed',
+    /** A signed-in person changed their own password (POST /api/account/password). */
+    password_changed: 'auth.password_changed',
     verify_email_otp: 'auth.verify_email_otp',
     /**
      * A correct password met an unverified account and a code went out on both
@@ -150,6 +152,18 @@ export const ACTIONS = {
      * created by an admin was actually challenged before their first session.
      */
     first_login_otp_sent: 'auth.first_login_otp_sent',
+    /**
+     * One person, several tenants (0082). An admin added someone who already has
+     * an account elsewhere: a PENDING seat, written in the ADDING tenant.
+     */
+    membership_invited: 'auth.membership_invited',
+    /** The person accepted that invitation while signed in. */
+    membership_accepted: 'auth.membership_accepted',
+    membership_declined: 'auth.membership_declined',
+    /** A signed-in person moved their session to another of their tenants. */
+    tenant_switched: 'auth.tenant_switched',
+    /** A person with only member seats opened a Personal account of their own. */
+    personal_account_created: 'auth.personal_account_created',
   },
 
   // ─── Integrations ──────────────────────────────────────────────────────────
@@ -402,8 +416,14 @@ const VERB_LABELS: Record<string, string> = {
   optimize_context: 'Optimised',
   password_reset_requested: 'Requested',
   password_reset_completed: 'Completed',
+  password_changed: 'Changed',
   verify_email_otp: 'Verified',
   first_login_otp_sent: 'Sent',
+  membership_invited: 'Invited',
+  membership_accepted: 'Accepted',
+  membership_declined: 'Declined',
+  tenant_switched: 'Switched',
+  personal_account_created: 'Created',
   operator_inspect: 'Inspected',
 };
 

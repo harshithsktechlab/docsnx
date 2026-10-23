@@ -1,3 +1,4 @@
+import { pickSeat } from '@/lib/account/membershipPick';
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { db } from '@/lib/db';
@@ -31,12 +32,19 @@ export async function GET(request: Request) {
 
     if (!email) throw new Error('Invalid token payload');
 
-    let userResult = await db.query.users.findFirst({
-      where: (users, { eq }) => eq(users.email, email),
+    // Live, ACTIVE seats only (a pending invitation or a removed seat is not an
+    // account), and `pickSeat` so a person with several seats lands on the same
+    // usable one every time rather than on whichever row the database returns.
+    const seats = await db.query.users.findMany({
+      where: (users, { eq, and, isNull }) => and(
+        eq(users.email, email),
+        isNull(users.deletedAt),
+        eq(users.membershipStatus, 'active'),
+      ),
       with: { tenant: true }
     });
-    
-    let user = userResult;
+
+    let user = pickSeat(seats);
 
     // The partner's signed token is the credential here, so the reason can be
     // given. `getUserFromRequest` would refuse the session anyway; this stops

@@ -18,6 +18,8 @@
  * them. That is stated in the payload so nobody mistakes this for a full
  * disaster-recovery artefact.
  */
+import { omitUserSecrets } from '@/lib/account/sharedIdentity';
+import { maskPendingSeat } from '@/lib/account/attachExisting';
 import { NextResponse } from 'next/server';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db, withTenant } from '@/lib/db';
@@ -76,7 +78,7 @@ export async function GET(req: Request) {
           + 'on the tenant Google Drive and are not contained in this file; a restore '
           + 'reattaches these rows to Drive objects that must still exist.',
       data: {
-        users: usersData.map((u: any) => ({ ...u, passwordHash: undefined })),
+        users: usersData.map((u: any) => maskPendingSeat(omitUserSecrets(u) as any)),
         profiles: profilesData.filter((p: any) => userIds.has(p.userId)),
         documents: docsData,
         passwords: passwordsData,

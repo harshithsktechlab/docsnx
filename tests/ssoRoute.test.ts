@@ -11,7 +11,13 @@ const SECRET = 'a-real-shared-secret-for-tests-only';
 
 const findUser = vi.fn();
 vi.mock('@/lib/db', () => ({
-  db: { query: { users: { findFirst: (...a: any[]) => findUser(...a) }, tenants: { findFirst: vi.fn() } } },
+  db: {
+    query: {
+      // The route reads ALL of the person's live, active seats and picks one.
+      users: { findMany: async (...a: any[]) => { const u = await findUser(...a); return u ? [u] : []; } },
+      tenants: { findFirst: vi.fn() },
+    },
+  },
 }));
 vi.mock('@/lib/auth', () => ({ signToken: vi.fn(async () => 'session-token') }));
 vi.mock('@/lib/planProvisioning', () => ({

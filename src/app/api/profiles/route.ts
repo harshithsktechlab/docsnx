@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { profiles, users } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { getUserFromRequest, hasPermission } from '@/lib/auth';
+import { getUserFromRequest, hasPermission, hasPersonalAccess } from '@/lib/auth';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { loadProfileIdDocuments } from '@/lib/profileIdDocuments';
@@ -36,6 +36,13 @@ export async function GET(req: Request) {
     if (targetUserId !== user.id) {
       const allowed = await hasPermission(user, 'profiles', 'view');
       if (!allowed) {
+        return NextResponse.json({ error: 'Forbidden. Viewing other profiles denied.' }, { status: 403 });
+      }
+      // Someone else's profile holds their legal IDs (PAN, Aadhaar, passport) —
+      // household-half data. `profiles` is seeded to business members too, for
+      // their OWN profile, so the permission alone cannot tell the halves apart;
+      // a business-scope member must not read another person's.
+      if (!hasPersonalAccess(user)) {
         return NextResponse.json({ error: 'Forbidden. Viewing other profiles denied.' }, { status: 403 });
       }
     }
@@ -110,17 +117,15 @@ export async function PUT(req: Request) {
       targetName = targetUser.name ?? null;
 
       const allowed = await hasPermission(user, 'profiles', 'edit');
-      if (!allowed) {
+      if (!allowed || !hasPersonalAccess(user)) {
         return NextResponse.json({ error: 'Forbidden. Modifying other profiles denied.' }, { status: 403 });
       }
-    } else {
-      // Standard users need permission to edit their own profile if permissions block it,
-      // but usually editing their own profile is allowed. Let's verify standard permissions.
-      const allowed = await hasPermission(user, 'profiles', 'edit');
-      if (!allowed && user.role === 'STANDARD') {
-        return NextResponse.json({ error: 'Forbidden. Editing denied.' }, { status: 403 });
-      }
     }
+    // Editing your OWN profile needs no permission row. `profiles/edit` governs
+    // other people's details (the branch above). It used to gate this too, and
+    // the default "Contributor" level has canEdit=false — so nearly every member
+    // got "Forbidden. Editing denied." saving their own DOB, education or IDs.
+    // The target is the session's user here, so there is nothing to widen.
 
     // Encrypt legal identifiers (PAN/Aadhaar/passport) before persisting.
     const encLegal = legalDetails !== undefined ? encryptLegal(legalDetails) : undefined;

@@ -48,6 +48,12 @@ vi.mock('@/lib/audit', async (importOriginal) => ({
 }));
 
 let targetUser: any = null;
+/** The person behind the seat also holds a seat in another tenant (0082). */
+let sharedSeat = false;
+vi.mock('@/lib/account/sharedIdentity', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  hasOtherLiveSeats: async () => sharedSeat,
+}));
 
 vi.mock('@/lib/db', () => ({
   db: {},
@@ -55,7 +61,7 @@ vi.mock('@/lib/db', () => ({
     capture.tenantIds.push(tenantId);
     return cb({
       query: { users: { findFirst: async () => targetUser } },
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => (sharedSeat ? [{ id: MEMBER_ID, identityId: 'identity-1' }] : []) }) }) }),
       update: (table: any) => ({
         set: (set: any) => ({
           where: async (where: any) => { capture.updates.push({ table: getTableName(table), set, where }); },
@@ -102,6 +108,7 @@ beforeEach(() => {
   capture.deletes = [];
   capture.updates = [];
   targetUser = MEMBER;
+  sharedSeat = false;
   getUserFromRequest.mockResolvedValue(ADMIN);
 });
 
@@ -143,6 +150,19 @@ describe('turning sign-in off', () => {
     expect(u.set.signInDisabledAt).toBeInstanceOf(Date);
     expect(u.set).not.toHaveProperty('deletedAt');
     expect(u.set).not.toHaveProperty('email');
+  });
+
+  // 0082: the codes and reset token belong to the PERSON and are shared with
+  // every seat they hold. Clearing them here would fan out and cancel a reset
+  // link in a tenant this admin has nothing to do with.
+  it("leaves the person's codes alone when they also belong to another tenant", async () => {
+    sharedSeat = true;
+    await setSignIn({ enabled: false });
+    const [u] = capture.updates.filter((x) => x.table === 'users');
+    expect(u.set.signInDisabledAt).toBeInstanceOf(Date);
+    for (const k of ['resetToken', 'resetTokenExpiry', 'emailVerificationOtp', 'phoneVerificationOtp']) {
+      expect(u.set, `${k} must not be written for a shared person`).not.toHaveProperty(k);
+    }
   });
 
   it('clears every bearer secret that would be a way back in', async () => {
