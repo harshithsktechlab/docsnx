@@ -49,9 +49,8 @@ import { APP_NAME, APP_MARK } from '@/lib/brand';
 import BrandWordmark from '@/app/components/BrandWordmark';
 import GlobalSearch from '@/app/components/GlobalSearch';
 import { maybeToastStoragePressure } from '@/lib/storageToast';
-import { daysUntil } from '@/lib/planGate';
 import { ONBOARDING_PATH } from '@/lib/onboardingGate';
-import { lockAxisLabel, workspaceLock } from '@/lib/workspaceLock';
+import { expiryWarningDays, lockAxisFor, lockAxisLabel, workspaceLock } from '@/lib/workspaceLock';
 import { formatDate } from '@/lib/dateHelper';
 import { setMaxUploadBytes } from '@/lib/records/uploadTypes';
 import { cn } from '@/lib/utils';
@@ -665,6 +664,22 @@ export default function Shell({ children }) {
     return () => window.removeEventListener('docsnx:me-changed', onMeChanged);
   }, []);
 
+  // A plan was just bought or changed (checkout) — re-read ONLY the plan state
+  // and the user's `isExpired`. `loadUser` otherwise runs on a pathname change,
+  // and Billing stays on its own path after paying, so the bars kept describing
+  // the plan the account had before the purchase until a reload.
+  useEffect(() => {
+    const onPlanChanged = async () => {
+      const data = await clientGetMe();
+      if (data.success) {
+        setUser(data.user);
+        setPlanState(data.planStatus || null);
+      }
+    };
+    window.addEventListener('docsnx:plan-changed', onPlanChanged);
+    return () => window.removeEventListener('docsnx:plan-changed', onPlanChanged);
+  }, []);
+
   // Route guard to redirect SUPER_ADMIN users away from tenant-specific URLs reactively.
   // TENANT_SPECIFIC_PATHS is auto-derived from src/lib/moduleRegistry.js — do not hardcode paths here.
   useEffect(() => {
@@ -952,9 +967,15 @@ export default function Shell({ children }) {
   // The PATH id, like the lock branch in `loadUser` — see the note there.
   const lock = workspaceLock(planState, pathCompanyId);
   const planLocked = !!user && !isSuperAdmin && lock.locked;
-  const daysToExpiry = daysUntil(planState?.expiresAt);
-  const expiringSoon = !planLocked && daysToExpiry !== null
-    && daysToExpiry >= 0 && daysToExpiry <= EXPIRY_WARNING_DAYS;
+  // The half the URL is in, not the personal half for every workspace — see
+  // `expiryWarningDays` for the "expires today" a business tenant used to get.
+  const daysToExpiry = expiryWarningDays(planState, pathCompanyId, EXPIRY_WARNING_DAYS);
+  const expiringSoon = !planLocked && daysToExpiry !== null;
+  // The date the bar prints is that same half's, or it would name one day and
+  // count to another.
+  const warnExpiresAt = planState?.axes
+    ? planState.axes[lockAxisFor(pathCompanyId)]?.expiresAt
+    : planState?.expiresAt;
 
   // ─── Where the brand goes ─────────────────────────────────────────────────
   // Both copies of the logo — the sidebar's and the mobile header's — are links
@@ -1761,7 +1782,7 @@ export default function Shell({ children }) {
             <span>
               {daysToExpiry === 0
                 ? 'Your plan expires today.'
-                : `Your plan expires in ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} (${formatDate(planState.expiresAt)}).`}
+                : `Your plan expires in ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} (${formatDate(warnExpiresAt)}).`}
             </span>
             {isTenantAdmin && (
               <button onClick={() => router.push('/billing')} className="underline underline-offset-2 hover:opacity-80">

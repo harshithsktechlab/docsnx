@@ -455,6 +455,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
         // (usePermittedCategories) never refetches on its own, so without this
         // the new modules stay invisible until the customer reloads.
         invalidatePermittedCategories();
+        window.dispatchEvent(new Event('docsnx:plan-changed'));
         if (onSuccess) onSuccess();
         return;
       }
@@ -478,6 +479,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
             if (verifyData.success) {
               onClose();
               invalidatePermittedCategories();
+              window.dispatchEvent(new Event('docsnx:plan-changed'));
               if (onSuccess) onSuccess();
             } else {
               toast.error(verifyData.error || 'Payment verification failed.');

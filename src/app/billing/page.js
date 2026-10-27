@@ -658,6 +658,11 @@ export default function BillingPage() {
               // card "Current".
               const isCurrentPlan = (axisState?.plan?.id ?? currentPlan?.id) === plan.id;
               const isProcessing = processingPlanId === plan.id;
+              // A monthly price of 0 means "not sold monthly" (same rule as
+              // `priced()` in planCycles.ts), not a free month — the Business
+              // plan carries 0.00 here and read "₹0 / month" above its real
+              // yearly price.
+              const hasMonthlyPrice = Number(plan.price) > 0;
 
               return (
                 <Card
@@ -684,7 +689,7 @@ export default function BillingPage() {
                         So an unconditional line printed "₹NaN / month" directly
                         above the real yearly price.
                       */}
-                      {plan.price !== null && plan.price !== undefined && plan.price !== '' && (
+                      {hasMonthlyPrice && (
                         <div className="flex items-baseline gap-1.5 flex-wrap">
                           <span className="text-2xl font-black text-foreground">{formatPrice(plan.price)}</span>
                           {plan.priceUsd > 0 && (
@@ -698,7 +703,7 @@ export default function BillingPage() {
                           {/* The headline when there is no monthly price above it. */}
                           <span className={cn(
                             'font-bold',
-                            plan.price === null || plan.price === undefined || plan.price === ''
+                            !hasMonthlyPrice
                               ? 'text-2xl font-black text-foreground'
                               : 'text-base text-foreground/80',
                           )}>{formatPrice(plan.priceYearly)}</span>

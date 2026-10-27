@@ -105,3 +105,61 @@ export function workspaceLock(
 export function lockAxisLabel(axis: LockAxis): string {
   return axis === 'business' ? 'Business' : 'Personal';
 }
+
+/**
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║   THE "EXPIRES SOON" BAR — ONE WORKSPACE, ONE CLOCK                      ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ *
+ * Days until the workspace in the URL stops, when that is inside `windowDays`;
+ * `null` when there is nothing to warn about. `0` means it stops today.
+ *
+ * ── WHY IT IS NOT `daysUntil(planStatus.expiresAt)` ────────────────────────
+ * That top-level `expiresAt` is the PERSONAL half's, kept for /settings and the
+ * lock screen. The bar read it for every workspace, which went wrong twice:
+ *
+ *   · a `business` tenant has no personal plan, so it still holds the moment of
+ *     sign-up (`subscription_expiry = now()`), and a customer who had just paid
+ *     was told their plan "expires today";
+ *   · a company workspace was warned about the household's date.
+ *
+ * So the date comes from the half the URL is in, and only when that half exists
+ * and is paid. A lapsed or never-bought half is the lock's business, not this.
+ *
+ * ── WHY `0` IS "TODAY" AND NOT "ALREADY OVER" ──────────────────────────────
+ * `daysUntil` is `ceil(ms / day)`, so it is 0 only for an expiry in the PAST by
+ * less than a day — the bar's `>= 0` test let a plan that had lapsed minutes ago
+ * through as "expires today". Here a past instant is never a warning, and 0 is
+ * reserved for an expiry later on the same calendar day.
+ *
+ * A payload from before `axes` existed falls back to the top-level fields, the
+ * same way `workspaceLock` does.
+ */
+export function expiryWarningDays(
+  planStatus: (PlanStatusPayload & { expiresAt?: string | null }) | null | undefined,
+  activeCompanyId: string | null | undefined,
+  windowDays: number,
+  now: Date = new Date(),
+): number | null {
+  if (!planStatus) return null;
+
+  const axis = planStatus.axes?.[lockAxisFor(activeCompanyId)];
+  let expiresAt: string | null | undefined;
+  if (planStatus.axes) {
+    if (axis?.exists !== true || axis.lapsed === true) return null;
+    expiresAt = axis.expiresAt;
+  } else {
+    if (planStatus.hasPlan === false || planStatus.isExpired) return null;
+    expiresAt = planStatus.expiresAt;
+  }
+  if (!expiresAt) return null; // null expiry is a lifetime plan.
+
+  const expiry = new Date(expiresAt);
+  const ms = expiry.getTime() - now.getTime();
+  if (Number.isNaN(ms) || ms <= 0) return null;
+
+  const days = expiry.toDateString() === now.toDateString()
+    ? 0
+    : Math.ceil(ms / (24 * 60 * 60 * 1000));
+  return days <= windowDays ? days : null;
+}

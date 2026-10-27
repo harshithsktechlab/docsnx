@@ -13,7 +13,7 @@
  *     for behind a lock screen for the half they do not.
  */
 import { describe, it, expect } from 'vitest';
-import { lockAxisFor, workspaceLock } from '@/lib/workspaceLock';
+import { expiryWarningDays, lockAxisFor, workspaceLock } from '@/lib/workspaceLock';
 
 const ACME = '3f4e0b2a-0000-4000-8000-0000000000ac';
 
@@ -152,5 +152,66 @@ describe('payloads that are not the current shape', () => {
   it('survives a null payload', () => {
     expect(workspaceLock(null, null).locked).toBe(false);
     expect(workspaceLock(undefined, ACME).locked).toBe(false);
+  });
+});
+
+describe('expiryWarningDays', () => {
+  const NOW = new Date('2026-10-27T10:48:00.000Z');
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+  const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
+  const live = (expiresAt: string | null) => ({ exists: true, lapsed: false, expiresAt });
+
+  it('does not warn a business-only tenant off the sign-up timestamp', () => {
+    // The reported bug: business plan paid, personal half absent, top-level
+    // expiresAt still the moment of registration (five minutes ago).
+    const status = {
+      accountType: 'business',
+      expiresAt: at(-5 * 60 * 1000),
+      hasPlan: false,
+      isExpired: true,
+      axes: {
+        personal: { exists: false, lapsed: true, expiresAt: at(-5 * 60 * 1000) },
+        business: live(at(365 * DAY)),
+      },
+    };
+    expect(expiryWarningDays(status, ACME, 7, NOW)).toBeNull();
+    expect(expiryWarningDays(status, null, 7, NOW)).toBeNull();
+  });
+
+  it('never reads an expiry that has already passed as "today"', () => {
+    const status = { axes: { personal: live(at(-5 * 60 * 1000)) } };
+    expect(expiryWarningDays(status, null, 7, NOW)).toBeNull();
+    expect(expiryWarningDays({ axes: { personal: live(at(-1)) } }, null, 7, NOW)).toBeNull();
+  });
+
+  it('says 0 for an expiry later the same calendar day, then counts days', () => {
+    const sameDay = new Date(NOW.getTime());
+    sameDay.setHours(23, 59, 0, 0);
+    const ms = sameDay.getTime() - NOW.getTime();
+    if (ms > 0) {
+      expect(expiryWarningDays({ axes: { personal: live(sameDay.toISOString()) } }, null, 7, NOW)).toBe(0);
+    }
+    expect(expiryWarningDays({ axes: { personal: live(at(3 * DAY)) } }, null, 7, NOW)).toBe(3);
+    expect(expiryWarningDays({ axes: { personal: live(at(8 * DAY)) } }, null, 7, NOW)).toBeNull();
+  });
+
+  it('reads the half the URL is in', () => {
+    const status = {
+      axes: { personal: live(at(2 * DAY)), business: live(at(300 * DAY)) },
+    };
+    expect(expiryWarningDays(status, null, 7, NOW)).toBe(2);
+    expect(expiryWarningDays(status, ACME, 7, NOW)).toBeNull();
+  });
+
+  it('leaves a lapsed or absent half to the lock, and a lifetime plan alone', () => {
+    expect(expiryWarningDays({ axes: { personal: { exists: true, lapsed: true, expiresAt: at(2 * DAY) } } }, null, 7, NOW)).toBeNull();
+    expect(expiryWarningDays({ axes: { personal: live(null) } }, null, 7, NOW)).toBeNull();
+    expect(expiryWarningDays(null, null, 7, NOW)).toBeNull();
+  });
+
+  it('falls back to the top-level fields for a payload without axes', () => {
+    expect(expiryWarningDays({ hasPlan: true, isExpired: false, expiresAt: at(2 * DAY) }, null, 7, NOW)).toBe(2);
+    expect(expiryWarningDays({ hasPlan: false, isExpired: true, expiresAt: at(-1000) }, null, 7, NOW)).toBeNull();
   });
 });
