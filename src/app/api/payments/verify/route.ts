@@ -333,6 +333,8 @@ export async function POST(req: Request) {
       const invoiceUrl = await generateAndUploadInvoice(payment.id);
       if (invoiceUrl) {
         await db.update(payments).set({ invoiceUrl }).where(eq(payments.id, payment.id));
+      } else {
+        console.error('Invoice not created for payment', payment.id, razorpay_order_id);
       }
     } catch (invErr) {
       console.error('Invoice generation failed:', invErr);

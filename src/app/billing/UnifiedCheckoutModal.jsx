@@ -68,6 +68,10 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
   const [discountResult, setDiscountResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
+  // Radix's modal Dialog traps focus and blocks pointer events outside itself,
+  // so Razorpay's checkout (mounted on <body>) can't be clicked or typed into
+  // while this dialog is open. Hide the dialog for as long as Razorpay is up.
+  const [razorpayOpen, setRazorpayOpen] = useState(false);
   const [validatingDiscount, setValidatingDiscount] = useState(false);
   // A code carried in from signup still has to be validated against the real
   // tenant and cart, so it is applied once the cart has finished loading.
@@ -464,6 +468,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
         description: `Checkout`,
         order_id: data.orderId,
         handler: async (response) => {
+          setRazorpayOpen(false);
           try {
             const { json: verifyData } = await apiCall('/api/payments/verify', {
               method: 'POST',
@@ -484,6 +489,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
         },
         modal: {
           ondismiss: () => {
+            setRazorpayOpen(false);
             setProcessing(false);
           },
         },
@@ -499,9 +505,11 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
         toast.error(`Payment failed: ${response.error?.description || 'Unknown error'}`);
         setProcessing(false);
       });
+      setRazorpayOpen(true);
       rzp.open();
     } catch (err) {
       toast.error('An unexpected error occurred.');
+      setRazorpayOpen(false);
       setProcessing(false);
     }
   };
@@ -511,7 +519,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
   const finalPrice = Math.max(0, subtotal - amountSaved);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !processing && onClose()}>
+    <Dialog open={isOpen && !razorpayOpen} onOpenChange={(open) => !processing && onClose()}>
       <DialogContent className="sm:max-w-lg bg-card border-border/50 shadow-glass">
         <DialogHeader>
           <div className="flex items-center justify-between pr-4">

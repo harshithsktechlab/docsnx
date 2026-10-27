@@ -316,6 +316,16 @@ export default function Shell({ children }) {
     [accountType, companies, user],
   );
   /**
+   * The company this viewer is about to be moved into, when they are standing on
+   * the household landing page that is not theirs — see the landing effect
+   * below. Computed here, not inside that effect, because the page itself has to
+   * know: left mounted for the one render before the redirect, the household
+   * dashboard fires its requests, every one of them answers 403 for a viewer
+   * with no household, and its "Forbidden" toast outlives the page that raised
+   * it. Not mounting it is what makes the redirect invisible.
+   */
+  const landingCompanyId = user && pathname === PERSONAL_HOME ? defaultCompanyId(switcherMenu) : null;
+  /**
    * ⚠ The fallback is what stops the chrome describing a workspace that does not
    * exist. `activeCompanyFrom` answers null for "no company in the URL", which
    * means the household — and a viewer with no household half (a `business`
@@ -691,11 +701,9 @@ export default function Shell({ children }) {
    * /settings, which belong to the tenant rather than to either account.
    */
   useEffect(() => {
-    if (!user || pathname !== PERSONAL_HOME) return;
-    const fallback = defaultCompanyId(switcherMenu);
-    if (!fallback) return;
-    router.replace(companyHome(fallback));
-  }, [user, switcherMenu, pathname, router]);
+    if (!landingCompanyId) return;
+    router.replace(companyHome(landingCompanyId));
+  }, [landingCompanyId, router]);
 
   // Removed manual service worker registration here because PWABanner/usePWA handles it.
 
@@ -1776,7 +1784,7 @@ export default function Shell({ children }) {
             landscape. Pages own their width cap via PageContainer, never their
             padding. */}
         <main className={cn('flex-grow page-gutter w-full max-w-[1600px]', !isEmbedded && 'animate-fade-in')}>
-          {children}
+          {landingCompanyId ? null : children}
         </main>
       </div>
 

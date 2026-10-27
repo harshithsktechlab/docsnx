@@ -18,6 +18,7 @@ import { serverError } from '@/lib/routeError';
 import crypto from 'crypto';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
+import { decideAttach, reportAttachedInvite } from '@/lib/account/attachDecision';
 
 /**
  * Adds a member from the onboarding wizard.
@@ -87,8 +88,27 @@ export async function POST(req: Request) {
 
     const cleanEmail = String(email || '').trim().toLowerCase() || null;
 
+    /**
+     * ── SOMEONE WHO ALREADY HAS AN ACCOUNT (0082) ───────────────────────────
+     *
+     * The number or address may belong to a person with an account of their own
+     * — typically the people a new workspace owner works with, who are often
+     * already on the platform. This route used to refuse them ("already
+     * registered"); now they are given a PENDING seat here, exactly as
+     * POST /api/users does, and accept it from their own sign-in. The decision
+     * is shared (src/lib/account/attachDecision.ts) so the two paths cannot
+     * drift apart again.
+     */
+    const typedDial = toDialString(phoneNumber);
+    const decision = await decideAttach({ email: cleanEmail, phoneDial: typedDial }, adminUser.tenantId);
+    if (decision.kind === 'refuse') {
+      return NextResponse.json({ success: false, error: decision.error }, { status: 400 });
+    }
+    const attachTo = decision.kind === 'attach' ? { id: decision.identityId } : null;
+
     // Only when one was given — a member legitimately may have no address.
-    if (cleanEmail) {
+    // An existing person is matched above; this is for a genuinely new member.
+    if (cleanEmail && !attachTo) {
       const existingUser = await db.query.users.findFirst({
         where: (users, { eq, and, isNull }) => and(isNull(users.deletedAt), eq(users.email, cleanEmail)),
       });
@@ -239,7 +259,10 @@ export async function POST(req: Request) {
       { email: cleanEmail, phoneNumber: isBlankPhone(phoneNumber) ? null : phoneNumber },
       await isWhatsAppEnabled(),
     );
-    const signInOn = grantsAccess(finalPermissions) && reachable;
+    const wantsAccess = grantsAccess(finalPermissions);
+    // An attached seat never waits on the admin's sign-in switch: it is gated by
+    // `membership_status = 'pending'` until the person accepts.
+    const signInOn = !!attachTo || (wantsAccess && reachable);
 
     // No password from the admin: an unusable one until the member sets theirs.
     const passwordHash = await hashPassword(password || crypto.randomBytes(32).toString('hex'));
@@ -248,6 +271,10 @@ export async function POST(req: Request) {
     const created = await db.transaction(async (tx) => {
       const [user] = await tx.insert(users).values({
         tenantId: adminUser.tenantId,
+        // For an attached seat the 0082 trigger overwrites email, mobile and
+        // password with the person's own, whatever is written here.
+        identityId: attachTo?.id,
+        membershipStatus: attachTo ? 'pending' : 'active',
         email: cleanEmail,
         passwordHash,
         name,
@@ -256,17 +283,20 @@ export async function POST(req: Request) {
         // In the same statement as phoneNumber, always — see src/db/schema.ts.
         // This is the column sign-in matches on, and its absence is why members
         // added through this wizard could not log in at all.
-        phoneDial: toDialString(phoneNumber),
+        phoneDial: typedDial,
         role: 'STANDARD',
         // Which half of the account they belong to. Written here rather than
         // left to the column default, which is what filed every wizard-created
         // business member under a household they had no permissions for.
         accountScope,
-        requiresPasswordChange: true, // Force password change on first login
+        // Force password change on first login — but never on a person who
+        // already has their own sign-in: the flag is shared across their seats.
+        requiresPasswordChange: !attachTo,
         // On when they were given access and an invite can reach them; see
         // POST /api/users for the rule.
         signInDisabledAt: signInOn ? null : new Date(),
-        activatedAt: password ? new Date() : null,
+        // An attached seat is activated when the person ACCEPTS it, not here.
+        activatedAt: !attachTo && password ? new Date() : null,
       }).returning();
 
       // Create default empty profile
@@ -317,19 +347,26 @@ export async function POST(req: Request) {
       await writeAudit({
         tenantId: adminUser.tenantId,
         userId: adminUser.id,
-        action: ACTIONS.user.onboarding_create,
+        action: attachTo ? ACTIONS.auth.membership_invited : ACTIONS.user.onboarding_create,
         // The number is the member's identity now, so it is what the note
         // names — the address may be null. WHERE they were filed is named too:
         // `account_scope` cannot be edited afterwards, so the log is the only
         // record of a choice that has to be undone by deleting the member.
-        details: auditSentence('onboarding_create', {
+        // For an existing person the note names the invitation instead, and no
+        // number: what the person holds is not the admin's to read back.
+        details: auditSentence(attachTo ? 'membership_invited' : 'onboarding_create', {
           kind: 'member',
           name: user.name,
-          note: [
-            'during onboarding',
-            grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the household',
-            user.phoneNumber ? `on ${user.phoneNumber}` : null,
-          ].filter(Boolean).join(', '),
+          note: attachTo
+            ? [
+              'during onboarding; they accept when they sign in',
+              grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the household',
+            ].join(', ')
+            : [
+              'during onboarding',
+              grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the household',
+              user.phoneNumber ? `on ${user.phoneNumber}` : null,
+            ].filter(Boolean).join(', '),
         }),
         req,
         entityType: 'users',
@@ -338,16 +375,29 @@ export async function POST(req: Request) {
       return user;
     });
 
-    const invite = signInOn && !password
+    // An existing person is invited under the SAME condition as a new member
+    // (access granted, and the typed contacts reachable). If they were always
+    // notified, `invite` in the reply would tell the admin the number is
+    // already registered. The pending seat waits for them either way.
+    const notify = attachTo ? wantsAccess && reachable : signInOn && !password;
+    const invite = notify
       ? await sendMemberInvite({
         tenantId: adminUser.tenantId,
         actor: adminUser,
+        // `created` is the row AS INSERTED, so for an attached seat these are
+        // the person's own contacts — the invitation goes where they live.
         member: { id: created.id, name: created.name, email: created.email, phoneNumber: created.phoneNumber },
         req,
+        kind: attachTo ? 'accept' : 'activate',
+        workspaceName: tenant.name,
       })
       : null;
 
-    return NextResponse.json({ success: true, invite, inviteBlocked: !reachable });
+    const reportedInvite = attachTo && invite
+      ? reportAttachedInvite(invite, { phoneDial: typedDial, email: cleanEmail })
+      : invite;
+
+    return NextResponse.json({ success: true, invite: reportedInvite, inviteBlocked: !reachable });
 
   } catch (error: any) {
     // Both are plausible things to hit by hand — one handset shared by two

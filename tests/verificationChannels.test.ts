@@ -21,7 +21,7 @@ import {
   requiredChannels, isFullyVerified, outstandingChannels,
 } from '@/lib/verificationChannels';
 import {
-  readChallengeView, codeBoxes, challengeHeadline, isComplete, verifyPayload,
+  readChallengeView, codeBoxes, challengeHeadline, initialResendCountdown, verifyHeading, afterVerifyDestination, isComplete, verifyPayload,
   applyChallengeUpdate,
 } from '@/lib/otpForm';
 
@@ -134,6 +134,42 @@ describe('the verify screen draws one box per outstanding code', () => {
   it('says both are needed when both are', () => {
     expect(challengeHeadline(view({ needsEmailCode: true, needsPhoneCode: true })))
       .toContain('Both');
+  });
+
+  it('does not claim a code was sent when nothing says one was', () => {
+    expect(challengeHeadline(view({}))).not.toMatch(/we sent/i);
+    expect(challengeHeadline(view({}))).toContain('Resend');
+  });
+
+  it('names the account being verified when a member opened one of their own', () => {
+    expect(verifyHeading(true).title).toBe('Verifying your new account');
+    expect(verifyHeading(true).note).toContain('separate from the workspace you were added to');
+    expect(verifyHeading(false)).toEqual({ title: 'Verify Your Account', note: '' });
+  });
+
+  it('sends a verified member to the dashboard with a plain message, never to billing', () => {
+    const dest = afterVerifyDestination('STANDARD', { plan: 'pro', discount: 'X' });
+    expect(dest).toEqual({ href: '/dashboard', message: 'Account verified.' });
+    // No tag: a member must not be greeted as a freshly verified admin.
+    expect(dest.tag).toBeUndefined();
+  });
+
+  it('keeps an owner on the plan-picking path', () => {
+    expect(afterVerifyDestination('TENANT_ADMIN')).toMatchObject({
+      href: '/billing?welcome=1',
+      message: 'Account verified — choose a plan to activate your workspace.',
+      tag: 'verified',
+    });
+    expect(afterVerifyDestination(undefined, { plan: 'pro', discount: 'A B' })).toMatchObject({
+      href: '/billing?autoCheckout=pro&discount=A%20B',
+      tag: 'verified',
+    });
+  });
+
+  it('holds Resend for a minute only when a code just went out', () => {
+    expect(initialResendCountdown(view({ needsEmailCode: true }))).toBe(60);
+    expect(initialResendCountdown(view({ needsPhoneCode: true }))).toBe(60);
+    expect(initialResendCountdown(view({}))).toBe(0);
   });
 });
 

@@ -58,6 +58,19 @@ export function maskPhone(value: string | null | undefined): string {
   return maskTail(digits, 4);
 }
 
+/**
+ * Whatever a person signs in or verifies with -> its masked form: an address
+ * keeps its domain, a number keeps its last four digits, anything else is left
+ * alone. For echoing an identifier back on a screen.
+ */
+export function maskIdentifier(value: string | null | undefined): string {
+  if (!value) return '';
+  const str = String(value).trim();
+  if (str.includes('@')) return maskEmail(str);
+  if (/^[+\d][\d\s()-]*$/.test(str)) return maskPhone(str);
+  return str;
+}
+
 /** Generic ID/document number -> keep last 4: Aadhaar/PAN/policy etc. */
 export function maskDocId(value: string | null | undefined): string {
   return maskTail(value, 4);

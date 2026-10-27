@@ -4,7 +4,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Plus, Trash2, Edit2, Search, Loader2
+  Users, Plus, Trash2, Edit2, Search, Loader2, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { clientGetMe } from '@/lib/clientAuth';
 import { Button } from '@/components/ui/button';
@@ -17,12 +17,22 @@ import PageContainer from '@/app/components/PageContainer';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
+const PAGE_SIZE = 25;
+const ROLE_LABELS = { SUPER_ADMIN: 'Super Admin', TENANT_ADMIN: 'Tenant Admin', STANDARD: 'Standard' };
+
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [listLoading, setListLoading] = useState(false);
+  const [ready, setReady] = useState(false);
   
   const [showUserForm, setShowUserForm] = useState(false);
   const [editUser, setEditUser] = useState(null);
@@ -36,11 +46,24 @@ export default function UsersPage() {
       const me = await clientGetMe();
       if (!me.success || me.user.role !== 'SUPER_ADMIN') { router.push('/dashboard'); return; }
       await fetchTenants();
-      await fetchUsers();
+      setReady(true);
       setLoading(false);
     }
     loadSession();
   }, []);
+
+  // Wait for typing to pause so each keystroke isn't a request.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // A new search or role filter starts again from the first page.
+  useEffect(() => { setPage(1); }, [debouncedQuery, roleFilter]);
+
+  useEffect(() => {
+    if (ready) fetchUsers();
+  }, [ready, page, debouncedQuery, roleFilter]);
 
   const fetchTenants = async () => {
     try {
@@ -52,11 +75,26 @@ export default function UsersPage() {
   };
 
   const fetchUsers = async () => {
+    setListLoading(true);
     try {
-      const { json: data } = await apiCall('/api/admin/users');
-      if (data.success) setUsers(data.users || []);
+      const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      if (debouncedQuery) qs.set('q', debouncedQuery);
+      if (roleFilter) qs.set('role', roleFilter);
+      const { json: data } = await apiCall(`/api/admin/users?${qs}`);
+      if (data.success) {
+        // Deleting the last row of the final page leaves it empty; step back.
+        if (data.users.length === 0 && data.page > 1) {
+          setPage(data.totalPages);
+          return;
+        }
+        setUsers(data.users || []);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      }
     } catch (e) {
       console.error('Failed to load users', e);
+    } finally {
+      setListLoading(false);
     }
   };
 
@@ -111,7 +149,7 @@ export default function UsersPage() {
       const { json: data } = await apiCall(`/api/admin/users/${user.id}`, { method: 'DELETE' });
       if (data.success) {
         toast.success('User deleted');
-        setUsers(prev => prev.filter(u => u.id !== user.id));
+        await fetchUsers();
       } else {
         toast.error(data.error || 'Failed to delete user');
       }
@@ -124,12 +162,6 @@ export default function UsersPage() {
       toast.error('Something went wrong. Please try again.');
     }
   };
-
-  const filteredUsers = users.filter(u => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.tenantName && u.tenantName.toLowerCase().includes(q));
-  });
 
   if (loading) {
     return (
@@ -158,19 +190,26 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <div className="relative animate-fade-in max-w-md">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-        <Input className="pl-9 h-9 text-xs" placeholder="Search users by name, email, or tenant..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+      <div className="flex items-center gap-3 flex-wrap animate-fade-in">
+        <div className="relative flex-1 min-w-[240px] max-w-md">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+          <Input className="pl-9 h-9 text-xs" placeholder="Search users by name, email, or tenant..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+        </div>
+        <select aria-label="Filter by role" className="flex h-9 rounded-md border border-input bg-field px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+          <option value="">All roles</option>
+          {Object.entries(ROLE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <span className="text-xs text-muted-foreground">{listLoading ? 'Loading…' : `${total} user${total === 1 ? '' : 's'}`}</span>
       </div>
 
       <div className="flex flex-col gap-3 animate-fade-in">
-        {filteredUsers.length === 0 ? (
+        {users.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-muted-foreground border-2 border-dashed border-border rounded-2xl">
             <Users size={40} className="opacity-25" />
             <p className="font-semibold text-base text-foreground mb-1">No Users Found</p>
           </div>
         ) : (
-          filteredUsers.map((u) => (
+          users.map((u) => (
             <div key={u.id} className="flex items-center justify-between p-4 bg-card backdrop-blur border border-border/60 rounded-xl hover:shadow-glass-hover transition-all">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
@@ -181,7 +220,7 @@ export default function UsersPage() {
                     {u.name}
                     <Badge variant="secondary" className="text-2xs py-0">{u.role}</Badge>
                   </div>
-                  <div className="text-xs text-muted-foreground">{u.email} &bull; {u.tenantName || 'Unknown Tenant'}</div>
+                  <div className="text-xs text-muted-foreground">{u.email} &bull; {u.tenantName || 'No tenant'}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -192,6 +231,20 @@ export default function UsersPage() {
           ))
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between animate-fade-in">
+          <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page <= 1 || listLoading}>
+              <ChevronLeft size={14} className="mr-1" /> Previous
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page >= totalPages || listLoading}>
+              Next <ChevronRight size={14} className="ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={showUserForm} onOpenChange={setShowUserForm}>
         <DialogContent className="sm:max-w-[425px]">
@@ -218,6 +271,7 @@ export default function UsersPage() {
               <div className="flex flex-col gap-1.5">
                 <Label>Role</Label>
                 <select className="flex h-9 w-full rounded-md border border-input bg-field px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={userFormData.role} onChange={e => setUserFormData(prev => ({ ...prev, role: e.target.value }))} disabled={saving}>
+                  <option value="STANDARD">Standard</option>
                   <option value="TENANT_ADMIN">Tenant Admin</option>
                   <option value="SUPER_ADMIN">Super Admin</option>
                 </select>

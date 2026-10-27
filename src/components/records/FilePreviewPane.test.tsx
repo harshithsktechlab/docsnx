@@ -262,3 +262,82 @@ describe('a file straight off the picker', () => {
     expect(fetchRecordBlob).not.toHaveBeenCalled();
   });
 });
+
+describe('rotating an image (0085)', () => {
+  const image = () => {
+    fetchRecordBlob.mockResolvedValue({ url: 'blob:made', mimeType: 'image/jpeg' });
+    return record({ mimeType: 'image/jpeg' });
+  };
+
+  it('offers rotate controls on an image, even a single page', async () => {
+    render(<FilePreviewPane source={image()} />);
+    await screen.findByRole('img');
+
+    expect(screen.getByRole('button', { name: 'Rotate left' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Rotate right' })).toBeTruthy();
+  });
+
+  it('offers none for a PDF or for text', async () => {
+    const { unmount } = render(<FilePreviewPane source={record()} />);
+    await waitFor(() => expect(fetchRecordBlob).toHaveBeenCalled());
+    await screen.findByTitle(/Preview: Lease agreement/);
+    expect(screen.queryByRole('button', { name: 'Rotate right' })).toBeNull();
+    unmount();
+
+    fetchRecordBlob.mockResolvedValue({ text: 'hello', mimeType: 'text/plain' });
+    render(<FilePreviewPane source={record({ mimeType: 'text/plain' })} />);
+    await screen.findByText('hello');
+    expect(screen.queryByRole('button', { name: 'Rotate right' })).toBeNull();
+  });
+
+  it('saves the next quarter turn, counted from the saved rotation', async () => {
+    const onRotate = vi.fn(async (_deg: number) => undefined);
+    render(<FilePreviewPane source={image()} rotation={90} onRotate={onRotate} />);
+    await screen.findByRole('img');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(180));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left' }));
+    await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(0));
+    expect(onRotate.mock.calls.map((c: any[]) => c[0])).toEqual([180, 90, 0]);
+  });
+
+  it('wraps past 270 and below 0', async () => {
+    const onRotate = vi.fn(async (_deg: number) => undefined);
+    render(<FilePreviewPane source={image()} rotation={270} onRotate={onRotate} />);
+    await screen.findByRole('img');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(0));
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left' }));
+    await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(270));
+  });
+
+  it('still turns, and saves nothing, when it was given no way to save', async () => {
+    render(<FilePreviewPane source={image()} />);
+    await screen.findByRole('img');
+
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }))).not.toThrow();
+    expect(screen.getByRole('img')).toBeTruthy();
+  });
+
+  it('does not carry a turn over to the next document', async () => {
+    const onRotate = vi.fn(async (_deg: number) => undefined);
+    const { rerender } = render(<FilePreviewPane source={image()} rotation={0} onRotate={onRotate} />);
+    await screen.findByRole('img');
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(90));
+
+    rerender(<FilePreviewPane
+      source={{ ...image(), filePath: '/api/records/documents/doc-2/file' }}
+      rotation={0}
+      onRotate={onRotate}
+    />);
+    await screen.findByRole('img');
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    // 90, not 180: the second document started upright.
+    await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(90));
+  });
+});

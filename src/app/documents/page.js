@@ -2098,6 +2098,9 @@ export default function DocumentsPage() {
    * modal was missing it.
    */
   const openPreview = (doc) => setPreviewDoc({
+    id: doc.id,
+    // The turn saved on the record (0085), so the scan opens upright.
+    rotation: doc.rotation || 0,
     title: doc.title,
     fileName: doc.fileName,
     filePath: doc.filePath,
@@ -2109,6 +2112,25 @@ export default function DocumentsPage() {
     // question this row did.
     categoryRef: doc.categoryRef,
   });
+
+  /**
+   * Remember the turn a member gave the scan in the preview. Throws on failure
+   * so the pane can put the picture back and say so.
+   *
+   * The list row is updated too: closing and reopening the same row would
+   * otherwise rebuild `previewDoc` from the stale `rotation` it was fetched
+   * with and turn the scan back.
+   */
+  const saveRotation = async (docId, degrees) => {
+    const { json } = await api(`/api/documents/${docId}/rotation`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rotation: degrees }),
+    });
+    if (!json?.success) throw new Error(json?.error || 'Could not save the rotation');
+    setDocuments((prev) => prev.map((d) => (d.id === docId ? { ...d, rotation: degrees } : d)));
+    setPreviewDoc((prev) => (prev && prev.id === docId ? { ...prev, rotation: degrees } : prev));
+  };
 
   /**
    * The ⋮ menu, written once for the table row and the mobile card — they offer
@@ -2953,6 +2975,8 @@ export default function DocumentsPage() {
                 name: previewDoc.title,
                 pageCount: previewDoc.pageCount,
               }}
+              rotation={previewDoc.rotation}
+              onRotate={may(previewDoc, 'edit') ? (deg) => saveRotation(previewDoc.id, deg) : null}
               emptyMessage={`No preview available for ${previewDoc.title}`}
               /* `previewDoc` carries the row's categoryRef for exactly this, so
                  the modal asks the same question the row did. */

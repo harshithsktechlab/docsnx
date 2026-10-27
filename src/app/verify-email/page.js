@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { clientVerifyOtp, clientResendOtp } from '@/lib/clientAuth';
 import {
   readChallengeView, codeBoxes, boxLabel, challengeHeadline,
-  isComplete, verifyPayload, applyChallengeUpdate,
+  isComplete, verifyPayload, applyChallengeUpdate, initialResendCountdown,
+  verifyHeading, afterVerifyDestination,
 } from '@/lib/otpForm';
+import { maskIdentifier } from '@/lib/dataMasking';
 import { ShieldCheck, Mail, MessageCircle, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -22,6 +24,10 @@ function VerifyEmailContent() {
   // or a mobile number. `email` is the older param name; still read so a link
   // from a previous session or a bookmarked URL keeps working.
   const identifier = searchParams.get('identifier') || searchParams.get('email') || '';
+  // Set by /account/new: a member verifying an account of their own while still
+  // signed in as the seat they were invited to. See `verifyHeading`.
+  const ownAccount = searchParams.get('own') === '1';
+  const heading = verifyHeading(ownAccount);
   /**
    * ── A LEGACY PAIR, KEPT FOR THE SIGN-UPS ALREADY IN FLIGHT ────────────────
    * /register used to ask for a plan and a discount code and carry both through
@@ -43,7 +49,7 @@ function VerifyEmailContent() {
   const [codes, setCodes] = useState({ single: '', email: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(() => initialResendCountdown(view));
 
   const boxes = codeBoxes(view);
 
@@ -75,7 +81,7 @@ function VerifyEmailContent() {
 
     if (res.success) {
       // ── SAID ON THE PAGE THAT FOLLOWS, NOT THIS ONE ────────────────────────
-      // Both branches below navigate immediately, so this was only ever read on
+      // Every outcome below navigates immediately, so this was only ever read on
       // the next screen — arriving part-expired and underneath whatever that
       // screen had to say. It is handed over instead (src/lib/flashToast.ts).
       //
@@ -87,29 +93,17 @@ function VerifyEmailContent() {
       // The sentence names the NEXT step, not only the one just finished:
       // "verified" alone, read on a page full of plan cards, left people
       // unsure whether they were meant to do anything there.
-      if (planParam) {
-        setFlash({
-          message: 'Account verified — complete your payment to activate your workspace.',
-          type: 'success',
-          tag: VERIFIED_TAG,
-        });
-        const discountQuery = discountParam ? `&discount=${encodeURIComponent(discountParam)}` : '';
-        router.push(`/billing?autoCheckout=${planParam}${discountQuery}`);
-      } else {
-        setFlash({
-          message: 'Account verified — choose a plan to activate your workspace.',
-          type: 'success',
-          tag: VERIFIED_TAG,
-        });
-        // ── BILLING IS THE NEXT STEP, NOT THE DASHBOARD ────────────────────
-        // A new account arrives with no plan, and Shell.js locks a plan-less
-        // tenant to /billing ahead of the onboarding gate. Sending them
-        // straight there skips a visible double redirect, and `welcome=1` is
-        // what tells billing this is a first run rather than a lapsed plan —
-        // otherwise a brand-new admin is greeted by an expiry notice for a
-        // plan they never had.
-        router.push('/billing?welcome=1');
-      }
+      // Where, and what to say, is decided in src/lib/otpForm.ts: an owner is
+      // sent to pick a plan, a member (who cannot buy one) straight to the
+      // dashboard. See `afterVerifyDestination` for why billing is still the
+      // owner's next step rather than the dashboard.
+      const dest = afterVerifyDestination(res.user?.role, { plan: planParam, discount: discountParam });
+      setFlash({
+        message: dest.message,
+        type: 'success',
+        ...(dest.tag ? { tag: VERIFIED_TAG } : {}),
+      });
+      router.push(dest.href);
     } else if (res.alreadyVerified) {
       // No challenge outstanding — the route no longer hands out a session here,
       // so the only way forward is the sign-in form.
@@ -180,8 +174,11 @@ function VerifyEmailContent() {
                 <ShieldCheck className="w-7 h-7 text-primary animate-pulse" />
               </div>
               <h1 className="text-2xl font-extrabold tracking-tight mb-2 text-foreground">
-                Verify Your Account
+                {heading.title}
               </h1>
+              {heading.note && (
+                <p className="text-foreground/80 text-sm max-w-xs mb-2">{heading.note}</p>
+              )}
               <p className="text-muted-foreground text-sm max-w-xs">
                 {challengeHeadline(view)}
               </p>
@@ -194,7 +191,7 @@ function VerifyEmailContent() {
               */}
               {boxes.includes('single') && identifier && (
                 <span className="mt-4 text-sm text-muted-foreground break-all">
-                  for {identifier}
+                  for {maskIdentifier(identifier)}
                 </span>
               )}
             </div>

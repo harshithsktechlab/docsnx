@@ -668,6 +668,8 @@ export interface ProjectedRecord {
   mimeType: string | null;
   fileSize: number;
   pageCount: number;
+  /** Degrees clockwise the viewer shows the scan at (0085). Display only. */
+  rotation: number;
   /**
    * The record's photo attachments (0069), without their Drive ids. Empty for
    * every category that has no attachment slot.
@@ -753,6 +755,7 @@ function project(
     mimeType: record?.mimeType ?? row.mimeType,
     fileSize: row.fileSize ?? 0,
     pageCount: row.pageCount ?? 0,
+    rotation: row.rotation ?? 0,
     attachments: summariseAttachments(record),
     status: row.status,
     userId: row.userId,
@@ -1068,6 +1071,7 @@ export async function listRecords(
         mimeType: documents.mimeType,
         fileSize: documents.fileSize,
         pageCount: documents.pageCount,
+        rotation: documents.rotation,
         status: documents.status,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
@@ -1166,6 +1170,7 @@ export async function getRecord(
       mimeType: documents.mimeType,
       fileSize: documents.fileSize,
       pageCount: documents.pageCount,
+      rotation: documents.rotation,
       status: documents.status,
       createdAt: documents.createdAt,
       updatedAt: documents.updatedAt,

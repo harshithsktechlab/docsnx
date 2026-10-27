@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AlertCircle, ChevronLeft, ChevronRight, FileText, Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  AlertCircle, ChevronLeft, ChevronRight, FileText, Loader2, RotateCcw, RotateCw,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { fetchRecordBlob } from '@/lib/sharePrintHelper';
 import { canDisplayPdf, previewKind } from '@/lib/records/inlineRender';
+import { rotateImageUrl } from '@/lib/records/rotateImage';
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
@@ -58,6 +62,15 @@ export default function FilePreviewPane({
    *  Document Manager offers a download there, which is the only way to read a
    *  .docx or .xlsx at all. */
   fallbackAction = null,
+  /** The turn saved on the record (0 | 90 | 180 | 270, degrees clockwise). */
+  rotation = 0,
+  /**
+   * Saves a new turn: `(degrees) => Promise`, rejecting on failure. Omit it and
+   * the buttons still turn the image for this session, but nothing is
+   * remembered — a picked `File` has no record to remember it on, and a member
+   * who may only view one should not rewrite it for everyone else.
+   */
+  onRotate = /** @type {((degrees: number) => Promise<unknown>) | undefined} */ (undefined),
 }) {
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
@@ -102,6 +115,67 @@ export default function FilePreviewPane({
     key: sourceKey,
     page: Math.min(pageCount, Math.max(1, next)),
   });
+
+  const kind = previewKind(servedType);
+
+  /**
+   * ── THE TURN: SAVED ON THE RECORD, KEYED TO ITS DOCUMENT ──────────────────
+   *
+   * Same keying as the page above, for the same reason: a turn made on one
+   * document must not follow the member into the next. `rotation` is the saved
+   * value; `turnState` only exists once they have pressed a button.
+   */
+  const saved = normaliseTurn(rotation);
+  const [turnState, setTurnState] = useState({ key: sourceKey, deg: saved });
+  const deg = turnState.key === sourceKey ? turnState.deg : saved;
+  // The last value the server confirmed, to fall back to when a save fails.
+  const confirmed = useRef({ key: sourceKey, deg: saved });
+  // Saves go out one at a time, in order, so a fast double press cannot land
+  // the older value last.
+  const saveChain = useRef(Promise.resolve());
+  if (confirmed.current.key !== sourceKey) confirmed.current = { key: sourceKey, deg: saved };
+
+  const turn = (delta) => {
+    const next = normaliseTurn(deg + delta);
+    setTurnState({ key: sourceKey, deg: next });
+    if (!onRotate) return;
+    const forKey = sourceKey;
+    saveChain.current = saveChain.current
+      .then(() => onRotate(next))
+      .then(() => { confirmed.current = { key: forKey, deg: next }; })
+      .catch(() => {
+        toast.error('Could not save the rotation', { id: 'preview-rotation' });
+        if (confirmed.current.key === forKey) {
+          setTurnState({ key: forKey, deg: confirmed.current.deg });
+        }
+      });
+  };
+
+  // The turned image, made once per (image, turn). Until it is ready — or if
+  // this browser cannot make it — the original is shown rather than nothing.
+  const [turned, setTurned] = useState({ src: '', deg: 0, out: '' });
+  useEffect(() => {
+    if (kind !== 'image' || !url || deg === 0) return undefined;
+    let cancelled = false;
+    let made = '';
+    rotateImageUrl(url, deg)
+      .then((out) => {
+        if (cancelled) {
+          if (out !== url) URL.revokeObjectURL(out);
+          return;
+        }
+        made = out;
+        setTurned({ src: url, deg, out });
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('This image is too large to rotate here', { id: 'preview-rotation' });
+      });
+    return () => {
+      cancelled = true;
+      if (made && made !== url) URL.revokeObjectURL(made);
+    };
+  }, [kind, url, deg]);
+  const shownUrl = deg !== 0 && turned.src === url && turned.deg === deg ? turned.out : url;
 
   useEffect(() => {
     if (!renderable) {
@@ -216,6 +290,37 @@ export default function FilePreviewPane({
     </div>
   ) : null;
 
+  /** Rotate left / right — images only; a PDF in the browser's viewer or a text
+   *  preview has nothing to turn. */
+  const turnBar = (
+    <div className="mt-2 flex shrink-0 items-center justify-center gap-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 gap-1 px-2"
+        aria-label="Rotate left"
+        title="Rotate left"
+        onClick={() => turn(-90)}
+      >
+        <RotateCcw size={14} />
+        <span className="text-xs">Rotate left</span>
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 gap-1 px-2"
+        aria-label="Rotate right"
+        title="Rotate right"
+        onClick={() => turn(90)}
+      >
+        <RotateCw size={14} />
+        <span className="text-xs">Rotate right</span>
+      </Button>
+    </div>
+  );
+
   if (!source) {
     return (
       <div className={frame}>
@@ -261,14 +366,13 @@ export default function FilePreviewPane({
     );
   }
 
-  const kind = previewKind(servedType);
-
   if (kind === 'image') {
     return (
       <div className={frame}>
         <div className={centred}>
-          <img src={url} alt={name} className="max-h-full max-w-full rounded-lg object-contain shadow" />
+          <img src={shownUrl} alt={name} className="max-h-full max-w-full rounded-lg object-contain shadow" />
         </div>
+        {turnBar}
         {pager}
       </div>
     );
@@ -316,6 +420,12 @@ export default function FilePreviewPane({
       {pager}
     </div>
   );
+}
+
+/** Any number of degrees as one of 0 | 90 | 180 | 270. Junk is upright. */
+function normaliseTurn(degrees) {
+  const n = Math.round(Number(degrees) / 90);
+  return Number.isFinite(n) ? (((n % 4) + 4) % 4) * 90 : 0;
 }
 
 /** Bytes as something a person reads without counting zeroes. */

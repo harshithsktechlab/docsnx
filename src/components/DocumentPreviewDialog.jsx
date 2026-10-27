@@ -21,9 +21,11 @@ import FilePreviewPane from '@/components/records/FilePreviewPane';
  * column if you have it — it is a hint for nothing but is harmless — and its
  * `pageCount`, which is what lets a multi-page scan be paged through.
  *
- * `doc` is `{ name, filePath, mimeType, pageCount }` or null when closed.
+ * `doc` is `{ name, filePath, mimeType, pageCount, rotation? }` or null when closed.
+ * `onRotate(degrees)` saves a turn given in the viewer; omit it and the page
+ * simply cannot remember one.
  */
-export default function DocumentPreviewDialog({ doc, onClose, fallbackAction = null }) {
+export default function DocumentPreviewDialog({ doc, onClose, fallbackAction = null, onRotate }) {
   return (
     <Dialog open={!!doc} onOpenChange={(open) => !open && onClose()}>
       {doc && (
@@ -40,6 +42,8 @@ export default function DocumentPreviewDialog({ doc, onClose, fallbackAction = n
               name: doc.name,
               pageCount: doc.pageCount,
             }}
+            rotation={doc.rotation || 0}
+            onRotate={onRotate}
             emptyMessage={`No preview available for ${doc.name}`}
             fallbackAction={fallbackAction}
           />

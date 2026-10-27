@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { users, tenants } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
-import { eq, desc, isNull, and, inArray } from 'drizzle-orm';
+import { eq, desc, isNull, and, or, ilike, count } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import { serverError } from '@/lib/routeError';
+
+const ROLES = ['SUPER_ADMIN', 'TENANT_ADMIN', 'STANDARD'] as const;
+const MAX_PAGE_SIZE = 100;
 
 export async function GET(req: Request) {
   try {
@@ -12,6 +15,31 @@ export async function GET(req: Request) {
     if (!user || user.role !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const params = new URL(req.url).searchParams;
+    const page = Math.max(1, Math.floor(Number(params.get('page'))) || 1);
+    const limit = Math.min(Math.max(1, Math.floor(Number(params.get('limit'))) || 25), MAX_PAGE_SIZE);
+    const role = ROLES.find((r) => r === params.get('role'));
+    const q = (params.get('q') || '').trim().slice(0, 100);
+
+    const conditions = [isNull(users.deletedAt)];
+    if (role) conditions.push(eq(users.role, role));
+    if (q) {
+      // Escape LIKE wildcards so a search for "50%" or "a_b" matches literally.
+      const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(or(
+        ilike(users.name, pattern),
+        ilike(users.email, pattern),
+        ilike(tenants.name, pattern),
+      )!);
+    }
+    const where = and(...conditions);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(users)
+      .leftJoin(tenants, eq(users.tenantId, tenants.id))
+      .where(where);
 
     const allUsers = await db
       .select({
@@ -25,13 +53,19 @@ export async function GET(req: Request) {
       })
       .from(users)
       .leftJoin(tenants, eq(users.tenantId, tenants.id))
-      .where(and(
-        isNull(users.deletedAt),
-        inArray(users.role, ['SUPER_ADMIN', 'TENANT_ADMIN'])
-      ))
-      .orderBy(desc(users.createdAt));
+      .where(where)
+      .orderBy(desc(users.createdAt), desc(users.id))
+      .limit(limit)
+      .offset((page - 1) * limit);
 
-    return NextResponse.json({ success: true, users: allUsers });
+    return NextResponse.json({
+      success: true,
+      users: allUsers,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    });
   } catch (error) {
     return serverError(error, 'loading users');
   }

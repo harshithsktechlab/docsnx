@@ -277,6 +277,34 @@ export async function POST(req: Request) {
       // would turn a refusal into a lookup of somebody else's details.
       const hitByEmail = row.id === byEmail?.id;
 
+      // ── A MEMBER SEAT IS AN ACCOUNT THAT ALREADY EXISTS ──────────────────
+      // Someone added to another workspace has a seat whatever its verification
+      // state, so this is "already registered" and never a verify flow. The
+      // pending branch below used to take them: it sent no code, showed the raw
+      // number, and the Resend that followed verified the SEAT and signed them
+      // into the workspace they were invited to — not into the account they
+      // asked for. Same words as a finished account, so nothing is disclosed
+      // about whose seat it is; the register page's existing hint tells a member
+      // where their own account is opened.
+      if (row.role === 'STANDARD') {
+        // Invited and never set up: there is no password to sign in with, so
+        // "sign in" would be a dead end. Same sentence the attach branch uses.
+        if (!row.activatedAt) {
+          const message = 'You were added to an account but have not set it up yet. Use “Set up my account” on the sign-in page first, then come back to open your own account.';
+          return NextResponse.json({
+            error: message,
+            fieldErrors: hitByEmail ? { email: message } : { phoneNumber: message },
+            requiresActivation: true,
+          }, { status: 409 });
+        }
+        const message = hitByEmail ? 'Email already registered' : DUPLICATE_PHONE_MESSAGE;
+        return NextResponse.json({
+          error: message,
+          fieldErrors: hitByEmail ? { email: message } : { phoneNumber: message },
+          accountExists: true,
+        }, { status: 400 });
+      }
+
       // A finished account. Same wording it has always answered with; the flag
       // is what lets the register page offer Sign in instead of a dead toast.
       if (isFullyVerified(row, { whatsappEnabled: await isWhatsAppEnabled() })) {
@@ -300,8 +328,8 @@ export async function POST(req: Request) {
       // handset. /api/auth/resend-otp is the right door — it answers identically
       // for a real identifier and an unknown one, which is why it can afford to.
       const pendingMessage = hitByEmail
-        ? 'This email address already has a sign-up waiting to be verified. Enter the code we sent you, or sign in.'
-        : 'This mobile number already has a sign-up waiting to be verified. Enter the code we sent you, or sign in.';
+        ? 'This email address already has a sign-up waiting to be verified. Tap Resend on the next screen to get a code, or sign in.'
+        : 'This mobile number already has a sign-up waiting to be verified. Tap Resend on the next screen to get a code, or sign in.';
 
       return NextResponse.json({
         error: pendingMessage,

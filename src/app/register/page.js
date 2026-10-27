@@ -356,6 +356,21 @@ export default function RegisterPage() {
                   ) : null}
                 </div>
                 {/*
+                  Shown for EVERY "already has an account" refusal and worded for
+                  nobody in particular: someone who was only added to another
+                  workspace is refused here too, and would otherwise be left with
+                  "Sign in instead" and no hint that their own account is opened
+                  from inside. Saying "you were added to a workspace" would tell
+                  the caller whose contacts these are, so it does not.
+                */}
+                {signInHref ? (
+                  <p className="sm:col-span-2 text-xs text-muted-foreground">
+                    Already have an account, or were you added to someone else&apos;s workspace?
+                    Sign in with the password you already use, then choose <strong>Open my own
+                    account</strong> from the account menu to start your own.
+                  </p>
+                ) : null}
+                {/*
                   Side by side deliberately: the second box is only useful while
                   the first one is still in view, and a confirmation a row below
                   its password reads as another field to fill rather than as the

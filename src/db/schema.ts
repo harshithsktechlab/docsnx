@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp, integer, bigint, decimal, pgEnum, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp, integer, smallint, bigint, decimal, pgEnum, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const roleEnum = pgEnum("role", ["SUPER_ADMIN", "TENANT_ADMIN", "STANDARD"]);
@@ -737,6 +737,11 @@ export const documents = pgTable("documents", {
    * See src/lib/records/customSubcategory.ts.
    */
   customSubcategory: varchar("custom_subcategory", { length: 120 }),
+  /**
+   * Degrees clockwise (0 | 90 | 180 | 270, CHECKed in 0085) the viewer shows the
+   * scan at. A display preference only — the stored bytes are never rotated.
+   */
+  rotation: smallint("rotation").notNull().default(0),
   // Master-list FK. The legacy free-text `category` column it replaced was
   // dropped in 0016 along with LEGACY_CATEGORY_MAP; every row now resolves
   // through this FK or through the denormalised pair below.

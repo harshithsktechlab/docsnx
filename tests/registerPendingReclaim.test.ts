@@ -404,15 +404,56 @@ describe('an account with a person behind it is never taken over', () => {
     expectUntouched();
   });
 
-  it('refuses a member seat that has never been signed into', async () => {
+  it('refuses a member seat that was never set up, pointing at activation', async () => {
     // The likeliest real collision: a tenant admin added this person by mobile
-    // number. Retiring it would delete a seat out of somebody else's workspace.
-    byPhoneRow = pendingSignup({ role: 'STANDARD', email: null, id: 'member-1' });
+    // number. Retiring it would delete a seat out of somebody else's workspace,
+    // and with no password yet "sign in" would be a dead end.
+    byPhoneRow = pendingSignup({ role: 'STANDARD', email: null, id: 'member-1', activatedAt: null });
 
     const res = await register(signup());
+    const body = await res.json();
 
     expect(res.status).toBe(409);
-    expect((await res.json()).requiresVerification).toBe(true);
+    expect(body.requiresActivation).toBe(true);
+    expect(body.requiresVerification).toBeUndefined();
+    expect(body.fieldErrors.phoneNumber).toContain('Set up my account');
+    expectUntouched();
+  });
+
+  it.each([
+    ['unverified', { phoneVerified: false }],
+    ['verified', { phoneVerified: true }],
+  ])('answers an activated %s member seat "already registered", never a verify flow', async (_label, state) => {
+    // Kishan: added to another workspace, then registered with his number. The
+    // verify flow this used to start sent no code, showed the raw number, and
+    // its Resend signed him into the workspace he was invited to.
+    byPhoneRow = pendingSignup({
+      role: 'STANDARD', email: null, id: 'member-1', activatedAt: new Date(), ...state,
+    });
+
+    const res = await register(signup());
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.accountExists).toBe(true);
+    expect(body.requiresVerification).toBeUndefined();
+    expect(body.identifier).toBeUndefined();
+    expect(body.fieldErrors.phoneNumber).toBe(body.error);
+    expect(body.fieldErrors.email).toBeUndefined();
+    expectUntouched();
+  });
+
+  it('puts a member seat hit by ADDRESS on the email field', async () => {
+    byEmailRow = pendingSignup({
+      role: 'STANDARD', id: 'member-2', phoneDial: '911111111111', activatedAt: new Date(),
+    });
+
+    const res = await register(signup());
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.accountExists).toBe(true);
+    expect(body.fieldErrors.email).toBe('Email already registered');
     expectUntouched();
   });
 

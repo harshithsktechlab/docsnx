@@ -557,6 +557,27 @@ export default function SubCategoryWorkspace() {
   // Read for the locker delete warning; a null target on every other page.
   const lockerItems = useLinkedRecords(isLockers ? LOCKER_ITEMS : null);
 
+  /**
+   * Remember the turn a member gave the open record's scan (0085). Throws so the
+   * pane can put the picture back and say so. `previewRecord` and the list row
+   * are both updated: reopening the same row would otherwise rebuild the dialog
+   * from the stale `rotation` it was listed with and turn the scan back.
+   */
+  const saveRotation = async (degrees) => {
+    const id = previewRecord?.id;
+    if (!id) return;
+    const outcome = await apiRequest(
+      `/api/documents/${id}/rotation${companyParam ? `?${companyParam}` : ''}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotation: degrees }),
+      });
+    if (!outcome.ok) throw new Error('Could not save the rotation');
+    setPreviewRecord((prev) => (prev && prev.id === id ? { ...prev, rotation: degrees } : prev));
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, rotation: degrees } : r)));
+  };
+
   const download = async (record) => {
     if (!record.filePath) {
       // No attachment: the record's own details, as a PDF.
@@ -1326,6 +1347,10 @@ export default function SubCategoryWorkspace() {
                 name: previewRecord.title,
                 pageCount: previewRecord.pageCount,
               }}
+              /* The saved turn belongs to the record's own document, not to a
+                 photo attachment shown in its place. */
+              rotation={previewAttachment ? 0 : (previewRecord.rotation || 0)}
+              onRotate={canEdit && !previewAttachment ? saveRotation : null}
               emptyMessage={`No preview available for ${previewRecord.title}`}
               fallbackAction={canShare ? (
                 <Button className="mt-4 gap-1.5" onClick={() => download(previewRecord)}>

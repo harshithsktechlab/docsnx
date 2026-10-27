@@ -80,6 +80,13 @@ vi.mock('@/lib/whatsapp', () => ({
   sendWhatsAppTemplate: async () => ({ success: true }),
 }));
 
+// Nobody else holds the contacts under test: this file is about WHERE a new
+// member is filed. The existing-person path is onboardingExistingMember.test.ts.
+vi.mock('@/lib/account/attachExisting', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/account/attachExisting')>()),
+  matchExistingPerson: async () => ({ kind: 'none' }),
+}));
+
 vi.mock('@/lib/db', () => {
   const makeTx = () => {
     let table = '';

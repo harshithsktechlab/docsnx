@@ -6,6 +6,7 @@ import {
   maskUsername,
   maskEmail,
   maskPhone,
+  maskIdentifier,
   maskDocId,
   maskFields,
 } from '@/lib/dataMasking';
@@ -39,6 +40,15 @@ describe('dataMasking', () => {
 
   it('maskPhone keeps the last four digits', () => {
     expect(maskPhone('+91 98765 43210')).toBe('••••3210');
+  });
+
+  it('maskIdentifier masks a number or an address and leaves anything else', () => {
+    expect(maskIdentifier('+918125472236')).toBe('••••2236');
+    expect(maskIdentifier('+91 81254 72236')).toBe('••••2236');
+    expect(maskIdentifier('kishan@gmail.com')).toBe('ki••••@gmail.com');
+    expect(maskIdentifier('')).toBe('');
+    expect(maskIdentifier(null)).toBe('');
+    expect(maskIdentifier('some-username')).toBe('some-username');
   });
 
   it('maskDocId keeps the last four', () => {

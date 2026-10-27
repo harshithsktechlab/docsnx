@@ -5,9 +5,8 @@ import { eq, and, ne, or, sql, count, isNull, inArray } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
-import {
-  CANNOT_ADD_MESSAGE, hasSeatIn, isPlatformOperator, maskPendingSeat, matchExistingPerson,
-} from '@/lib/account/attachExisting';
+import { maskPendingSeat } from '@/lib/account/attachExisting';
+import { decideAttach, reportAttachedInvite } from '@/lib/account/attachDecision';
 import { seatAllowance, seatPredicate, seatUsage } from '@/lib/account/seatCounts';
 import { omitUserSecrets } from '@/lib/account/sharedIdentity';
 import { parseQueryParams, buildListQueryHelper } from '@/lib/api-pagination';
@@ -430,19 +429,11 @@ export async function POST(req: Request) {
     const typedDial = toDialString(phoneNumber);
     let attachTo: { id: string } | null = null;
     if (newRole === 'STANDARD') {
-      const match = await matchExistingPerson({ email: cleanEmail, phoneDial: typedDial });
-      if (match.kind === 'conflict') {
-        return NextResponse.json({ error: CANNOT_ADD_MESSAGE }, { status: 400 });
+      const decision = await decideAttach({ email: cleanEmail, phoneDial: typedDial }, currentUser.tenantId);
+      if (decision.kind === 'refuse') {
+        return NextResponse.json({ error: decision.error }, { status: 400 });
       }
-      if (match.kind === 'one') {
-        if (await isPlatformOperator(match.identity.id)) {
-          return NextResponse.json({ error: CANNOT_ADD_MESSAGE }, { status: 400 });
-        }
-        if (await hasSeatIn(match.identity.id, currentUser.tenantId)) {
-          return NextResponse.json({ error: 'This person is already a member of this account.' }, { status: 400 });
-        }
-        attachTo = { id: match.identity.id };
-      }
+      if (decision.kind === 'attach') attachTo = { id: decision.identityId };
     }
 
     // Check if email already exists — only when one was given. An unguarded
@@ -625,15 +616,8 @@ export async function POST(req: Request) {
       : null;
 
     const safeUser = omitUserSecrets(newUser);
-    // The invitation went to the PERSON's contacts, which may include one the
-    // admin never typed. Report only the channels the admin supplied, so
-    // `email: 'sent'` cannot reveal that an address is on file.
     const reportedInvite = attachTo && invite
-      ? {
-        whatsapp: typedDial ? invite.whatsapp : 'skipped',
-        email: cleanEmail ? invite.email : 'skipped',
-        delivered: invite.delivered,
-      }
+      ? reportAttachedInvite(invite, { phoneDial: typedDial, email: cleanEmail })
       : invite;
     return NextResponse.json({
       success: true,

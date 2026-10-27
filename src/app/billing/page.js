@@ -982,10 +982,11 @@ export default function BillingPage() {
                           {formatDate(payment.createdAt)}
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant="secondary" className="text-xs font-bold">{payment.planName || payment.plan?.name || '—'}</Badge>
+                          <Badge variant="secondary" className="text-xs font-bold">{payment.planName || payment.plan?.name
+                            || ((Array.isArray(payment.addonsPurchased) && payment.addonsPurchased.length > 0) || payment.addonId ? 'Add-on' : '—')}</Badge>
                         </td>
                         <td className="px-4 py-3 text-foreground font-bold">
-                          {formatPrice(payment.amount ? payment.amount / 100 : 0)}
+                          {formatPrice(payment.amount ? Number(payment.amount) : 0)}
                         </td>
                         <td className="px-4 py-3">
                           <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-muted-foreground">
@@ -996,8 +997,8 @@ export default function BillingPage() {
                           {getStatusBadge(payment.status)}
                         </td>
                         <td className="px-4 py-3">
-                          {payment.invoiceUrl ? (
-                            <a href={payment.invoiceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline text-xs font-bold">
+                          {payment.status === 'captured' && (payment.invoiceUrl || Number(payment.amount) > 0) ? (
+                            <a href={`/api/payments/${payment.id}/invoice`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline text-xs font-bold">
                               <FileText size={12} /> Preview
                             </a>
                           ) : (

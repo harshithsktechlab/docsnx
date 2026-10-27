@@ -63,6 +63,9 @@ export default function NewOwnAccountPage() {
     if (res.requireVerification) {
       setLoading(false);
       const query = new URLSearchParams({ identifier: res.identifier || '' });
+      // Tells the verify screen this is the member's OWN new account, not the seat
+      // they are still signed in as — see `verifyHeading` in src/lib/otpForm.ts.
+      query.set('own', '1');
       if (res.emailHint) query.set('emailHint', res.emailHint);
       if (res.phoneHint) query.set('phoneHint', res.phoneHint);
       if (res.needsEmailCode) query.set('needsEmailCode', 'true');

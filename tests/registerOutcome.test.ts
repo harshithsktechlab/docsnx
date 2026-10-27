@@ -83,7 +83,7 @@ describe('resolveRegisterOutcome — the branches that still navigate', () => {
     // caller owns.
     const outcome = resolveRegisterOutcome({
       success: false,
-      error: 'This email address already has a sign-up waiting to be verified.',
+      error: 'This email address already has a sign-up waiting to be verified. Tap Resend on the next screen to get a code, or sign in.',
       requiresVerification: true,
       identifier: TYPED_EMAIL,
     }, TYPED_EMAIL);
