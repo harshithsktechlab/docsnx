@@ -7,6 +7,7 @@ import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { validatePricing } from '@/lib/planPricing';
 import { parseAppliesTo } from '@/lib/billingAxis';
+import { creditColumns, creditPartsFor, syncComboCredits } from '@/lib/planCredits';
 
 
 export const dynamic = 'force-dynamic';
@@ -69,6 +70,9 @@ export async function POST(req: Request) {
       // plan it created personal, one-seat and no-company whatever the operator
       // had typed.
       appliesTo, maxMembersPerCompany, maxCompanies, durationDays,
+      // A combined plan has no single credit figure: a TRIAL is given its two
+      // halves here, and an active one is derived (see src/lib/planCredits.ts).
+      aiCreditsPersonal, aiCreditsBusiness,
     } = await req.json();
 
     if (!name) {
@@ -107,7 +111,15 @@ export async function POST(req: Request) {
       priceYearlyUsd: priceYearlyUsd !== undefined && priceYearlyUsd !== null && priceYearlyUsd !== '' ? String(priceYearlyUsd) : null,
       priceOneTime: priceOneTime !== undefined && priceOneTime !== null && priceOneTime !== '' ? String(priceOneTime) : null,
       priceOneTimeUsd: priceOneTimeUsd !== undefined && priceOneTimeUsd !== null && priceOneTimeUsd !== '' ? String(priceOneTimeUsd) : null,
-      aiCredits: typeof aiCredits === 'number' ? aiCredits : 0,
+      // The two halves, never the sum on its own — `ai_credits` is their total
+      // and a CHECK refuses anything else. A combined plan that is sold is
+      // re-derived straight after the insert.
+      ...creditColumns(
+        creditPartsFor(axis, typeof aiCredits === 'number' ? aiCredits : 0) ?? {
+          personal: Math.max(0, Math.trunc(Number(aiCreditsPersonal)) || 0),
+          business: Math.max(0, Math.trunc(Number(aiCreditsBusiness)) || 0),
+        },
+      ),
       maxMembers: maxMembers !== undefined ? Number(maxMembers) : 1,
       // Which account this plan covers, and the two business quotas. Defaulted
       // rather than required so an older client that omits them still creates a
@@ -131,6 +143,10 @@ export async function POST(req: Request) {
       amcAmountUsd: amcAmountUsd ? String(amcAmountUsd) : null,
       storageLimitGB: typeof storageLimitGB === 'number' ? storageLimitGB : 5,
     }).returning();
+
+    // A new Personal or Business plan can become what the combined plan derives
+    // from, and a new combined plan must start at the right figure.
+    await syncComboCredits(db);
 
     await writeAudit({
       tenantId: user.tenantId,

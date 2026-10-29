@@ -163,6 +163,7 @@ export default function MoreScreen({ companyId = null }) {
               planDetails={planDetails}
               storageData={storageData}
               aiCreditsBalance={user?.tenant?.aiCreditsBalance}
+              aiCreditsBusinessBalance={user?.tenant?.aiCreditsBalanceBusiness}
               size="lg"
             />
           </CardContent>

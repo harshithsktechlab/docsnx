@@ -125,6 +125,22 @@ export async function GET(req: Request) {
       }
     }
 
+    // What each credit pool is topped up with by the plan behind it: the personal
+    // plan's Personal credits and the business plan's Business credits. A combined
+    // plan is both of them at once, and its row supplies both halves.
+    const creditAllowance = {
+      personal: planDetails?.aiCreditsPersonal ?? 0,
+      business: planDetails?.aiCreditsBusiness ?? 0,
+    };
+    const businessPlanId = safeUser.tenant?.businessPlanId;
+    if (businessPlanId && businessPlanId !== planDetails?.id) {
+      const businessPlan = await db.query.subscriptionPlans.findFirst({
+        where: eq(subscriptionPlans.id, businessPlanId),
+        columns: { aiCreditsBusiness: true },
+      });
+      creditAllowance.business = businessPlan?.aiCreditsBusiness ?? 0;
+    }
+
     // Who to chase for a renewal. A member cannot pay — the lock screen has to
     // name their admin instead of leaving them with nothing to act on. Scoped to
     // the caller's own tenant, name and email only.
@@ -268,7 +284,10 @@ export async function GET(req: Request) {
         /** Every axis this tenant has is dead — the whole-account answer. */
         fullyLapsed: tenantFullyLapsed(safeUser.tenant),
       },
-      planDetails,
+      // The meters describe ONE plan row, but a tenant's credits are two pools
+      // that may come from two plans (Personal + a separate Business). The
+      // allowance of each pool rides along so the meter can show both.
+      planDetails: planDetails ? { ...planDetails, creditAllowance } : planDetails,
       storageData,
       driveNeedsReconnect,
       platformConfig

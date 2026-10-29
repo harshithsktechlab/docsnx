@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { FontSizeProvider } from "@/components/FontSizeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import ShareGate from "@/components/ShareGate";
+import CreditBorrowDialog from "@/app/components/CreditBorrowDialog";
 import { APP_NAME, APP_TAGLINE, APP_OG_IMAGE } from "@/lib/brand";
 import { getAppBaseUrl } from "@/lib/appUrl";
 
@@ -102,6 +103,7 @@ export default function RootLayout({ children }) {
               until a share needs a fresh user gesture — see ShareGate.jsx.
             */}
             <ShareGate />
+            <CreditBorrowDialog />
             <Toaster />
           </ThemeProvider>
         </FontSizeProvider>

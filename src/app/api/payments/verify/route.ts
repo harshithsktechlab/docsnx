@@ -6,7 +6,7 @@ import { verifyPaymentSignature } from '@/lib/razorpay';
 import { eq, and, inArray } from 'drizzle-orm';
 import { generateAndUploadInvoice } from '@/lib/invoiceGenerator';
 import { creditBalanceDelta, recordCreditMovement } from '@/lib/planProvisioning';
-import { CREDIT_REASONS } from '@/lib/creditLedger';
+import { CREDIT_REASONS, planCreditGrant } from '@/lib/creditLedger';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import {
   expandCart,
@@ -127,7 +127,10 @@ export async function POST(req: Request) {
          * so buying two different plans in one order grants both.
          */
         const creditedPlans = new Set<string>();
-        let totalPlanCredits = 0;
+        // Per pool: a Personal plan feeds Personal, a Business plan Business, and a
+        // combined plan both — the pools are credited separately, never as one sum.
+        let personalCredits = 0;
+        let businessCredits = 0;
         const axisColumns: Record<string, unknown> = {};
         const appliedNames: string[] = [];
         const axesWritten: AccountAxis[] = [];
@@ -149,7 +152,9 @@ export async function POST(req: Request) {
 
           if (!creditedPlans.has(linePlan.id)) {
             creditedPlans.add(linePlan.id);
-            totalPlanCredits += linePlan.aiCredits ?? 0;
+            const grant = planCreditGrant(linePlan);
+            personalCredits += grant.personal;
+            businessCredits += grant.business;
             appliedNames.push(linePlan.name);
           }
         }
@@ -170,23 +175,42 @@ export async function POST(req: Request) {
         const [granted] = await tx.update(tenants)
           .set({
             ...axisColumns,
-            ...(totalPlanCredits > 0
-              ? { aiCreditsBalance: creditBalanceDelta(totalPlanCredits) }
+            ...(personalCredits > 0
+              ? { aiCreditsBalance: creditBalanceDelta(personalCredits, 'personal') }
+              : {}),
+            ...(businessCredits > 0
+              ? { aiCreditsBalanceBusiness: creditBalanceDelta(businessCredits, 'business') }
               : {}),
             ...(payment.plan.isLifetime ? { amcLastPaidAt, amcNextDueDate } : {})
           })
           .where(eq(tenants.id, payment.tenantId))
-          .returning({ aiCreditsBalance: tenants.aiCreditsBalance });
+          .returning({
+            aiCreditsBalance: tenants.aiCreditsBalance,
+            aiCreditsBalanceBusiness: tenants.aiCreditsBalanceBusiness,
+          });
 
+        // One ledger row per pool that moved, each with THAT pool's balance from
+        // the statement above. No companyId: a grant tops up a pool and belongs
+        // to no single workspace.
+        const spread = personalCredits > 0 && businessCredits > 0;
+        const planLabel = appliedNames.join(' + ');
         await recordCreditMovement(tx as any, {
           tenantId: payment.tenantId,
           userId: user.id,
-          amount: totalPlanCredits,
-          balanceAfter: granted?.aiCreditsBalance ?? totalPlanCredits,
+          amount: personalCredits,
+          balanceAfter: granted?.aiCreditsBalance ?? personalCredits,
           reason: CREDIT_REASONS.plan_grant,
-          // No companyId: a grant tops up the ONE shared wallet and belongs to
-          // no single workspace.
-          description: `Plan '${appliedNames.join(' + ')}' purchased — ${totalPlanCredits.toLocaleString()} AI credits granted.`,
+          description: `Plan '${planLabel}' purchased — ${personalCredits.toLocaleString()} ${spread ? 'Personal ' : ''}AI credits granted.`,
+          pool: 'personal',
+        });
+        await recordCreditMovement(tx as any, {
+          tenantId: payment.tenantId,
+          userId: user.id,
+          amount: businessCredits,
+          balanceAfter: granted?.aiCreditsBalanceBusiness ?? businessCredits,
+          reason: CREDIT_REASONS.plan_grant,
+          description: `Plan '${planLabel}' purchased — ${businessCredits.toLocaleString()} ${spread ? 'Business ' : ''}AI credits granted.`,
+          pool: 'business',
         });
 
         await writeAudit({

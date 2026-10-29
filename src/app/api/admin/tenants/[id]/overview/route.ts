@@ -4,7 +4,7 @@ import {
   tenants, users, documents, passwords, subscriptionPlans, addons, tenantAddons,
   payments, invoices, discountCodes, discountUsages, creditTransactions, tenantAiUsages,
 } from '@/db/schema';
-import { and, count, desc, eq, isNull, isNotNull, sum, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, isNotNull, ne, sum, sql } from 'drizzle-orm';
 import { getUserFromRequest } from '@/lib/auth';
 import { checkStorageLimit } from '@/lib/storage';
 import { DOCUMENT_CATEGORY_MODULES, UNCATEGORIZED } from '@/lib/documentCategories';
@@ -54,7 +54,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       where: eq(tenants.id, tenantId),
       columns: {
         id: true, name: true, isActive: true, createdAt: true, updatedAt: true,
-        aiProvider: true, aiModel: true, aiCreditsBalance: true,
+        aiProvider: true, aiModel: true, aiCreditsBalance: true, aiCreditsBalanceBusiness: true,
         // Which axes this tenant has, for the default-plan fallback below.
         accountType: true,
         subscriptionPlanId: true, subscriptionExpiry: true,
@@ -201,6 +201,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         id: creditTransactions.id,
         amount: creditTransactions.amount,
         balanceAfter: creditTransactions.balanceAfter,
+        pool: creditTransactions.pool,
         reason: creditTransactions.reason,
         description: creditTransactions.description,
         createdAt: creditTransactions.createdAt,
@@ -259,7 +260,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         used: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.amount} < 0 THEN -${creditTransactions.amount} ELSE 0 END), 0)`.mapWith(Number),
       })
         .from(creditTransactions)
-        .where(eq(creditTransactions.tenantId, tenantId)),
+        // A move between the tenant's own pools is neither received nor used.
+        .where(and(eq(creditTransactions.tenantId, tenantId), ne(creditTransactions.reason, 'pool_split'))),
 
       seatAllowance(tenantId, 'personal'),
     ]);
@@ -331,7 +333,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       entitlements: {
         // The same allowance POST /api/users enforces.
         maxMembers: seats,
-        aiCreditsBalance: tenant.aiCreditsBalance,
+        /** Both pools together; the split follows. */
+        aiCreditsBalance: tenant.aiCreditsBalance + tenant.aiCreditsBalanceBusiness,
+        aiCreditsPersonal: tenant.aiCreditsBalance,
+        aiCreditsBusiness: tenant.aiCreditsBalanceBusiness,
         /** Ledger totals that explain the balance: received − used = balance. */
         creditsGranted: ledgerTotals?.granted ?? 0,
         creditsUsed: ledgerTotals?.used ?? 0,
@@ -347,7 +352,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       promoCodes: promoRows,
       payments: paymentRows,
       invoices: invoiceRows,
-      credits: { balance: tenant.aiCreditsBalance, transactions: creditRows },
+      credits: {
+        balance: tenant.aiCreditsBalance + tenant.aiCreditsBalanceBusiness,
+        personal: tenant.aiCreditsBalance,
+        business: tenant.aiCreditsBalanceBusiness,
+        transactions: creditRows,
+      },
       aiUsage: aiUsageRows,
       aiUsageByAction: aiUsageByActionRows,
       records: {

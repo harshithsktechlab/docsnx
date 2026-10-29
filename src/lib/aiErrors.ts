@@ -45,6 +45,9 @@ export const AI_ERROR_CODES = {
   ALL_KEYS_EXHAUSTED:  'ALL_KEYS_EXHAUSTED',
   NO_KEYS_CONFIGURED:  'NO_KEYS_CONFIGURED',
   INSUFFICIENT_CREDITS: 'INSUFFICIENT_CREDITS',
+  // This workspace's pool cannot cover the call but the OTHER pool can. Not a
+  // dead end: the member is asked, and a yes retries the same request.
+  CREDIT_POOL_EMPTY:   'CREDIT_POOL_EMPTY',
   UNKNOWN:             'UNKNOWN',
 };
 
@@ -67,6 +70,7 @@ export const AI_ERROR_MESSAGES: Record<string, string> = {
   ALL_KEYS_EXHAUSTED:  '⚠️ All AI API keys have reached their daily quota. Please add more keys in AI Settings or try again tomorrow.',
   NO_KEYS_CONFIGURED:  '🔧 No AI API keys are configured. Please add at least one key in AI Settings (Super Admin).',
   INSUFFICIENT_CREDITS: '💳 Insufficient AI Credits. Please upgrade your plan or purchase an add-on to continue using this feature.',
+  CREDIT_POOL_EMPTY:   '💳 The AI credits for this workspace are used up, but your other credits can cover this. Confirm to use them and continue.',
   UNKNOWN:             '❌ An unexpected AI processing error occurred. Please try again.',
 };
 
@@ -88,6 +92,7 @@ export const AI_STATUS: Record<string, number> = {
   [AI_ERROR_CODES.NETWORK_ERROR]: 503,
   [AI_ERROR_CODES.NO_KEYS_CONFIGURED]: 500,
   [AI_ERROR_CODES.INSUFFICIENT_CREDITS]: 402,
+  [AI_ERROR_CODES.CREDIT_POOL_EMPTY]: 402,
 };
 
 /**

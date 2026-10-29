@@ -163,6 +163,7 @@ export async function POST(req: Request) {
       await recordSignupGrant(tx as any, {
         tenantId: tenant.id,
         amount: planValues.aiCreditsBalance,
+        businessAmount: planValues.aiCreditsBalanceBusiness,
         userId: created.id,
       });
 

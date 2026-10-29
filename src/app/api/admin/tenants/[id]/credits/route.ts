@@ -7,6 +7,7 @@ import { adjustTenantCredits, setTenantCredits } from '@/lib/planProvisioning';
 import { z } from 'zod';
 import { ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { CREDIT_POOLS, POOL_LABELS } from '@/lib/creditLedger';
 
 const MAX_ADJUSTMENT = 100000;
 const MAX_BALANCE = 10_000_000;
@@ -20,6 +21,8 @@ const reasonSchema = z.string().trim().min(3, 'A reason is required').max(500);
  */
 const adjustSchema = z.object({
   mode: z.enum(['delta', 'set']).default('delta'),
+  /** Which pool to move. Absent means Personal, which is what a body predating the pools meant. */
+  pool: z.enum(CREDIT_POOLS).default('personal'),
   delta: z.number().int('delta must be a whole number of credits').optional(),
   balance: z.number().int('balance must be a whole number of credits').optional(),
   reason: reasonSchema,
@@ -66,51 +69,55 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: firstIssue?.message || 'Invalid input' }, { status: 400 });
     }
 
-    const { mode, reason } = parsed.data;
+    const { mode, reason, pool } = parsed.data;
+    const poolName = POOL_LABELS[pool];
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
-      columns: { id: true, name: true, aiCreditsBalance: true },
+      columns: { id: true, name: true, aiCreditsBalance: true, aiCreditsBalanceBusiness: true },
     });
 
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found.' }, { status: 404 });
     }
 
-    const previousBalance = tenant.aiCreditsBalance;
+    const previousBalance = pool === 'business' ? tenant.aiCreditsBalanceBusiness : tenant.aiCreditsBalance;
 
     const newBalance = mode === 'set'
       ? await setTenantCredits(db, {
           tenantId,
           balance: parsed.data.balance!,
+          pool,
           userId: user.id,
           action: ACTIONS.credits.admin_adjust,
           details: auditSentence('admin_adjust', {
-            kind: 'AI credits',
+            kind: `${poolName} AI credits`,
             note: `set to ${parsed.data.balance} from ${previousBalance} — ${reason}`,
           }),
           // The audit `details` above is written for HSK staff reading the
           // trail; this is what the TENANT reads on /billing/credits, so it
           // says what changed without the internal framing.
-          ledgerDescription: `Balance corrected to ${parsed.data.balance!.toLocaleString()} credits. Reason: ${reason}`,
+          ledgerDescription: `${poolName} balance corrected to ${parsed.data.balance!.toLocaleString()} credits. Reason: ${reason}`,
         })
       // adjustTenantCredits floors the result at zero, so a large negative delta
       // clears the balance rather than driving it negative.
       : await adjustTenantCredits(db, {
           tenantId,
           amount: parsed.data.delta!,
+          pool,
           userId: user.id,
           action: ACTIONS.credits.admin_adjust,
           details: auditSentence('admin_adjust', {
-            kind: 'AI credits',
+            kind: `${poolName} AI credits`,
             note: `${parsed.data.delta! > 0 ? '+' : ''}${parsed.data.delta} on a balance of ${previousBalance} — ${reason}`,
           }),
-          ledgerDescription: `Credits adjusted by ${parsed.data.delta! > 0 ? '+' : ''}${parsed.data.delta!.toLocaleString()}. Reason: ${reason}`,
+          ledgerDescription: `${poolName} credits adjusted by ${parsed.data.delta! > 0 ? '+' : ''}${parsed.data.delta!.toLocaleString()}. Reason: ${reason}`,
         });
 
     return NextResponse.json({
       success: true,
       mode,
+      pool,
       previousBalance,
       newBalance,
       delta: newBalance - previousBalance,

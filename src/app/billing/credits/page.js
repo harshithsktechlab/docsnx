@@ -159,6 +159,14 @@ export default function CreditHistoryPage() {
       render: amountCell,
     },
     {
+      header: 'Pool',
+      key: 'pool',
+      className: 'whitespace-nowrap',
+      render: (tx) => (
+        <Badge variant="outline" className="capitalize">{tx.pool === 'business' ? 'Business' : 'Personal'}</Badge>
+      ),
+    },
+    {
       header: 'Balance After',
       key: 'balanceAfter',
       sortable: true,
@@ -222,7 +230,7 @@ export default function CreditHistoryPage() {
       <div className="flex items-baseline justify-between gap-4">
         <span className="text-2xl font-black">{amountCell(tx)}</span>
         <span className="text-xs text-muted-foreground">
-          Balance: <strong className="font-semibold text-foreground">{Number(tx.balanceAfter).toLocaleString()}</strong>
+          {tx.pool === 'business' ? 'Business' : 'Personal'} balance: <strong className="font-semibold text-foreground">{Number(tx.balanceAfter).toLocaleString()}</strong>
         </span>
       </div>
 
@@ -273,6 +281,12 @@ export default function CreditHistoryPage() {
             <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Available Credits</CardTitle>
             <p className="text-4xl font-black text-primary mt-2">
               {Number(summary?.balance ?? 0).toLocaleString()}
+            </p>
+            {/* Two pools: the household spends Personal, the companies Business. */}
+            <p className="text-xs text-muted-foreground mt-2">
+              Personal <strong className="font-semibold text-foreground">{Number(summary?.personal ?? 0).toLocaleString()}</strong>
+              {' · '}
+              Business <strong className="font-semibold text-foreground">{Number(summary?.business ?? 0).toLocaleString()}</strong>
             </p>
           </CardHeader>
         </Card>
@@ -353,10 +367,11 @@ export default function CreditHistoryPage() {
       {tabs.length > 1 && (
         <p className="text-xs text-muted-foreground -mt-2">
           {activeWorkspace === null
-            ? 'Every workspace. The balance above is the account\u2019s single shared wallet — '
-              + 'the badges show what each workspace has spent from it.'
-            : 'Spending filed to this workspace. The balance above is the account\u2019s '
-              + 'single shared wallet, not this workspace\u2019s own.'}
+            ? 'Every workspace. Personal credits are spent by the personal workspace and Business credits by the companies — '
+              + 'the badges show what each workspace has spent.'
+            : activeWorkspace === 'personal'
+              ? 'The Personal credit pool: what the personal workspace has spent, and the Personal credits added.'
+              : 'What this company has spent, and the Business credits added. If a pool runs out you are asked before the other is used.'}
         </p>
       )}
 

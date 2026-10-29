@@ -299,6 +299,7 @@ export async function POST(req: Request) {
       success: false,
       error: error?.message || AI_ERROR_MESSAGES[errorCode as keyof typeof AI_ERROR_MESSAGES] || 'Could not read this document',
       errorCode,
+      ...(errorCode === AI_ERROR_CODES.CREDIT_POOL_EMPTY ? { borrowFrom: error?.borrowFrom, required: error?.required, otherBalance: error?.otherBalance } : {}),
     }, { status });
   }
 }

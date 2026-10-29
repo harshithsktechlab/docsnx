@@ -38,6 +38,12 @@ export default function PlanQuotaMeters({
    * false zero here looks like an outage of the thing they bought.
    */
   aiCreditsBalance,
+  /**
+   * The BUSINESS pool's balance. With it the credits meter splits into a Personal
+   * and a Business bar, each against what its plan tops it up with
+   * (`planDetails.creditAllowance`). Left out, it reads as it always did.
+   */
+  aiCreditsBusinessBalance = undefined,
   /** `lg` gives the standalone card treatment; `sm` matches the sidebar footer. */
   size = 'sm',
   className,
@@ -50,6 +56,27 @@ export default function PlanQuotaMeters({
   const trackClass = cn('w-full bg-muted rounded-full overflow-hidden', large ? 'h-2' : 'h-1.5');
 
   const credits = aiCreditsBalance ?? planDetails.aiCredits;
+  const allowance = planDetails.creditAllowance;
+  // Two bars only when the account really has a business side to show.
+  const splitCredits = typeof aiCreditsBusinessBalance === 'number'
+    && (aiCreditsBusinessBalance > 0 || (allowance?.business ?? 0) > 0);
+
+  const creditBar = (label, balance, total) => (
+    <div className="flex flex-col gap-1" key={label}>
+      <div className="flex justify-between items-center gap-2 px-0.5">
+        <span className={labelClass}>{label}</span>
+        <span className={cn(valueClass, 'text-accent')}>
+          {balance.toLocaleString()} / {total.toLocaleString()}
+        </span>
+      </div>
+      <div className={trackClass}>
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-accent to-primary transition-all"
+          style={{ width: `${total > 0 ? Math.min(100, Math.max(5, (balance / total) * 100)) : 100}%` }}
+        />
+      </div>
+    </div>
+  );
 
   // The storage bar. A Drive tenant is measured against their own Drive; a plan
   // tenant against the plan. `unlimited` means the ceiling is not merely large
@@ -100,7 +127,14 @@ export default function PlanQuotaMeters({
         </div>
       )}
 
-      {typeof planDetails.aiCredits === 'number' && (
+      {splitCredits && (
+        <>
+          {creditBar('Personal AI Credits', credits, allowance?.personal ?? planDetails.aiCredits)}
+          {creditBar('Business AI Credits', aiCreditsBusinessBalance, allowance?.business ?? 0)}
+        </>
+      )}
+
+      {!splitCredits && typeof planDetails.aiCredits === 'number' && (
         <div className="flex flex-col gap-1">
           <div className="flex justify-between items-center gap-2 px-0.5">
             <span className={labelClass}>AI Credits</span>

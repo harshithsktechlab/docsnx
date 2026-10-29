@@ -53,6 +53,7 @@
 export type { UploadStage, UploadOutcome } from '@/lib/net/outcome';
 
 import type { UploadOutcome, UploadStage } from '@/lib/net/outcome';
+import { retryAfterBorrow } from '@/lib/net/creditBorrow';
 import { reportClientFailure } from '@/lib/net/outcome';
 
 export interface PostUploadOptions {
@@ -87,7 +88,24 @@ const DEFAULT_TIMEOUT_MS = 330_000;
  * ride along on a same-origin XHR exactly as they do on a same-origin `fetch`,
  * so the auth contract is unchanged.
  */
-export function postUpload(
+export async function postUpload(
+  url: string,
+  formData: FormData,
+  options: PostUploadOptions = {},
+): Promise<UploadOutcome> {
+  const outcome = await postUploadOnce(url, formData, options);
+
+  // An AI upload (scan, autofill) whose own credit pool is empty while the other
+  // pool could pay. Nothing was spent; ask the member once and replay the same
+  // upload if they agree. A `FormData` can be sent again as it stands.
+  if (!outcome.ok && outcome.kind === 'http' && outcome.status === 402) {
+    const retried = await retryAfterBorrow(outcome.json, () => postUploadOnce(url, formData, options));
+    if (retried) return retried;
+  }
+  return outcome;
+}
+
+function postUploadOnce(
   url: string,
   formData: FormData,
   options: PostUploadOptions = {},

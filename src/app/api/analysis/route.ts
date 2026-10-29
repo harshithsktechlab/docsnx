@@ -287,7 +287,11 @@ export async function GET(req: Request) {
     // id or key material, so it goes to the journal and not to the browser.
     if (error?.errorCode) {
       return NextResponse.json(
-        { error: AI_ERROR_MESSAGES[error.errorCode] || error.message, errorCode: error.errorCode },
+        {
+          error: error.errorCode === 'CREDIT_POOL_EMPTY' ? error.message : (AI_ERROR_MESSAGES[error.errorCode] || error.message),
+          errorCode: error.errorCode,
+          ...(error.errorCode === 'CREDIT_POOL_EMPTY' ? { borrowFrom: error.borrowFrom, required: error.required, otherBalance: error.otherBalance } : {}),
+        },
         { status: AI_STATUS[error.errorCode] || 500 },
       );
     }

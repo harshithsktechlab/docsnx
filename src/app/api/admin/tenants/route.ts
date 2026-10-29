@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       aiProvider: tenants.aiProvider,
       aiModel: tenants.aiModel,
       aiCreditsBalance: tenants.aiCreditsBalance,
+      aiCreditsBalanceBusiness: tenants.aiCreditsBalanceBusiness,
       accountType: tenants.accountType,
       subscriptionPlanId: tenants.subscriptionPlanId,
       subscriptionExpiry: tenants.subscriptionExpiry,
@@ -139,6 +140,9 @@ export async function GET(req: Request) {
         used: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.amount} < 0 THEN -${creditTransactions.amount} ELSE 0 END), 0)`.mapWith(Number),
       })
         .from(creditTransactions)
+        // Moving credits between a tenant's own pools is not receiving or using
+        // any: counted, it would inflate both sides by the same amount.
+        .where(ne(creditTransactions.reason, 'pool_split'))
         .groupBy(creditTransactions.tenantId),
     ]);
     const ledgerByTenant = new Map(ledgerRows.map((r) => [r.tenantId, r]));
@@ -219,7 +223,10 @@ export async function GET(req: Request) {
         planAiCredits: planDetails.aiCredits,
         /** Balance, plus the ledger totals that explain it. */
         credits: {
-          balance: t.aiCreditsBalance ?? 0,
+          /** Both pools together; the split follows. */
+          balance: (t.aiCreditsBalance ?? 0) + (t.aiCreditsBalanceBusiness ?? 0),
+          personal: t.aiCreditsBalance ?? 0,
+          business: t.aiCreditsBalanceBusiness ?? 0,
           granted: ledger?.granted ?? 0,
           used: ledger?.used ?? 0,
         },
@@ -340,6 +347,7 @@ export async function POST(req: Request) {
     await recordSignupGrant(db, {
       tenantId: newTenant.id,
       amount: planValues.aiCreditsBalance,
+      businessAmount: planValues.aiCreditsBalanceBusiness,
       userId: user.id,
       planName: assignedPlan?.name,
     });

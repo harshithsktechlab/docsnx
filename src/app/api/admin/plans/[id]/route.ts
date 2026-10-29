@@ -7,6 +7,7 @@ import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { validatePricing } from '@/lib/planPricing';
 import { parseAppliesTo } from '@/lib/billingAxis';
+import { creditColumns, creditPartsFor, syncComboCredits } from '@/lib/planCredits';
 
 /**
  * PUT /api/admin/plans/:id
@@ -34,6 +35,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       // The 0057/0058 fields. Every one is `undefined` when the client omits it,
       // so this stays a partial update and an older client cannot blank them.
       appliesTo, maxMembersPerCompany, maxCompanies, durationDays,
+      aiCreditsPersonal, aiCreditsBusiness,
     } = await req.json();
 
     /**
@@ -78,6 +80,27 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         .where(eq(subscriptionPlans.appliesTo, axis));
     }
 
+    /**
+     * ── CREDITS: WRITE THE PARTS, NEVER THE SUM ──────────────────────────────
+     * `ai_credits` is `personal + business` (a CHECK enforces it), so an edit
+     * writes the two halves for the plan's axis. An ACTIVE combined plan is not
+     * typed at all — `syncComboCredits` below re-derives it — and only an
+     * inactive one (a trial) takes its two halves from the body.
+     */
+    const effectiveAxis = parseAppliesTo(appliesTo) ?? current.appliesTo ?? 'personal';
+    const effectiveActive = isActive !== undefined ? isActive : current.isActive;
+    const whole = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : Math.max(0, Math.trunc(Number(v)) || 0));
+    let creditUpdate: Record<string, number> = {};
+    const single = creditPartsFor(effectiveAxis, whole(aiCredits) ?? current.aiCredits);
+    if (single) {
+      if (aiCredits !== undefined || effectiveAxis !== current.appliesTo) creditUpdate = creditColumns(single);
+    } else if (!effectiveActive && (aiCreditsPersonal !== undefined || aiCreditsBusiness !== undefined)) {
+      creditUpdate = creditColumns({
+        personal: whole(aiCreditsPersonal) ?? current.aiCreditsPersonal,
+        business: whole(aiCreditsBusiness) ?? current.aiCreditsBusiness,
+      });
+    }
+
     const [updatedPlan] = await db.update(subscriptionPlans).set({
       name: name !== undefined ? name.trim() : undefined,
       // Nullable since 0058 — an explicit null or '' REMOVES the monthly cycle,
@@ -89,7 +112,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       priceYearlyUsd: priceYearlyUsd !== undefined ? (priceYearlyUsd !== null && priceYearlyUsd !== '' ? String(priceYearlyUsd) : null) : undefined,
       priceOneTime: priceOneTime !== undefined ? (priceOneTime !== null && priceOneTime !== '' ? String(priceOneTime) : null) : undefined,
       priceOneTimeUsd: priceOneTimeUsd !== undefined ? (priceOneTimeUsd !== null && priceOneTimeUsd !== '' ? String(priceOneTimeUsd) : null) : undefined,
-      aiCredits: aiCredits !== undefined ? aiCredits : undefined,
+      ...creditUpdate,
       isActive: isActive !== undefined ? isActive : undefined,
       maxMembers: maxMembers !== undefined ? Number(maxMembers) : undefined,
       appliesTo: parseAppliesTo(appliesTo) ?? undefined,
@@ -105,6 +128,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       isDefault: isDefault !== undefined ? isDefault === true : undefined,
       updatedAt: new Date(),
     }).where(eq(subscriptionPlans.id, id)).returning();
+
+    // This change may have moved what the combined plan is the sum of.
+    await syncComboCredits(db);
 
     await writeAudit({
       tenantId: user.tenantId,

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp, integer, smallint, bigint, decimal, pgEnum, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp, integer, smallint, bigint, decimal, pgEnum, uniqueIndex, index, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const roleEnum = pgEnum("role", ["SUPER_ADMIN", "TENANT_ADMIN", "STANDARD"]);
@@ -70,13 +70,29 @@ export const tenants = pgTable("tenants", {
   /** Add-on companies, on top of the business plan's `maxCompanies`. */
   extraCompanies: integer("extra_companies").default(0).notNull(),
   /**
-   * The ONE AI wallet, and it stays one. Split per workspace it would need a
-   * transfer UI, a top-up per company and an answer to "which pot does a
-   * cross-workspace search spend from" — none of which was asked for. The
-   * per-workspace view people want is HISTORY, and that is
-   * `credit_transactions.companyId`.
+   * The PERSONAL AI pool — the household workspace's credits. It KEEPS the name
+   * it had when this was the one wallet (about twenty-five readers use it and a
+   * rename gains nothing); since 0086 it is half of a pair, with
+   * `aiCreditsBalanceBusiness` below.
+   *
+   * Which pool a call spends is decided by the workspace it ran in: the
+   * household draws on this one, a company on the business pool. A pool that
+   * cannot cover a call may borrow from the other only with a member's consent
+   * (`aiBorrow*`), never silently.
    */
   aiCreditsBalance: integer("ai_credits_balance").default(0).notNull(),
+  /** The BUSINESS AI pool — what the companies spend. Added in 0086. */
+  aiCreditsBalanceBusiness: integer("ai_credits_balance_business").default(0).notNull(),
+  /**
+   * A member's consent to spend the OTHER pool, valid until `aiBorrowExpiresAt`
+   * and only for calls made by `aiBorrowBy`. `aiBorrowFrom` is the pool being
+   * borrowed FROM ('personal' | 'business'). A consent, not a balance: it
+   * expires on its own and nothing needs to clear it.
+   */
+  aiBorrowFrom: varchar("ai_borrow_from", { length: 16 }),
+  aiBorrowExpiresAt: timestamp("ai_borrow_expires_at", { withTimezone: true }),
+  // Annotated: `users` already references `tenants`, so the cycle needs a stated type.
+  aiBorrowBy: uuid("ai_borrow_by").references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   googleDriveEnabled: boolean("google_drive_enabled").default(false).notNull(),
   googleDriveTokens: jsonb("google_drive_tokens"),
   // The tenant's dedicated /DocsNX_Data folder, and the file id of each synced
@@ -1197,8 +1213,16 @@ export const creditTransactions = pgTable("credit_transactions", {
    * come back.
    */
   companyId: uuid("company_id").references(() => companies.id, { onDelete: 'set null' }),
+  /**
+   * Which POOL moved: 'personal' (`tenants.aiCreditsBalance`) or 'business'
+   * (`tenants.aiCreditsBalanceBusiness`). Added in 0086; every earlier row is
+   * 'personal', because the one wallet it was written against became that pool.
+   * Unlike `companyId` this IS a real distinction — a pool has its own balance.
+   */
+  pool: varchar("pool", { length: 16 }).default('personal').notNull(),
   /** Signed: positive grants credits, negative spends them. Never zero. */
   amount: integer("amount").notNull(),
+  /** The running total of THIS ROW'S POOL immediately after the movement. */
   balanceAfter: integer("balance_after").notNull(),
   /** A CREDIT_REASONS code from src/lib/creditLedger.ts. */
   reason: varchar("reason", { length: 64 }).notNull(),
@@ -1448,7 +1472,18 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   priceOneTimeUsd: decimal("price_one_time_usd", { precision: 12, scale: 2 }),
   amcAmount: decimal("amc_amount", { precision: 12, scale: 2 }).default("0").notNull(),
   amcAmountUsd: decimal("amc_amount_usd", { precision: 12, scale: 2 }),
+  /**
+   * The TOTAL credits one grant of this plan adds — always
+   * `aiCreditsPersonal + aiCreditsBusiness` (a CHECK in 0086 enforces it), kept
+   * so every reader that only wants "how many credits does this plan include"
+   * (homepage, /billing, meters) needs no change. Write the two parts, never
+   * this one on its own; see `setPlanCredits` in src/lib/planCredits.ts.
+   */
   aiCredits: integer("ai_credits").default(0).notNull(),
+  /** What a grant adds to the PERSONAL pool. */
+  aiCreditsPersonal: integer("ai_credits_personal").default(0).notNull(),
+  /** What a grant adds to the BUSINESS pool. */
+  aiCreditsBusiness: integer("ai_credits_business").default(0).notNull(),
   /**
    * PERSONAL member seats. Unchanged in meaning by 0057 on purpose — every
    * existing reader (`/api/users`, the admin tenant screens, the AI cost

@@ -155,7 +155,9 @@ export default function AISettingsPage() {
     try {
       const { json: data } = await apiCall('/api/admin/plans');
       if (data.success && Array.isArray(data.plans)) {
-        setPlanCredits(data.plans.filter(plan => plan.isActive).map(plan => ({
+        // Personal, Business, then the combined plan that is the sum of the two.
+        const order = { personal: 0, business: 1, both: 2 };
+        setPlanCredits(data.plans.filter(plan => plan.isActive).sort((a, b) => (order[a.appliesTo] ?? 9) - (order[b.appliesTo] ?? 9)).map(plan => ({
           id: plan.id,
           name: plan.name,
           appliesTo: plan.appliesTo,
@@ -209,7 +211,15 @@ export default function AISettingsPage() {
     }
   };
 
-  const changedPlanCredits = planCredits.filter(plan => plan.value.trim() !== String(plan.saved));
+  // The combined plan is never typed: it is the Personal plan's credits plus the
+  // Business plan's, re-derived by the server. Shown live so the sum is visible
+  // before saving.
+  const personalPlan = planCredits.find(plan => plan.appliesTo === 'personal');
+  const businessPlan = planCredits.find(plan => plan.appliesTo === 'business');
+  const wholeCredits = (plan) => (plan && Number.isInteger(Number(plan.value)) && plan.value.trim() !== '' ? Number(plan.value) : 0);
+  const comboCredits = wholeCredits(personalPlan) + wholeCredits(businessPlan);
+
+  const changedPlanCredits = planCredits.filter(plan => plan.appliesTo !== 'both' && plan.value.trim() !== String(plan.saved));
 
   const handleSavePlanCredits = async (e) => {
     e.preventDefault();
@@ -967,7 +977,7 @@ export default function AISettingsPage() {
             AI Credits By Plan
           </CardTitle>
           <CardDescription>
-            The AI credits each plan adds to a tenant&apos;s balance when it is bought, renewed or assigned. A Personal + Business plan grants its amount once. Changes apply to future grants only; existing balances are not touched.
+            The AI credits each plan adds when it is bought, renewed or assigned. Personal credits are spent by the personal workspace and Business credits by the companies, from separate balances. The Personal + Business plan is always the sum of the two. Changes apply to future grants only; existing balances are not touched.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -979,7 +989,8 @@ export default function AISettingsPage() {
             ) : (
               <div className="flex flex-col divide-y divide-border/50">
                 {planCredits.map(plan => {
-                  const changed = plan.value.trim() !== String(plan.saved);
+                  const isCombo = plan.appliesTo === 'both';
+                  const changed = !isCombo && plan.value.trim() !== String(plan.saved);
                   return (
                     <div key={plan.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                       <div className="flex flex-col gap-1 min-w-0">
@@ -1003,15 +1014,19 @@ export default function AISettingsPage() {
                           min="0"
                           step="1"
                           className="w-32"
-                          value={plan.value}
+                          value={isCombo ? String(comboCredits) : plan.value}
+                          readOnly={isCombo}
                           onChange={(e) => {
+                            if (isCombo) return;
                             const value = e.target.value;
                             setPlanCredits(prev => prev.map(p => p.id === plan.id ? { ...p, value } : p));
                           }}
-                          disabled={planCreditsSaving}
+                          disabled={planCreditsSaving || isCombo}
                         />
-                        <span className="text-xs text-muted-foreground w-24">
-                          {changed ? `was ${plan.saved.toLocaleString()}` : 'credits'}
+                        <span className="text-xs text-muted-foreground w-40">
+                          {isCombo
+                            ? `= ${wholeCredits(personalPlan).toLocaleString()} Personal + ${wholeCredits(businessPlan).toLocaleString()} Business`
+                            : changed ? `was ${plan.saved.toLocaleString()}` : 'credits'}
                         </span>
                       </div>
                     </div>

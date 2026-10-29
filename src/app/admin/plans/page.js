@@ -54,6 +54,8 @@ const EMPTY_FORM = {
   priceOneTime: '',
   priceOneTimeUsd: '',
   aiCredits: '0',
+  aiCreditsPersonal: '0',
+  aiCreditsBusiness: '0',
   // Which account this plan covers, and the quotas for each half. Present in
   // the form since 0058 — without them the API defaulted every saved plan to
   // personal / one seat / no companies, whatever the operator had in mind.
@@ -149,6 +151,8 @@ export default function PlansPage() {
       priceOneTime: plan.priceOneTime?.toString() || '',
       priceOneTimeUsd: plan.priceOneTimeUsd?.toString() || '',
       aiCredits: plan.aiCredits?.toString() || '0',
+      aiCreditsPersonal: plan.aiCreditsPersonal?.toString() || '0',
+      aiCreditsBusiness: plan.aiCreditsBusiness?.toString() || '0',
       appliesTo: plan.appliesTo || 'personal',
       maxMembers: plan.maxMembers || 1,
       maxMembersPerCompany: plan.maxMembersPerCompany || 0,
@@ -193,6 +197,8 @@ export default function PlansPage() {
         priceOneTime: formData.priceOneTime ? Number(formData.priceOneTime) : null,
         priceOneTimeUsd: formData.priceOneTimeUsd ? Number(formData.priceOneTimeUsd) : null,
         aiCredits: Number(formData.aiCredits) || 0,
+        aiCreditsPersonal: Number(formData.aiCreditsPersonal) || 0,
+        aiCreditsBusiness: Number(formData.aiCreditsBusiness) || 0,
         appliesTo: formData.appliesTo,
         maxMembers: Number(formData.maxMembers),
         maxMembersPerCompany: Number(formData.maxMembersPerCompany) || 0,
@@ -436,10 +442,34 @@ export default function PlansPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                <div className="flex flex-col gap-2">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">AI Credits (per cycle)</Label>
-                  <Input className="h-11 rounded-xl" type="number" min="0" placeholder="0" value={formData.aiCredits} onChange={e => setFormData(prev => ({ ...prev, aiCredits: e.target.value }))} disabled={saving} />
-                </div>
+                {formData.appliesTo !== 'both' ? (
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      {formData.appliesTo === 'business' ? 'Business AI Credits (per cycle)' : 'Personal AI Credits (per cycle)'}
+                    </Label>
+                    <Input className="h-11 rounded-xl" type="number" min="0" placeholder="0" value={formData.aiCredits} onChange={e => setFormData(prev => ({ ...prev, aiCredits: e.target.value }))} disabled={saving} />
+                  </div>
+                ) : formData.isActive ? (
+                  /* A combined plan that is for sale is never typed: it is the
+                     Personal plan's credits plus the Business plan's, re-derived
+                     by the server whenever either changes. */
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">AI Credits (per cycle)</Label>
+                    <Input className="h-11 rounded-xl" value={`${Number(formData.aiCreditsPersonal) + Number(formData.aiCreditsBusiness)} (${formData.aiCreditsPersonal} Personal + ${formData.aiCreditsBusiness} Business)`} readOnly disabled />
+                    <span className="text-xs text-muted-foreground">Always the Personal plan&apos;s credits plus the Business plan&apos;s. Change them in AI Settings.</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Personal AI Credits</Label>
+                      <Input className="h-11 rounded-xl" type="number" min="0" placeholder="0" value={formData.aiCreditsPersonal} onChange={e => setFormData(prev => ({ ...prev, aiCreditsPersonal: e.target.value }))} disabled={saving} />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Business AI Credits</Label>
+                      <Input className="h-11 rounded-xl" type="number" min="0" placeholder="0" value={formData.aiCreditsBusiness} onChange={e => setFormData(prev => ({ ...prev, aiCreditsBusiness: e.target.value }))} disabled={saving} />
+                    </div>
+                  </>
+                )}
                 {/* Personal seats. Shown only for a plan that covers the
                     household — on a business-only plan the number means nothing
                     and inviting one is inviting a wrong answer. */}

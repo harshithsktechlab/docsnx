@@ -134,6 +134,7 @@ export default function TenantsPage() {
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const [creditsTenant, setCreditsTenant] = useState(null);
   const [creditsMode, setCreditsMode] = useState('delta'); // 'delta' | 'set'
+  const [creditsPool, setCreditsPool] = useState('personal'); // 'personal' | 'business'
   const [creditsDelta, setCreditsDelta] = useState('');
   const [creditsReason, setCreditsReason] = useState('');
   const [adjustingCredits, setAdjustingCredits] = useState(false);
@@ -418,6 +419,7 @@ export default function TenantsPage() {
   const openCreditsModal = (tenant) => {
     setCreditsTenant(tenant);
     setCreditsMode('delta');
+    setCreditsPool('personal');
     setCreditsDelta('');
     setCreditsReason('');
     setError(''); setSuccess('');
@@ -453,8 +455,8 @@ export default function TenantsPage() {
 
     try {
       const payload = creditsMode === 'set'
-        ? { mode: 'set', balance: value, reason: creditsReason }
-        : { mode: 'delta', delta: value, reason: creditsReason };
+        ? { mode: 'set', pool: creditsPool, balance: value, reason: creditsReason }
+        : { mode: 'delta', pool: creditsPool, delta: value, reason: creditsReason };
 
       const { res, json: data } = await apiCall(`/api/admin/tenants/${creditsTenant.id}/credits`, {
         method: 'POST',
@@ -468,7 +470,7 @@ export default function TenantsPage() {
         return;
       }
 
-      setSuccess(`AI credits updated: ${data.previousBalance} → ${data.newBalance}`);
+      setSuccess(`${creditsPool === 'business' ? 'Business' : 'Personal'} AI credits updated: ${data.previousBalance} → ${data.newBalance}`);
       setShowCreditsModal(false);
       fetchTenants();
     } catch (e) {
@@ -569,7 +571,35 @@ export default function TenantsPage() {
             <div className="flex flex-col gap-4 py-4 px-6">
               <div className="text-xs text-muted-foreground">
                 <span className="font-bold text-foreground">{creditsTenant?.name}</span> currently has{' '}
-                <span className="font-bold text-foreground">{Number(creditsTenant?.aiCreditsBalance || 0).toLocaleString()}</span> credits.
+                <span className="font-bold text-foreground">{Number(creditsTenant?.credits?.personal ?? creditsTenant?.aiCreditsBalance ?? 0).toLocaleString()}</span> Personal and{' '}
+                <span className="font-bold text-foreground">{Number(creditsTenant?.credits?.business ?? 0).toLocaleString()}</span> Business credits.
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Credit pool</Label>
+                <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-muted/40 border border-border/50">
+                  {[
+                    { key: 'personal', label: 'Personal' },
+                    { key: 'business', label: 'Business' }
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setCreditsPool(key)}
+                      disabled={adjustingCredits}
+                      className={cn(
+                        "rounded-md py-1.5 text-xs font-bold transition-colors disabled:opacity-50",
+                        creditsPool === key
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Personal credits are spent by the household workspace, Business credits by the companies.
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-muted/40 border border-border/50">
                 {[

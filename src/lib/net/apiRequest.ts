@@ -47,6 +47,7 @@
 import type { ApiOutcome } from './outcome';
 import { reportClientFailure } from './outcome';
 import { apiErrorMessage, type MessageOptions } from './apiErrorMessage';
+import { retryAfterBorrow } from './creditBorrow';
 
 export type { ApiOutcome } from './outcome';
 
@@ -67,6 +68,11 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 export interface ApiRequestOptions extends RequestInit {
   /** Overrides the 45s default. Raise it for a route known to be slow. */
   timeoutMs?: number;
+  /**
+   * Set on the replay that follows a "use my other credits" yes, so a request
+   * that is refused a second time is not offered a second time.
+   */
+  borrowRetried?: boolean;
 }
 
 /**
@@ -79,7 +85,7 @@ export async function apiRequest<T = any>(
   url: string,
   init: ApiRequestOptions = {},
 ): Promise<ApiOutcome<T>> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...rest } = init;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, borrowRetried = false, ...rest } = init;
   const method = (rest.method || 'GET').toUpperCase();
 
   // Asked before anything is attempted: a device in airplane mode should be
@@ -161,6 +167,16 @@ export async function apiRequest<T = any>(
     if (res.ok && body === '') {
       return finish({ ok: true, status: res.status, json: null as T });
     }
+
+    // An AI call whose own credit pool is empty while the other pool could pay.
+    // Nothing was spent. Ask the member once, and replay this same request if they
+    // agree; if they decline, fall through to the failure exactly as before.
+    if (!borrowRetried && res.status === 402 && json?.errorCode === 'CREDIT_POOL_EMPTY') {
+      cleanup();
+      const retried = await retryAfterBorrow(json, () => apiRequest<T>(url, { ...init, borrowRetried: true }));
+      if (retried) return retried;
+    }
+
     return finish({ ok: false, kind: 'http', status: res.status, json, body });
   } catch (error: any) {
     if (timedOut) {

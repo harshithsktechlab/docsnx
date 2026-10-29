@@ -98,7 +98,7 @@ export async function GET(req: Request) {
     const totalVaultRecords = (recordCount?.value || 0) + (passCount?.value || 0);
 
     // 4. AI FinOps Telemetry
-    const totalAiCreditsBalance = allTenants.reduce((acc, t) => acc + (t.aiCreditsBalance || 0), 0);
+    const totalAiCreditsBalance = allTenants.reduce((acc, t) => acc + (t.aiCreditsBalance || 0) + (t.aiCreditsBalanceBusiness || 0), 0);
     const aiCostQuery = await db.select({ totalCost: sum(tenantAiUsages.cost), totalCostInr: sum(tenantAiUsages.costInr) }).from(tenantAiUsages);
     const totalAiUsageCost = Number(aiCostQuery[0]?.totalCost || 0);
     // Only rows written after 0075 with a rate configured carry cost_inr, so
@@ -171,7 +171,10 @@ export async function GET(req: Request) {
           googleDriveEnabled: t.googleDriveEnabled,
           aiProvider: t.aiProvider,
           aiModel: t.aiModel,
-          aiCreditsBalance: t.aiCreditsBalance,
+          // Both pools together; the dashboard shows one figure per tenant.
+          aiCreditsBalance: (t.aiCreditsBalance || 0) + (t.aiCreditsBalanceBusiness || 0),
+          aiCreditsPersonal: t.aiCreditsBalance || 0,
+          aiCreditsBusiness: t.aiCreditsBalanceBusiness || 0,
           createdAt: t.createdAt,
           adminEmail: adminUser?.email || 'N/A',
           adminName: adminUser?.name || 'N/A',

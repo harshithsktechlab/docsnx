@@ -41,14 +41,21 @@ function makePlan(overrides: Partial<SubscriptionPlan> = {}): SubscriptionPlan {
  * means the requested delta and the real one can differ). `returnedBalance` is
  * what the UPDATE ... RETURNING yields.
  */
-function makeFakeTx(returnedBalance = 0, priorBalance = 0, accountType: string | null = 'personal') {
+function makeFakeTx(
+  returnedBalance = 0,
+  priorBalance = 0,
+  accountType: string | null = 'personal',
+  returnedBusiness = 0,
+) {
   const calls: {
     locked?: boolean;
     readBeforeLock?: boolean;
     set?: Record<string, unknown>;
     audit?: Record<string, unknown>;
     ledger?: Record<string, unknown>;
-  } = {};
+    /** Every ledger row written, in order — a two-pool grant writes one per pool. */
+    ledgers: Record<string, unknown>[];
+  } = { ledgers: [] };
 
   return {
     calls,
@@ -59,7 +66,8 @@ function makeFakeTx(returnedBalance = 0, priorBalance = 0, accountType: string |
         findFirst: async () => {
           // The read must come AFTER the lock, or the lock protects nothing.
           calls.readBeforeLock = calls.readBeforeLock || !calls.locked;
-          return { aiCreditsBalance: priorBalance, accountType };
+          // Either pool reads as `priorBalance`: a test names the pool it moves.
+          return { aiCreditsBalance: priorBalance, aiCreditsBalanceBusiness: priorBalance, accountType };
         },
       },
     },
@@ -68,7 +76,13 @@ function makeFakeTx(returnedBalance = 0, priorBalance = 0, accountType: string |
         calls.set = values;
         return {
           where: () => ({
-            returning: async () => [{ aiCreditsBalance: returnedBalance }],
+            // `balance` is the pool-agnostic alias the adjust/set/spend helpers
+            // read; the two named fields are what a plan grant returns.
+            returning: async () => [{
+              aiCreditsBalance: returnedBalance,
+              aiCreditsBalanceBusiness: returnedBusiness,
+              balance: returnedBalance,
+            }],
             then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
           }),
         };
@@ -76,7 +90,7 @@ function makeFakeTx(returnedBalance = 0, priorBalance = 0, accountType: string |
     }),
     insert: (table: unknown) => ({
       values: async (values: Record<string, unknown>) => {
-        if (table === creditTransactions) calls.ledger = values;
+        if (table === creditTransactions) { calls.ledger = values; calls.ledgers.push(values); }
         else calls.audit = values;
       },
     }),
@@ -125,6 +139,7 @@ describe('newTenantPlanValues', () => {
       subscriptionPlanId: null,
       subscriptionExpiry: null,
       aiCreditsBalance: 0,
+      aiCreditsBalanceBusiness: 0,
     });
   });
 
@@ -588,5 +603,109 @@ describe('applyPlanToTenant widens account_type', () => {
     const tx = makeFakeTx(0, 0, null);
     await apply(tx, 'both');
     expect(tx.calls.set).not.toHaveProperty('accountType');
+  });
+});
+
+
+// ─── Two pools ───────────────────────────────────────────────────────────────
+
+describe('newTenantPlanValues — two pools', () => {
+  it('seeds each pool from the plan\'s own half', () => {
+    const plan = makePlan({ aiCredits: 600, aiCreditsPersonal: 100, aiCreditsBusiness: 500 } as any);
+    expect(newTenantPlanValues(plan)).toMatchObject({ aiCreditsBalance: 100, aiCreditsBalanceBusiness: 500 });
+  });
+
+  it('puts a legacy single figure in the Personal pool, and a business plan\'s in Business', () => {
+    expect(newTenantPlanValues(makePlan({ aiCredits: 100 })))
+      .toMatchObject({ aiCreditsBalance: 100, aiCreditsBalanceBusiness: 0 });
+    expect(newTenantPlanValues(makePlan({ aiCredits: 100, appliesTo: 'business' } as any)))
+      .toMatchObject({ aiCreditsBalance: 0, aiCreditsBalanceBusiness: 100 });
+  });
+});
+
+describe('applyPlanToTenant — two pools', () => {
+  const combo = () => makePlan({ name: 'Personal + Business', appliesTo: 'both', aiCredits: 600, aiCreditsPersonal: 100, aiCreditsBusiness: 500 } as any);
+
+  it('credits each pool with its own half, in one update, and returns the total', async () => {
+    const tx = makeFakeTx(100, 0, 'personal', 500);
+    const result = await applyPlanToTenant(tx as any, { tenantId: 't1', plan: combo(), action: 'x' });
+    expect(Object.keys(tx.calls.set!)).toEqual(expect.arrayContaining(['aiCreditsBalance', 'aiCreditsBalanceBusiness']));
+    expect(result).toMatchObject({ creditsGranted: 600, personal: 100, business: 500 });
+  });
+
+  it('writes one ledger row per pool, each with that pool\'s own balance', async () => {
+    const tx = makeFakeTx(110, 0, 'personal', 530);
+    await applyPlanToTenant(tx as any, { tenantId: 't1', plan: combo(), action: 'x' });
+    expect(tx.calls.ledgers).toHaveLength(2);
+    expect(tx.calls.ledgers[0]).toMatchObject({ pool: 'personal', amount: 100, balanceAfter: 110, reason: CREDIT_REASONS.plan_grant });
+    expect(tx.calls.ledgers[1]).toMatchObject({ pool: 'business', amount: 500, balanceAfter: 530, reason: CREDIT_REASONS.plan_grant });
+  });
+
+  it('leaves one ledger row and no business update for a Personal-only plan', async () => {
+    const tx = makeFakeTx(100);
+    await applyPlanToTenant(tx as any, { tenantId: 't1', plan: makePlan({ aiCredits: 100, aiCreditsPersonal: 100, aiCreditsBusiness: 0 } as any), action: 'x' });
+    expect(tx.calls.set).not.toHaveProperty('aiCreditsBalanceBusiness');
+    expect(tx.calls.ledgers).toHaveLength(1);
+    expect(tx.calls.ledgers[0]).toMatchObject({ pool: 'personal' });
+  });
+});
+
+describe('adjustTenantCredits / setTenantCredits — pool', () => {
+  it('moves the Business pool when asked, and records it against that pool', async () => {
+    const tx = makeFakeTx(550, 500);
+    await adjustTenantCredits(tx as any, { tenantId: 't1', amount: 50, action: 'x', details: 'd', pool: 'business' });
+    expect(tx.calls.set).toHaveProperty('aiCreditsBalanceBusiness');
+    expect(tx.calls.set).not.toHaveProperty('aiCreditsBalance');
+    expect(tx.calls.ledger).toMatchObject({ pool: 'business', amount: 50, balanceAfter: 550 });
+  });
+
+  it('defaults to the Personal pool', async () => {
+    const tx = makeFakeTx(150, 100);
+    await adjustTenantCredits(tx as any, { tenantId: 't1', amount: 50, action: 'x', details: 'd' });
+    expect(tx.calls.set).toHaveProperty('aiCreditsBalance');
+    expect(tx.calls.ledger).toMatchObject({ pool: 'personal' });
+  });
+
+  it('sets an exact Business balance as a plain number', async () => {
+    const tx = makeFakeTx(700, 500);
+    await setTenantCredits(tx as any, { tenantId: 't1', balance: 700, action: 'x', details: 'd', pool: 'business' });
+    expect(tx.calls.set).toMatchObject({ aiCreditsBalanceBusiness: 700 });
+    expect(tx.calls.ledger).toMatchObject({ pool: 'business', amount: 200, balanceAfter: 700 });
+  });
+});
+
+describe('recordSignupGrant — two pools', () => {
+  it('opens each pool\'s ledger with its own seeded amount', async () => {
+    const tx = makeFakeTx();
+    await recordSignupGrant(tx as any, { tenantId: 't1', amount: 100, businessAmount: 500, planName: 'Combo' });
+    expect(tx.calls.ledgers).toHaveLength(2);
+    expect(tx.calls.ledgers[0]).toMatchObject({ pool: 'personal', amount: 100, balanceAfter: 100 });
+    expect(tx.calls.ledgers[1]).toMatchObject({ pool: 'business', amount: 500, balanceAfter: 500 });
+  });
+});
+
+describe('spendTenantCredits — pool', () => {
+  it('takes the credits from the pool it is told to and records that pool', async () => {
+    vi.resetModules();
+    const sets: any[] = [];
+    const ledgers: any[] = [];
+    vi.doMock('@/lib/db', () => ({
+      db: {},
+      withTenant: async (_t: string, fn: any) => fn({
+        execute: async () => ({ rows: [] }),
+        query: { tenants: { findFirst: async () => ({ aiCreditsBalanceBusiness: 500 }) } },
+        update: () => ({ set: (v: any) => { sets.push(v); return { where: () => ({ returning: async () => [{ balance: 490 }] }) }; } }),
+        insert: () => ({ values: async (v: any) => { ledgers.push(v); } }),
+      }),
+    }));
+    const { spendTenantCredits } = await import('@/lib/planProvisioning');
+    const balance = await spendTenantCredits('t1', {
+      amount: 10, reason: CREDIT_REASONS.spend_bulk_scan, description: 'Power scan — 10 credits.', pool: 'business', companyId: 'c1',
+    });
+    expect(balance).toBe(490);
+    expect(Object.keys(sets[0])).toContain('aiCreditsBalanceBusiness');
+    expect(Object.keys(sets[0])).not.toContain('aiCreditsBalance');
+    expect(ledgers[0]).toMatchObject({ pool: 'business', amount: -10, balanceAfter: 490, companyId: 'c1' });
+    vi.doUnmock('@/lib/db');
   });
 });

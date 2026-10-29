@@ -1132,6 +1132,7 @@ function AccountUsageCard({ user, planDetails, storageData }) {
             planDetails={planDetails}
             storageData={storageData}
             aiCreditsBalance={user.tenant?.aiCreditsBalance}
+            aiCreditsBusinessBalance={user.tenant?.aiCreditsBalanceBusiness}
             size="lg"
           />
         )}

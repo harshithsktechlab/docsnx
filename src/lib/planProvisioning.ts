@@ -3,7 +3,7 @@ import type { InferSelectModel } from 'drizzle-orm';
 import { db, withTenant } from '@/lib/db';
 import { tenants, subscriptionPlans, creditTransactions } from '@/db/schema';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
-import { CREDIT_REASONS, type CreditReason } from '@/lib/creditLedger';
+import { CREDIT_REASONS, POOL_LABELS, planCreditGrant, type CreditPool, type CreditReason } from '@/lib/creditLedger';
 import { axesCovered, planColumnsForAxis, widenAccountType } from '@/lib/billingAxis';
 
 /**
@@ -49,16 +49,21 @@ export function planExpiry(plan: SubscriptionPlan, from?: Date | string | null):
 export function newTenantPlanValues(plan: SubscriptionPlan | null | undefined): {
   subscriptionPlanId: string | null;
   subscriptionExpiry: Date | null;
+  /** The PERSONAL pool (`tenants.ai_credits_balance`). */
   aiCreditsBalance: number;
+  /** The BUSINESS pool. */
+  aiCreditsBalanceBusiness: number;
 } {
   if (!plan) {
-    return { subscriptionPlanId: null, subscriptionExpiry: null, aiCreditsBalance: 0 };
+    return { subscriptionPlanId: null, subscriptionExpiry: null, aiCreditsBalance: 0, aiCreditsBalanceBusiness: 0 };
   }
 
+  const grant = planCreditGrant(plan);
   return {
     subscriptionPlanId: plan.id,
     subscriptionExpiry: planExpiry(plan),
-    aiCreditsBalance: plan.aiCredits ?? 0,
+    aiCreditsBalance: grant.personal,
+    aiCreditsBalanceBusiness: grant.business,
   };
 }
 
@@ -82,9 +87,19 @@ async function lockTenantRow(tx: any, tenantId: string) {
   await tx.execute(sql`SELECT 1 FROM tenants WHERE id = ${tenantId} FOR UPDATE`);
 }
 
-export function creditBalanceDelta(amount: number) {
+/** The `tenants` column holding a pool's balance. */
+export function poolColumn(pool: CreditPool) {
+  return pool === 'business' ? tenants.aiCreditsBalanceBusiness : tenants.aiCreditsBalance;
+}
+
+/** The `tenants` field name of a pool's balance, for `.set()` / `.returning()` / `columns`. */
+export function poolField(pool: CreditPool): 'aiCreditsBalance' | 'aiCreditsBalanceBusiness' {
+  return pool === 'business' ? 'aiCreditsBalanceBusiness' : 'aiCreditsBalance';
+}
+
+export function creditBalanceDelta(amount: number, pool: CreditPool = 'personal') {
   const delta = Math.trunc(amount);
-  return sql`GREATEST(${tenants.aiCreditsBalance} + ${delta}, 0)`;
+  return sql`GREATEST(${poolColumn(pool)} + ${delta}, 0)`;
 }
 
 /**
@@ -116,10 +131,16 @@ export async function recordCreditMovement(
     userId?: string | null;
     /**
      * Which workspace the movement belongs to. NULL = the household, and NULL
-     * is also correct for every GRANT: a plan or add-on tops up the ONE shared
-     * wallet and belongs to no single workspace. Only spends carry a company.
+     * is also correct for every GRANT: a plan or add-on tops up a pool and
+     * belongs to no single workspace. Only spends carry a company.
      */
     companyId?: string | null;
+    /**
+     * Which POOL moved. `balanceAfter` is that pool's running total, so it must
+     * come from the same statement that moved THAT pool. Defaults to personal,
+     * the pool the one wallet became.
+     */
+    pool?: CreditPool;
   }
 ): Promise<void> {
   if (!opts.amount) return;
@@ -129,6 +150,7 @@ export async function recordCreditMovement(
       tenantId: opts.tenantId,
       userId: opts.userId ?? null,
       companyId: opts.companyId ?? null,
+      pool: opts.pool ?? 'personal',
       amount: Math.trunc(opts.amount),
       balanceAfter: opts.balanceAfter,
       reason: opts.reason,
@@ -157,8 +179,13 @@ export async function adjustTenantCredits(
     reason?: CreditReason;
     /** Ledger sentence. Falls back to `details`, which is already human-readable. */
     ledgerDescription?: string;
+    /** Which pool to move. Defaults to personal — add-on credits land there. */
+    pool?: CreditPool;
   }
 ): Promise<number> {
+  const pool = opts.pool ?? 'personal';
+  const field = poolField(pool);
+
   // Read before write so the ledger can record the movement that actually
   // happened. `creditBalanceDelta` floors at zero, so a -1000 delta against a
   // balance of 100 moves -100; recording the REQUESTED -1000 would make the
@@ -166,14 +193,14 @@ export async function adjustTenantCredits(
   await lockTenantRow(tx, opts.tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, opts.tenantId),
-    columns: { aiCreditsBalance: true },
+    columns: { [field]: true },
   });
 
   const [updated] = await tx
     .update(tenants)
-    .set({ aiCreditsBalance: creditBalanceDelta(opts.amount), updatedAt: new Date() })
+    .set({ [field]: creditBalanceDelta(opts.amount, pool), updatedAt: new Date() })
     .where(eq(tenants.id, opts.tenantId))
-    .returning({ aiCreditsBalance: tenants.aiCreditsBalance });
+    .returning({ balance: poolColumn(pool) });
 
   await writeAudit({
     tenantId: opts.tenantId,
@@ -184,15 +211,16 @@ export async function adjustTenantCredits(
     entityId: opts.tenantId,
   }, tx);
 
-  const balance = updated?.aiCreditsBalance ?? 0;
+  const balance = updated?.balance ?? 0;
 
   await recordCreditMovement(tx, {
     tenantId: opts.tenantId,
     userId: opts.userId,
-    amount: balance - (before?.aiCreditsBalance ?? 0),
+    amount: balance - ((before as any)?.[field] ?? 0),
     balanceAfter: balance,
     reason: opts.reason ?? CREDIT_REASONS.admin_adjust,
     description: opts.ledgerDescription ?? opts.details,
+    pool,
   });
 
   return balance;
@@ -217,8 +245,12 @@ export async function setTenantCredits(
     userId?: string | null;
     /** Ledger sentence. Falls back to `details`, which is already human-readable. */
     ledgerDescription?: string;
+    /** Which pool to overwrite. Defaults to personal. */
+    pool?: CreditPool;
   }
 ): Promise<number> {
+  const pool = opts.pool ?? 'personal';
+  const field = poolField(pool);
   const balance = Math.max(0, Math.trunc(opts.balance));
 
   // An absolute set says nothing about how far the balance moved, which is what
@@ -226,14 +258,14 @@ export async function setTenantCredits(
   await lockTenantRow(tx, opts.tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, opts.tenantId),
-    columns: { aiCreditsBalance: true },
+    columns: { [field]: true },
   });
 
   const [updated] = await tx
     .update(tenants)
-    .set({ aiCreditsBalance: balance, updatedAt: new Date() })
+    .set({ [field]: balance, updatedAt: new Date() })
     .where(eq(tenants.id, opts.tenantId))
-    .returning({ aiCreditsBalance: tenants.aiCreditsBalance });
+    .returning({ balance: poolColumn(pool) });
 
   await writeAudit({
     tenantId: opts.tenantId,
@@ -244,15 +276,16 @@ export async function setTenantCredits(
     entityId: opts.tenantId,
   }, tx);
 
-  const newBalance = updated?.aiCreditsBalance ?? 0;
+  const newBalance = updated?.balance ?? 0;
 
   await recordCreditMovement(tx, {
     tenantId: opts.tenantId,
     userId: opts.userId,
-    amount: newBalance - (before?.aiCreditsBalance ?? 0),
+    amount: newBalance - ((before as any)?.[field] ?? 0),
     balanceAfter: newBalance,
     reason: CREDIT_REASONS.admin_set,
     description: opts.ledgerDescription ?? opts.details,
+    pool,
   });
 
   return newBalance;
@@ -298,10 +331,14 @@ export async function applyPlanToTenant(
     /** Extra tenant columns to set in the same update (e.g. `isActive`, AMC dates). */
     extraTenantValues?: Record<string, unknown>;
   }
-): Promise<{ creditsGranted: number; expiry: Date | null }> {
+): Promise<{ creditsGranted: number; expiry: Date | null; personal: number; business: number }> {
   const { tenantId, plan, userId, action, reason, extraTenantValues } = opts;
   const expiry = opts.expiry !== undefined ? opts.expiry : planExpiry(plan);
-  const creditsGranted = plan.aiCredits ?? 0;
+  // One grant, two pools: the plan names what goes to each, and a combined plan
+  // is the sum of the two it combines. `creditsGranted` stays the TOTAL, which is
+  // what callers show ("N AI credits granted").
+  const grant = planCreditGrant(plan);
+  const creditsGranted = grant.total;
 
   /**
    * The column pairs for every axis this plan covers, merged.
@@ -349,18 +386,24 @@ export async function applyPlanToTenant(
     .set({
       ...axisColumns,
       ...accountTypeColumn,
-      ...(creditsGranted > 0 ? { aiCreditsBalance: creditBalanceDelta(creditsGranted) } : {}),
+      ...(grant.personal > 0 ? { aiCreditsBalance: creditBalanceDelta(grant.personal, 'personal') } : {}),
+      ...(grant.business > 0 ? { aiCreditsBalanceBusiness: creditBalanceDelta(grant.business, 'business') } : {}),
       ...(extraTenantValues || {}),
       updatedAt: new Date(),
     })
     .where(eq(tenants.id, tenantId))
-    .returning({ aiCreditsBalance: tenants.aiCreditsBalance });
+    .returning({
+      aiCreditsBalance: tenants.aiCreditsBalance,
+      aiCreditsBalanceBusiness: tenants.aiCreditsBalanceBusiness,
+    });
 
   const details = auditSentence('grant', {
     kind: 'plan',
     name: plan.name,
     note: [
-      `${creditsGranted} AI credits`,
+      grant.personal > 0 && grant.business > 0
+        ? `${creditsGranted} AI credits (${grant.personal} Personal + ${grant.business} Business)`
+        : `${creditsGranted} AI credits`,
       `expires ${expiry ? expiry.toISOString().slice(0, 10) : 'never'}`,
       reason,
     ].filter(Boolean).join(', '),
@@ -375,19 +418,32 @@ export async function applyPlanToTenant(
     entityId: tenantId,
   }, tx);
 
-  // `creditBalanceDelta` only ever adds here (creditsGranted > 0), so it cannot
-  // hit its zero floor and the granted amount IS the movement — no read-before-
-  // write needed, unlike adjustTenantCredits.
+  // `creditBalanceDelta` only ever adds here (each part > 0), so it cannot hit its
+  // zero floor and the granted amount IS the movement — no read-before-write
+  // needed, unlike adjustTenantCredits. One ledger row per pool that moved, each
+  // with THAT pool's balance from the same statement; a zero part writes nothing
+  // (`recordCreditMovement` drops it), so a Personal-only plan leaves one row.
+  const spread = grant.personal > 0 && grant.business > 0;
   await recordCreditMovement(tx, {
     tenantId,
     userId,
-    amount: creditsGranted,
-    balanceAfter: updated?.aiCreditsBalance ?? creditsGranted,
+    amount: grant.personal,
+    balanceAfter: updated?.aiCreditsBalance ?? grant.personal,
     reason: CREDIT_REASONS.plan_grant,
-    description: `Plan '${plan.name}' — ${creditsGranted.toLocaleString()} AI credits granted.`,
+    description: `Plan '${plan.name}' — ${grant.personal.toLocaleString()} ${spread ? 'Personal ' : ''}AI credits granted.`,
+    pool: 'personal',
+  });
+  await recordCreditMovement(tx, {
+    tenantId,
+    userId,
+    amount: grant.business,
+    balanceAfter: updated?.aiCreditsBalanceBusiness ?? grant.business,
+    reason: CREDIT_REASONS.plan_grant,
+    description: `Plan '${plan.name}' — ${grant.business.toLocaleString()} ${spread ? 'Business ' : ''}AI credits granted.`,
+    pool: 'business',
   });
 
-  return { creditsGranted, expiry };
+  return { creditsGranted, expiry, personal: grant.personal, business: grant.business };
 }
 
 /**
@@ -418,38 +474,47 @@ export async function spendTenantCredits(
     userId?: string | null;
     /** The workspace that spent it. NULL = the household. Attribution only. */
     companyId?: string | null;
+    /**
+     * The pool the credits come OUT of. Normally the workspace's own
+     * (`poolForWorkspace`); the other one only when the member agreed to borrow.
+     * Defaults to personal.
+     */
+    pool?: CreditPool;
   }
 ): Promise<number | null> {
   const amount = Math.max(0, Math.ceil(opts.amount));
   if (!amount) return null;
+  const pool = opts.pool ?? 'personal';
+  const field = poolField(pool);
 
   try {
     return await withTenant(tenantId, async (tx) => {
       await lockTenantRow(tx, tenantId);
       const before = await tx.query.tenants.findFirst({
         where: eq(tenants.id, tenantId),
-        columns: { aiCreditsBalance: true },
+        columns: { [field]: true },
       });
 
       const [updated] = await tx
         .update(tenants)
         .set({
-          aiCreditsBalance: sql`GREATEST(${tenants.aiCreditsBalance} - ${amount}, 0)`,
+          [field]: sql`GREATEST(${poolColumn(pool)} - ${amount}, 0)`,
           updatedAt: new Date(),
         })
         .where(eq(tenants.id, tenantId))
-        .returning({ aiCreditsBalance: tenants.aiCreditsBalance });
+        .returning({ balance: poolColumn(pool) });
 
-      const balance = updated?.aiCreditsBalance ?? 0;
+      const balance = updated?.balance ?? 0;
 
       await recordCreditMovement(tx, {
         tenantId,
         userId: opts.userId,
         companyId: opts.companyId,
-        amount: balance - (before?.aiCreditsBalance ?? 0),
+        amount: balance - ((before as any)?.[field] ?? 0),
         balanceAfter: balance,
         reason: opts.reason,
         description: opts.description,
+        pool,
       });
 
       return balance;
@@ -476,21 +541,47 @@ export async function spendTenantCredits(
  */
 export async function recordSignupGrant(
   tx: DbClient,
-  opts: { tenantId: string; amount: number; userId?: string | null; planName?: string | null }
+  opts: {
+    tenantId: string;
+    /** Credits seeded into the PERSONAL pool. */
+    amount: number;
+    /** Credits seeded into the BUSINESS pool. */
+    businessAmount?: number;
+    userId?: string | null;
+    planName?: string | null;
+  }
 ): Promise<void> {
-  const granted = opts.planName
-    ? `Workspace created on plan '${opts.planName}' — ${opts.amount.toLocaleString()} AI credits granted.`
-    : `Workspace created — ${opts.amount.toLocaleString()} AI credits granted.`;
+  const businessAmount = opts.businessAmount ?? 0;
+  const spread = opts.amount > 0 && businessAmount > 0;
+  const sentence = (credits: number, pool: CreditPool) => {
+    const label = spread ? `${POOL_LABELS[pool]} ` : '';
+    return opts.planName
+      ? `Workspace created on plan '${opts.planName}' — ${credits.toLocaleString()} ${label}AI credits granted.`
+      : `Workspace created — ${credits.toLocaleString()} ${label}AI credits granted.`;
+  };
+
+  if (opts.amount > 0 || businessAmount === 0) {
+    await recordCreditMovement(tx, {
+      tenantId: opts.tenantId,
+      userId: opts.userId,
+      amount: opts.amount,
+      balanceAfter: opts.amount,
+      reason: CREDIT_REASONS.signup_grant,
+      description: opts.amount > 0
+        ? sentence(opts.amount, 'personal')
+        : 'Workspace created with no plan — AI credits arrive with the first plan purchased.',
+      pool: 'personal',
+    });
+  }
 
   await recordCreditMovement(tx, {
     tenantId: opts.tenantId,
     userId: opts.userId,
-    amount: opts.amount,
-    balanceAfter: opts.amount,
+    amount: businessAmount,
+    balanceAfter: businessAmount,
     reason: CREDIT_REASONS.signup_grant,
-    description: opts.amount > 0
-      ? granted
-      : 'Workspace created with no plan — AI credits arrive with the first plan purchased.',
+    description: sentence(businessAmount, 'business'),
+    pool: 'business',
   });
 }
 

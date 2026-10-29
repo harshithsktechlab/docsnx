@@ -10,7 +10,7 @@ import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { decryptField } from './fieldCrypto';
 import { spendTenantCredits } from './planProvisioning';
-import { AI_ACTION_TO_REASON, CREDIT_REASONS, formatCreditReason } from './creditLedger';
+import { AI_ACTION_TO_REASON, CREDIT_REASONS, POOL_LABELS, formatCreditReason, otherPool, poolForWorkspace, type CreditPool } from './creditLedger';
 import { DEFAULT_GEMINI_MODEL, DEFAULT_OPENAI_MODEL, getModelRates } from './aiModels';
 
 // ─── Error Codes ──────────────────────────────────────────────────────────────
@@ -567,6 +567,73 @@ export async function executeWithRotation(callFn: any) {
   throw finalError;
 }
 
+// ─── Which pool pays ──────────────────────────────────────────────────────────
+
+/** How long a member's "yes, use the other pool" lasts. Short on purpose. */
+export const BORROW_CONSENT_MINUTES = 10;
+
+type PoolTenant = {
+  aiCreditsBalance: number;
+  aiCreditsBalanceBusiness: number;
+  aiBorrowFrom?: string | null;
+  aiBorrowBy?: string | null;
+  aiBorrowExpiresAt?: Date | string | null;
+};
+
+const balanceOf = (tenant: PoolTenant, pool: CreditPool) =>
+  (pool === 'business' ? tenant.aiCreditsBalanceBusiness : tenant.aiCreditsBalance) ?? 0;
+
+/**
+ * Picks the pool a platform-key call is paid from.
+ *
+ *   1. The workspace's own pool, when it covers the call.
+ *   2. Otherwise, if the OTHER pool covers it, that one — but ONLY when this very
+ *      member agreed to it a moment ago (`ai_borrow_*`, set by
+ *      POST /api/billing/credits/borrow). Without that agreement it throws
+ *      CREDIT_POOL_EMPTY, which the client turns into a question. Credits are
+ *      never taken from the other pool unasked.
+ *   3. Otherwise INSUFFICIENT_CREDITS, as before.
+ *
+ * The consent names the member and the pool, and expires on its own, so one
+ * person's "yes" never lets another's calls draw on the other pool and a stale
+ * one never lingers. A call with no `userId` (a system task) cannot borrow.
+ */
+export function choosePool(
+  tenant: PoolTenant,
+  companyId: string | null | undefined,
+  userId: string | null | undefined,
+  required: number,
+  now: Date = new Date(),
+): { pool: CreditPool; borrowed: boolean } {
+  const own = poolForWorkspace(companyId);
+  if (balanceOf(tenant, own) >= required) return { pool: own, borrowed: false };
+
+  const other = otherPool(own);
+  const otherBalance = balanceOf(tenant, other);
+  if (otherBalance < required) {
+    const err: any = new Error(AI_ERROR_MESSAGES.INSUFFICIENT_CREDITS);
+    err.errorCode = AI_ERROR_CODES.INSUFFICIENT_CREDITS;
+    throw err;
+  }
+
+  const expires = tenant.aiBorrowExpiresAt ? new Date(tenant.aiBorrowExpiresAt) : null;
+  const agreed = !!userId
+    && tenant.aiBorrowFrom === other
+    && tenant.aiBorrowBy === userId
+    && !!expires && expires > now;
+  if (agreed) return { pool: other, borrowed: true };
+
+  const err: any = new Error(
+    `The ${POOL_LABELS[own]} AI credits are used up, but ${otherBalance.toLocaleString()} ${POOL_LABELS[other]} credits can cover this. Confirm to use them.`,
+  );
+  err.errorCode = AI_ERROR_CODES.CREDIT_POOL_EMPTY;
+  /** The pool that would be spent — what the confirmation dialog names. */
+  err.borrowFrom = other;
+  err.required = required;
+  err.otherBalance = otherBalance;
+  throw err;
+}
+
 // ─── Execute Tenant Isolation With Cost Tracking ──────────────────────────────
 
 /**
@@ -686,12 +753,10 @@ export async function executeTenantWithRotation(
     }
   }
 
-  // 3. Check Credit Balance for platform pool
-  if (tenant.aiCreditsBalance < requiredCredits) {
-    const err: any = new Error(AI_ERROR_MESSAGES.INSUFFICIENT_CREDITS);
-    err.errorCode = AI_ERROR_CODES.INSUFFICIENT_CREDITS;
-    throw err;
-  }
+  // 3. Check Credit Balance for platform pool — the workspace's OWN pool first.
+  // The household spends Personal credits and a company spends Business ones.
+  // Another pool is only ever touched with a member's say-so (see below).
+  const { pool: spendPool, borrowed } = choosePool(tenant, companyId, userId, requiredCredits);
 
   // 4. Fallback to platform-wide key rotation pool
   return await executeWithRotation(async (clientInfo: any) => {
@@ -729,9 +794,10 @@ export async function executeTenantWithRotation(
     await spendTenantCredits(tenantId, {
       amount: requiredCredits,
       reason: AI_ACTION_TO_REASON[actionName] ?? CREDIT_REASONS.spend_record_analysis,
-      description: `${formatCreditReason(AI_ACTION_TO_REASON[actionName] ?? actionName)} — ${Math.ceil(requiredCredits)} credits.`,
+      description: `${formatCreditReason(AI_ACTION_TO_REASON[actionName] ?? actionName)} — ${Math.ceil(requiredCredits)} credits${borrowed ? ` (borrowed from ${POOL_LABELS[spendPool]} credits)` : ''}.`,
       userId,
       companyId,
+      pool: spendPool,
     });
 
     return result;

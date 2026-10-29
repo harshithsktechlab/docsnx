@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withTenant } from '@/lib/db';
 import { companies, creditTransactions, tenants, users } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
-import { and, count, eq, gt, gte, isNotNull, lt, lte, min, sql } from 'drizzle-orm';
+import { and, count, eq, gt, gte, isNotNull, isNull, lt, lte, min, ne, or, sql } from 'drizzle-orm';
 import { parseQueryParams, buildListQueryHelper } from '@/lib/api-pagination';
-import { inWorkspace, resolveWorkspaceFilter } from '@/lib/records/companyScope';
+import { resolveWorkspaceFilter, WORKSPACE_ALL, WORKSPACE_PERSONAL } from '@/lib/records/companyScope';
 import { serverError } from '@/lib/routeError';
 
 /**
@@ -12,6 +12,29 @@ import { serverError } from '@/lib/routeError';
  * client could otherwise ask for limit=1000000 and pull the whole ledger.
  */
 const MAX_LIMIT = 100;
+
+/**
+ * Which ledger rows a workspace tab shows.
+ *
+ *   Personal tab → every row of the PERSONAL pool: the household's spends and
+ *                  the Personal credits granted.
+ *   A company    → what that company spent (whichever pool paid, so a borrowed
+ *                  spend still shows where it was made) plus the BUSINESS-pool
+ *                  grants, which belong to no single company.
+ *   All          → no filter (`undefined`, which drizzle drops).
+ *
+ * This used to filter on `company_id` alone, when every grant was one shared
+ * wallet's and sat under Personal. With two pools a Business top-up under the
+ * Personal tab would be exactly the confusion the pools exist to remove.
+ */
+function ledgerScope(workspace: null | 'personal' | string) {
+  if (workspace === WORKSPACE_ALL) return undefined;
+  if (workspace === WORKSPACE_PERSONAL) return eq(creditTransactions.pool, 'personal');
+  return or(
+    eq(creditTransactions.companyId, workspace as string),
+    and(eq(creditTransactions.pool, 'business'), isNull(creditTransactions.companyId)),
+  );
+}
 
 /**
  * GET /api/billing/credits — this tenant's AI credit history.
@@ -67,7 +90,7 @@ export async function GET(req: NextRequest) {
     const conditions = [eq(creditTransactions.tenantId, user.tenantId)];
 
     // `undefined` on the "All workspaces" tab, and drizzle drops it.
-    const workspaceFilter = inWorkspace(creditTransactions.companyId, workspace);
+    const workspaceFilter = ledgerScope(workspace);
     if (workspaceFilter) conditions.push(workspaceFilter);
 
     const { reason, userId, direction, dateFrom, dateTo } = params.filters;
@@ -132,11 +155,12 @@ export async function GET(req: NextRequest) {
           ledgerStartedAt: min(creditTransactions.createdAt),
         })
         .from(creditTransactions)
-        .where(eq(creditTransactions.tenantId, user.tenantId));
+        // Credits moved between the tenant's own pools are neither added nor used.
+        .where(and(eq(creditTransactions.tenantId, user.tenantId), ne(creditTransactions.reason, 'pool_split')));
 
       const tenant = await tx.query.tenants.findFirst({
         where: eq(tenants.id, user.tenantId),
-        columns: { aiCreditsBalance: true },
+        columns: { aiCreditsBalance: true, aiCreditsBalanceBusiness: true },
       });
 
       // Filter dropdown options, scoped to this tenant AND the open tab. Reasons
@@ -146,7 +170,7 @@ export async function GET(req: NextRequest) {
       // history is a filter that can only empty the table.
       const tabScope = and(
         eq(creditTransactions.tenantId, user.tenantId),
-        inWorkspace(creditTransactions.companyId, workspace),
+        ledgerScope(workspace),
       );
 
       const distinctReasons = await tx
@@ -190,7 +214,10 @@ export async function GET(req: NextRequest) {
         totalCount: total.count,
         transactions,
         totals,
-        balance: tenant?.aiCreditsBalance ?? 0,
+        // Both pools together; the split follows.
+        balance: (tenant?.aiCreditsBalance ?? 0) + (tenant?.aiCreditsBalanceBusiness ?? 0),
+        personal: tenant?.aiCreditsBalance ?? 0,
+        business: tenant?.aiCreditsBalanceBusiness ?? 0,
         distinctReasons,
         members,
         perWorkspace,
@@ -213,6 +240,8 @@ export async function GET(req: NextRequest) {
       })),
       summary: {
         balance: result.balance,
+        personal: result.personal,
+        business: result.business,
         totalGranted: Number(result.totals?.totalGranted ?? 0),
         totalSpent: Number(result.totals?.totalSpent ?? 0),
         // Drives the "history starts here" note on the page. Null means the

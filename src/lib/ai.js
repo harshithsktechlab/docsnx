@@ -248,6 +248,20 @@ export async function generateRecordAnalysis(recordCategory, recordData, tenantI
     // Callers embed this result into the record they are saving, so throwing
     // would fail the whole save. Instead return a stub that names the real
     // cause, so an exhausted credit balance doesn't read as an AI outage.
+    // The workspace's own pool is empty but the other one could pay. This stub is
+    // embedded in a record being saved, so there is nobody to ask here: it says so,
+    // and the AI analysis can be refreshed from the record, where they will be.
+    if (error?.errorCode === AI_ERROR_CODES.CREDIT_POOL_EMPTY) {
+      return {
+        disclaimer: profile.mandatoryDisclaimer,
+        errorCode: AI_ERROR_CODES.CREDIT_POOL_EMPTY,
+        error: error.message,
+        risks: [error.message],
+        opportunities: [],
+        tips: []
+      };
+    }
+
     if (error?.errorCode === AI_ERROR_CODES.INSUFFICIENT_CREDITS) {
       return {
         disclaimer: profile.mandatoryDisclaimer,

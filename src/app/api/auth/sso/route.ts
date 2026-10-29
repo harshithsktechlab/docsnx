@@ -87,10 +87,11 @@ export async function GET(request: Request) {
       // platform. Runs after the user insert so the grant can be attributed;
       // a no-op when the plan grants no credits, or when `tenant` already
       // existed (its ledger was opened at its own creation).
-      if (tenant.aiCreditsBalance > 0) {
+      if (tenant.aiCreditsBalance > 0 || tenant.aiCreditsBalanceBusiness > 0) {
         await recordSignupGrant(db, {
           tenantId: tenant.id,
           amount: tenant.aiCreditsBalance,
+          businessAmount: tenant.aiCreditsBalanceBusiness,
           userId: userInsertResult[0].id,
         });
       }

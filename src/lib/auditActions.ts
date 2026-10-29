@@ -243,6 +243,7 @@ export const ACTIONS = {
     admin_adjust: 'credits.admin_adjust',
     addon_granted_webhook: 'credits.addon_granted_webhook',
     trial_granted: 'credits.trial_granted',
+    borrow_consent: 'credits.borrow_consent',
   },
   discount_code: crud('discount_code'),
 } as const;
@@ -416,6 +417,7 @@ const VERB_LABELS: Record<string, string> = {
   update_context: 'Refreshed',
   optimize_context: 'Optimised',
   recalculate_usage: 'Recalculated',
+  borrow_consent: 'Authorised',
   password_reset_requested: 'Requested',
   password_reset_completed: 'Completed',
   password_changed: 'Changed',

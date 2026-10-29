@@ -12,6 +12,58 @@
  * audit row, each keeps its own vocabulary.
  */
 
+/**
+ * The two AI credit pools. A tenant holds one balance per pool: `personal` is
+ * `tenants.ai_credits_balance` (the name it had as the one wallet) and
+ * `business` is `tenants.ai_credits_balance_business`.
+ */
+export const CREDIT_POOLS = ['personal', 'business'] as const;
+export type CreditPool = (typeof CREDIT_POOLS)[number];
+
+export const POOL_LABELS: Record<CreditPool, string> = {
+  personal: 'Personal',
+  business: 'Business',
+};
+
+export function isCreditPool(value: unknown): value is CreditPool {
+  return value === 'personal' || value === 'business';
+}
+
+/** The pool a workspace spends: a company draws on Business, the household on Personal. */
+export function poolForWorkspace(companyId: string | null | undefined): CreditPool {
+  return companyId ? 'business' : 'personal';
+}
+
+export function otherPool(pool: CreditPool): CreditPool {
+  return pool === 'personal' ? 'business' : 'personal';
+}
+
+/**
+ * What one grant of a plan adds to each pool.
+ *
+ * Reads the two parts, and falls back to the legacy single figure for a plan
+ * object that predates them (a fixture, or a partial row): it all went to the
+ * one wallet, which is the Personal pool. Never lets a missing part read as a
+ * grant of nothing when `aiCredits` says otherwise.
+ */
+export function planCreditGrant(plan: {
+  aiCredits?: number | null;
+  aiCreditsPersonal?: number | null;
+  aiCreditsBusiness?: number | null;
+  appliesTo?: string | null;
+}): { personal: number; business: number; total: number } {
+  const hasParts = plan.aiCreditsPersonal != null || plan.aiCreditsBusiness != null;
+  if (hasParts) {
+    const personal = plan.aiCreditsPersonal ?? 0;
+    const business = plan.aiCreditsBusiness ?? 0;
+    return { personal, business, total: personal + business };
+  }
+  const total = plan.aiCredits ?? 0;
+  return plan.appliesTo === 'business'
+    ? { personal: 0, business: total, total }
+    : { personal: total, business: 0, total };
+}
+
 /** Canonical `reason` codes stored in `credit_transactions.reason`. */
 export const CREDIT_REASONS = {
   // ─── Credits in ───────────────────────────────────────────────────────────
@@ -27,6 +79,8 @@ export const CREDIT_REASONS = {
   admin_set: 'admin_set',
   /** Trial credits granted outside a plan. */
   trial_grant: 'trial_grant',
+  /** Existing credits divided between the Personal and Business pools (0086). */
+  pool_split: 'pool_split',
 
   // ─── Credits out ──────────────────────────────────────────────────────────
   spend_record_analysis: 'spend_record_analysis',
@@ -75,6 +129,7 @@ const LABELS: Record<string, string> = {
   [CREDIT_REASONS.admin_adjust]: 'Admin adjustment',
   [CREDIT_REASONS.admin_set]: 'Admin correction',
   [CREDIT_REASONS.trial_grant]: 'Trial credits',
+  [CREDIT_REASONS.pool_split]: 'Credits divided between pools',
   [CREDIT_REASONS.spend_record_analysis]: 'Record analysis',
   [CREDIT_REASONS.spend_category_analysis]: 'Category analysis',
   [CREDIT_REASONS.spend_portfolio_analysis]: 'Portfolio analysis',

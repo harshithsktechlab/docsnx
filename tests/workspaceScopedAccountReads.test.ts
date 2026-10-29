@@ -126,6 +126,17 @@ describe('the account-level reads resolve and apply the workspace', () => {
 
   it.each(ACCOUNT_ROUTES)('%s filters its list on %s', (file, column) => {
     const src = read(file);
+    if (file.endsWith('billing/credits/route.ts')) {
+      // The credits ledger narrows through `ledgerScope`, which also knows the
+      // two pools: a company's tab is its own rows plus Business-pool grants, and
+      // the Personal tab is the Personal pool. It must still be built on the
+      // company column, and the list must actually call it.
+      expect(src, `${file} must narrow the list with ledgerScope(workspace)`)
+        .toContain('ledgerScope(workspace)');
+      const scope = src.slice(src.indexOf('function ledgerScope'), src.indexOf('export async function GET'));
+      expect(scope, `ledgerScope must filter on ${column}`).toContain(column);
+      return;
+    }
     expect(src, `${file} must narrow the list with inWorkspace(${column}, workspace)`)
       .toContain(`inWorkspace(${column}, workspace)`);
   });
@@ -143,19 +154,21 @@ describe('the account-level reads resolve and apply the workspace', () => {
   });
 });
 
-describe('the credits page keeps ONE wallet', () => {
+describe('the credits page keeps the balances and totals un-narrowed', () => {
   const src = read('src/app/api/billing/credits/route.ts');
 
   /**
-   * The balance and the all-time totals describe the whole wallet whichever tab
-   * is open. A per-tab `balance` would imply each workspace had a pot of its
-   * own, which is exactly the design decision this feature did NOT take.
+   * The balances and the all-time totals describe the whole account whichever
+   * tab is open. The two POOLS are shown beside each other above the tabs; a
+   * per-tab total that changed with the tab would redefine what "total added"
+   * means from one click to the next.
    */
   it('does not narrow the summary totals by workspace', () => {
     // The totals query selects from creditTransactions with a tenant-only
     // predicate. If someone adds the workspace filter to it, this catches it.
     const totalsBlock = src.slice(src.indexOf('totalGranted'), src.indexOf('const tenant ='));
     expect(totalsBlock).not.toContain('inWorkspace');
+    expect(totalsBlock).not.toContain('ledgerScope');
     expect(totalsBlock).not.toContain('workspaceFilter');
   });
 

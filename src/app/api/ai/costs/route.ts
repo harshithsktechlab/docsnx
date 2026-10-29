@@ -45,7 +45,9 @@ export async function GET(req: Request) {
         portfolioAnalysis: basePortfolioAnalysis,
         bulkScan: baseBulkScan,
       },
-      creditsBalance: tenantResult.aiCreditsBalance
+      // Both pools together, then the split: the household spends Personal, the companies Business.
+      creditsBalance: tenantResult.aiCreditsBalance + tenantResult.aiCreditsBalanceBusiness,
+      creditPools: { personal: tenantResult.aiCreditsBalance, business: tenantResult.aiCreditsBalanceBusiness },
     });
   } catch (error: any) {
     return serverError(error, 'loading costs');

@@ -583,12 +583,14 @@ export async function POST(req) {
       [AI_ERROR_CODES.NETWORK_ERROR]: 503,
       [AI_ERROR_CODES.NO_KEYS_CONFIGURED]: 500,
       [AI_ERROR_CODES.INSUFFICIENT_CREDITS]: 402,
+      [AI_ERROR_CODES.CREDIT_POOL_EMPTY]: 402,
     }[errorCode] || 500;
 
     return NextResponse.json({
       success: false,
       error: errorMessage,
       errorCode,
+      ...(errorCode === AI_ERROR_CODES.CREDIT_POOL_EMPTY ? { borrowFrom: error?.borrowFrom, required: error?.required, otherBalance: error?.otherBalance } : {}),
     }, { status: httpStatus });
   }
 }

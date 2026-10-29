@@ -51,7 +51,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   inserts = [];
   poolKeys = [];
-  tenantRow = { id: 't-1', maxMembers: 1, extraMembers: 0, aiCreditsBalance: 1000, apiKey: null };
+  tenantRow = { id: 't-1', maxMembers: 1, extraMembers: 0, aiCreditsBalance: 1000, aiCreditsBalanceBusiness: 1000, apiKey: null };
   configRow = { aiCostBulkScan: '10.00', usdInrRate: '96.5150', aiCostMultiplier: '2.00' };
   delete process.env.GEMINI_API_KEY;
   mod = await import('../src/lib/aiKeyManager');
@@ -179,7 +179,8 @@ describe('executeTenantWithRotation → tenant_ai_usages row', () => {
     expect(out.usageId).toBe('usage-1');
 
     // Power scan: a flat 10 credits, whatever the workspace's seats.
-    expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({ amount: 10, reason: 'spend_bulk_scan' }));
+    // Called from a company workspace (c-2), so it is paid from the Business pool.
+    expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({ amount: 10, reason: 'spend_bulk_scan', pool: 'business' }));
     expect(inserts).toHaveLength(1);
     expect(inserts[0]).toMatchObject({
       action: 'FIELD_READ',
@@ -203,6 +204,7 @@ describe('executeTenantWithRotation → tenant_ai_usages row', () => {
     process.env.GEMINI_API_KEY = 'env-key';
     await mod.executeTenantWithRotation('t-1', 'RECORD_ANALYSIS', callFn, 'u-1');
     expect(spendTenantCredits).toHaveBeenCalledWith('t-1', expect.objectContaining({
+      pool: 'personal',
       amount: 1,
       description: expect.not.stringContaining('members'),
     }));
