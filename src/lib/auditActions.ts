@@ -215,6 +215,7 @@ export const ACTIONS = {
     generate_followups: 'ai.generate_followups',
     update_context: 'ai.update_context',
     optimize_context: 'ai.optimize_context',
+    recalculate_usage: 'ai.recalculate_usage',
   },
 
   // ─── Billing ───────────────────────────────────────────────────────────────
@@ -414,6 +415,7 @@ const VERB_LABELS: Record<string, string> = {
   erase_company: 'Erased',
   update_context: 'Refreshed',
   optimize_context: 'Optimised',
+  recalculate_usage: 'Recalculated',
   password_reset_requested: 'Requested',
   password_reset_completed: 'Completed',
   password_changed: 'Changed',

@@ -132,11 +132,119 @@ export default function AISettingsPage() {
     aiCostMultiplier: '2'
   });
   const [aiCostsSaving, setAiCostsSaving] = useState(false);
+  // The multiplier as stored, not as typed: recalculation uses the stored one.
+  const [savedMultiplier, setSavedMultiplier] = useState('2');
+  const [recalcOpen, setRecalcOpen] = useState(false);
+  const [recalcFrom, setRecalcFrom] = useState('');
+  const [recalcTo, setRecalcTo] = useState('');
+  const [recalcPreview, setRecalcPreview] = useState(null);
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  // The active (sellable) plans, with the credits input held as the typed string.
+  // Trials and retired plans are inactive and deliberately not listed here.
+  const [planCredits, setPlanCredits] = useState([]);
+  const [planCreditsLoading, setPlanCreditsLoading] = useState(true);
+  const [planCreditsSaving, setPlanCreditsSaving] = useState(false);
 
   useEffect(() => {
     fetchKeys();
     fetchBillingProfile();
+    fetchPlanCredits();
   }, []);
+
+  const fetchPlanCredits = async () => {
+    try {
+      const { json: data } = await apiCall('/api/admin/plans');
+      if (data.success && Array.isArray(data.plans)) {
+        setPlanCredits(data.plans.filter(plan => plan.isActive).map(plan => ({
+          id: plan.id,
+          name: plan.name,
+          appliesTo: plan.appliesTo,
+          isActive: plan.isActive,
+          isDefault: plan.isDefault,
+          saved: plan.aiCredits ?? 0,
+          value: String(plan.aiCredits ?? 0),
+        })));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPlanCreditsLoading(false);
+    }
+  };
+
+  const multiplierUnsaved = String(parseFloat(aiCosts.aiCostMultiplier)) !== savedMultiplier;
+
+  const openRecalc = () => {
+    setRecalcFrom('');
+    setRecalcTo('');
+    setRecalcPreview(null);
+    setRecalcOpen(true);
+  };
+
+  // `apply` false only previews; nothing is written until the second call.
+  const runRecalc = async (apply) => {
+    setRecalcBusy(true);
+    try {
+      const { res, json } = await apiCall('/api/admin/ai-usage/recalculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: recalcFrom || null, to: recalcTo || null, apply })
+      }, { subject: 'AI usage', action: apply ? 'recalculating past AI usage' : 'previewing the recalculation' });
+      if (!res.ok) {
+        toast.error(json.error || 'Failed to recalculate AI usage');
+        return;
+      }
+      if (apply) {
+        toast.success(`Recalculated ${json.rows.toLocaleString()} AI calls at ×${json.multiplier}`);
+        setRecalcOpen(false);
+        setRecalcPreview(null);
+      } else {
+        setRecalcPreview(json);
+      }
+    } catch (e) {
+      console.error('[admin/ai-settings] handler threw', e);
+      toast.error('Something went wrong. Please try again.');
+    } finally {
+      setRecalcBusy(false);
+    }
+  };
+
+  const changedPlanCredits = planCredits.filter(plan => plan.value.trim() !== String(plan.saved));
+
+  const handleSavePlanCredits = async (e) => {
+    e.preventDefault();
+    if (changedPlanCredits.length === 0) return;
+
+    const payload = [];
+    for (const plan of changedPlanCredits) {
+      const credits = Number(plan.value);
+      if (plan.value.trim() === '' || !Number.isInteger(credits) || credits < 0) {
+        toast.error(`Enter a whole number of credits (0 or more) for ${plan.name}`);
+        return;
+      }
+      payload.push({ id: plan.id, aiCredits: credits });
+    }
+
+    setPlanCreditsSaving(true);
+    try {
+      const { res, json } = await apiCall('/api/admin/plans/credits', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plans: payload })
+      }, { subject: 'plan credits', action: 'updating the plan credits' });
+      if (res.ok) {
+        toast.success('Plan credits updated');
+        await fetchPlanCredits();
+      } else {
+        toast.error(json.error || 'Failed to update plan credits');
+      }
+    } catch (err) {
+      console.error('[admin/ai-settings] handler threw', err);
+      toast.error('Something went wrong. Please try again.');
+    } finally {
+      setPlanCreditsSaving(false);
+    }
+  };
 
   const fetchBillingProfile = async () => {
     try {
@@ -151,6 +259,7 @@ export default function AISettingsPage() {
           usdInrRate: data.config.usdInrRate != null ? String(parseFloat(data.config.usdInrRate)) : '',
           aiCostMultiplier: data.config.aiCostMultiplier != null ? String(parseFloat(data.config.aiCostMultiplier)) : '2'
         });
+        setSavedMultiplier(data.config.aiCostMultiplier != null ? String(parseFloat(data.config.aiCostMultiplier)) : '2');
       }
     } catch (e) {
       console.error(e);
@@ -250,8 +359,11 @@ export default function AISettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...billingProfile, ...aiCosts })
       }, { subject: 'AI costs', action: 'updating the AI action costs' });
-      if (res.ok) toast.success('AI action base costs updated');
-      else toast.error(json.error || 'Failed to update AI action costs');
+      if (res.ok) {
+        toast.success('AI action base costs updated');
+        setSavedMultiplier(String(parseFloat(aiCosts.aiCostMultiplier)));
+        setRecalcPreview(null);
+      } else toast.error(json.error || 'Failed to update AI action costs');
     } catch (e) {
       // Transport failures are values now, not throws — `apiCall` and
       // `postUpload` return them. So reaching this catch means a bug in the
@@ -824,7 +936,16 @@ export default function AISettingsPage() {
                   disabled={aiCostsSaving}
                 />
               </div>
-              <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-2 self-end">
+              <div className="flex flex-col gap-1 self-end">
+                <Button type="button" variant="outline" onClick={openRecalc} disabled={aiCostsSaving || multiplierUnsaved}>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Recalculate past usage
+                </Button>
+                {multiplierUnsaved && (
+                  <span className="text-xs text-muted-foreground">Save the new multiplier first.</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-1 self-end">
                 The rate records the rupee (Gemini) cost of every AI call; the multiplier turns it into our final cost (final ₹ = Gemini ₹ × multiplier). Each call keeps the values in force when it ran, so changing them does not alter past figures. Leave the rate blank to stop recording INR.
               </p>
             </div>
@@ -837,6 +958,136 @@ export default function AISettingsPage() {
           </form>
         </CardContent>
       </Card>
+
+      {/* AI Credits By Plan */}
+      <Card className="border-border/50 bg-card backdrop-blur shadow-glass mt-4 animate-fade-in stagger-3">
+        <CardHeader>
+          <CardTitle className="text-xl font-bold flex items-center gap-2">
+            <Zap size={20} className="text-primary" />
+            AI Credits By Plan
+          </CardTitle>
+          <CardDescription>
+            The AI credits each plan adds to a tenant&apos;s balance when it is bought, renewed or assigned. A Personal + Business plan grants its amount once. Changes apply to future grants only; existing balances are not touched.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSavePlanCredits} className="flex flex-col gap-5">
+            {planCreditsLoading ? (
+              <Skeleton className="h-32 w-full" />
+            ) : planCredits.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No plans found.</p>
+            ) : (
+              <div className="flex flex-col divide-y divide-border/50">
+                {planCredits.map(plan => {
+                  const changed = plan.value.trim() !== String(plan.saved);
+                  return (
+                    <div key={plan.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <span className="font-semibold truncate">{plan.name}</span>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="capitalize">
+                            {plan.appliesTo === 'both' ? 'Personal + Business' : plan.appliesTo}
+                          </Badge>
+                          <Badge variant="success">
+                            Active
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor={`planCredits-${plan.id}`} className="sr-only">
+                          AI credits for {plan.name}
+                        </Label>
+                        <Input
+                          id={`planCredits-${plan.id}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          className="w-32"
+                          value={plan.value}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setPlanCredits(prev => prev.map(p => p.id === plan.id ? { ...p, value } : p));
+                          }}
+                          disabled={planCreditsSaving}
+                        />
+                        <span className="text-xs text-muted-foreground w-24">
+                          {changed ? `was ${plan.saved.toLocaleString()}` : 'credits'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex justify-end pt-2">
+              <Button type="submit" disabled={planCreditsSaving || changedPlanCredits.length === 0}>
+                {planCreditsSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Save Plan Credits
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+      {/* Recalculate past usage at the saved multiplier */}
+      <Dialog open={recalcOpen} onOpenChange={(open) => { if (!recalcBusy) setRecalcOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw size={17} /> Recalculate past usage
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Restates the final cost of past AI calls at the saved multiplier (×{savedMultiplier}). Customer credits are not affected. Calls recorded without a Gemini ₹ figure are skipped.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="recalcFrom">From (optional)</Label>
+                <Input id="recalcFrom" type="date" value={recalcFrom} max={recalcTo || undefined}
+                  onChange={(e) => { setRecalcFrom(e.target.value); setRecalcPreview(null); }} disabled={recalcBusy} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="recalcTo">To (optional)</Label>
+                <Input id="recalcTo" type="date" value={recalcTo} min={recalcFrom || undefined}
+                  onChange={(e) => { setRecalcTo(e.target.value); setRecalcPreview(null); }} disabled={recalcBusy} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Leave both blank to cover all usage. Dates are India time.</p>
+            {recalcPreview && (
+              <Alert>
+                <AlertDescription className="flex flex-col gap-1 text-sm">
+                  {recalcPreview.rows > 0 ? (
+                    <span>
+                      <strong>{recalcPreview.rows.toLocaleString()}</strong> calls will change
+                      {recalcPreview.previousMultipliers.length > 0 && ` (from ×${recalcPreview.previousMultipliers.join(' / ×')} to ×${recalcPreview.multiplier})`}:
+                      final cost ₹{recalcPreview.finalBefore.toFixed(2)} → <strong>₹{recalcPreview.finalAfter.toFixed(2)}</strong>.
+                    </span>
+                  ) : (
+                    <span>Nothing to change — every call in this range already uses ×{recalcPreview.multiplier}.</span>
+                  )}
+                  {recalcPreview.skippedNoInr > 0 && (
+                    <span className="text-muted-foreground">{recalcPreview.skippedNoInr.toLocaleString()} calls have no Gemini ₹ figure and are skipped.</span>
+                  )}
+                  {recalcPreview.skippedPreTracking > 0 && (
+                    <span className="text-muted-foreground">{recalcPreview.skippedPreTracking.toLocaleString()} earlier calls pre-date final costs and are skipped.</span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRecalcOpen(false)} disabled={recalcBusy}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => runRecalc(false)} disabled={recalcBusy}>
+              {recalcBusy && !recalcPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Preview
+            </Button>
+            <Button type="button" onClick={() => runRecalc(true)} disabled={recalcBusy || !recalcPreview || recalcPreview.rows === 0}>
+              {recalcBusy && recalcPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Apply to {recalcPreview ? recalcPreview.rows.toLocaleString() : ''} calls
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }
