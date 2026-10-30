@@ -56,3 +56,8 @@ export const discountPreviewRateLimiter = new RateLimiter(15, 15 * 60 * 1000);
 // already authenticated, and what is being protected is the password check — a
 // stolen session must not be able to use these routes to guess the current password.
 export const accountSecretRateLimiter = new RateLimiter(8, 15 * 60 * 1000);
+
+// Search-log writes (POST /api/search/track). Keyed by USER id. One call per
+// finished search, so a person never comes near this; a script hammering the
+// route to fill the log does.
+export const searchTrackRateLimiter = new RateLimiter(120, 60 * 1000);

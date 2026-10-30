@@ -75,6 +75,39 @@ beforeEach(() => {
 });
 
 describe('classifyDocument', () => {
+  it('returns the other real choices as alternatives, best first, without the winner', async () => {
+    // What lets the category check tell a near miss from a contradiction: a
+    // user whose pick is the model's SECOND choice is not told they are wrong.
+    modelAnswer = JSON.stringify({
+      candidates: [
+        { moduleKey: 'identity', documentKey: 'pan_card' },
+        { moduleKey: 'identity', documentKey: 'passport' },
+        { moduleKey: 'identity', documentKey: 'pan_card' },
+        { moduleKey: 'identity', documentKey: 'not_a_real_key' },
+        { moduleKey: 'other', documentKey: 'uncategorized' },
+      ],
+      title: 'PAN Card',
+    });
+
+    const out: any = await classify();
+
+    expect(out.documentKey).toBe('pan_card');
+    // No winner repeated, no misspelt key, no catch-all.
+    expect(out.alternatives).toEqual([{ moduleKey: 'identity', documentKey: 'passport' }]);
+  });
+
+  it('has no alternatives when the document was not placed', async () => {
+    modelAnswer = JSON.stringify({
+      candidates: [{ moduleKey: 'other', documentKey: 'uncategorized' }],
+      title: 'Scan',
+    });
+
+    const out: any = await classify();
+
+    expect(out.documentKey).toBe('uncategorized');
+    expect(out.alternatives).toEqual([]);
+  });
+
   it('takes the first candidate, when the first candidate is real', () => {
     modelAnswer = JSON.stringify({
       candidates: [

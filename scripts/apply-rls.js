@@ -35,6 +35,9 @@ const tenantScopedTables = [
   'document_holders',
   'passwords',
   'audit_logs',
+  // Search keyword tracking (drizzle/0087, 0088): what was searched and which
+  // document was opened. Plaintext keywords, so tenant-fenced like audit_logs.
+  'search_keywords',
   'tenant_ai_usages',
   // The AI credit ledger. Append-only and tenant-owned: without a policy one
   // tenant's forgotten predicate would expose another's spending history.

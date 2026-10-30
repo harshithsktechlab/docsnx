@@ -21,7 +21,6 @@ import {
   Activity,
   Clock,
   Server,
-  RefreshCw,
   Save,
   X,
   Shield,
@@ -132,13 +131,6 @@ export default function AISettingsPage() {
     aiCostMultiplier: '2'
   });
   const [aiCostsSaving, setAiCostsSaving] = useState(false);
-  // The multiplier as stored, not as typed: recalculation uses the stored one.
-  const [savedMultiplier, setSavedMultiplier] = useState('2');
-  const [recalcOpen, setRecalcOpen] = useState(false);
-  const [recalcFrom, setRecalcFrom] = useState('');
-  const [recalcTo, setRecalcTo] = useState('');
-  const [recalcPreview, setRecalcPreview] = useState(null);
-  const [recalcBusy, setRecalcBusy] = useState(false);
   // The active (sellable) plans, with the credits input held as the typed string.
   // Trials and retired plans are inactive and deliberately not listed here.
   const [planCredits, setPlanCredits] = useState([]);
@@ -171,43 +163,6 @@ export default function AISettingsPage() {
       console.error(e);
     } finally {
       setPlanCreditsLoading(false);
-    }
-  };
-
-  const multiplierUnsaved = String(parseFloat(aiCosts.aiCostMultiplier)) !== savedMultiplier;
-
-  const openRecalc = () => {
-    setRecalcFrom('');
-    setRecalcTo('');
-    setRecalcPreview(null);
-    setRecalcOpen(true);
-  };
-
-  // `apply` false only previews; nothing is written until the second call.
-  const runRecalc = async (apply) => {
-    setRecalcBusy(true);
-    try {
-      const { res, json } = await apiCall('/api/admin/ai-usage/recalculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: recalcFrom || null, to: recalcTo || null, apply })
-      }, { subject: 'AI usage', action: apply ? 'recalculating past AI usage' : 'previewing the recalculation' });
-      if (!res.ok) {
-        toast.error(json.error || 'Failed to recalculate AI usage');
-        return;
-      }
-      if (apply) {
-        toast.success(`Recalculated ${json.rows.toLocaleString()} AI calls at ×${json.multiplier}`);
-        setRecalcOpen(false);
-        setRecalcPreview(null);
-      } else {
-        setRecalcPreview(json);
-      }
-    } catch (e) {
-      console.error('[admin/ai-settings] handler threw', e);
-      toast.error('Something went wrong. Please try again.');
-    } finally {
-      setRecalcBusy(false);
     }
   };
 
@@ -269,7 +224,6 @@ export default function AISettingsPage() {
           usdInrRate: data.config.usdInrRate != null ? String(parseFloat(data.config.usdInrRate)) : '',
           aiCostMultiplier: data.config.aiCostMultiplier != null ? String(parseFloat(data.config.aiCostMultiplier)) : '2'
         });
-        setSavedMultiplier(data.config.aiCostMultiplier != null ? String(parseFloat(data.config.aiCostMultiplier)) : '2');
       }
     } catch (e) {
       console.error(e);
@@ -371,8 +325,6 @@ export default function AISettingsPage() {
       }, { subject: 'AI costs', action: 'updating the AI action costs' });
       if (res.ok) {
         toast.success('AI action base costs updated');
-        setSavedMultiplier(String(parseFloat(aiCosts.aiCostMultiplier)));
-        setRecalcPreview(null);
       } else toast.error(json.error || 'Failed to update AI action costs');
     } catch (e) {
       // Transport failures are values now, not throws — `apiCall` and
@@ -946,16 +898,7 @@ export default function AISettingsPage() {
                   disabled={aiCostsSaving}
                 />
               </div>
-              <div className="flex flex-col gap-1 self-end">
-                <Button type="button" variant="outline" onClick={openRecalc} disabled={aiCostsSaving || multiplierUnsaved}>
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Recalculate past usage
-                </Button>
-                {multiplierUnsaved && (
-                  <span className="text-xs text-muted-foreground">Save the new multiplier first.</span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-1 self-end">
+              <p className="text-xs text-muted-foreground md:col-span-2 lg:col-span-2 self-end">
                 The rate records the rupee (Gemini) cost of every AI call; the multiplier turns it into our final cost (final ₹ = Gemini ₹ × multiplier). Each call keeps the values in force when it ran, so changing them does not alter past figures. Leave the rate blank to stop recording INR.
               </p>
             </div>
@@ -1043,66 +986,6 @@ export default function AISettingsPage() {
           </form>
         </CardContent>
       </Card>
-      {/* Recalculate past usage at the saved multiplier */}
-      <Dialog open={recalcOpen} onOpenChange={(open) => { if (!recalcBusy) setRecalcOpen(open); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw size={17} /> Recalculate past usage
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Restates the final cost of past AI calls at the saved multiplier (×{savedMultiplier}). Customer credits are not affected. Calls recorded without a Gemini ₹ figure are skipped.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="recalcFrom">From (optional)</Label>
-                <Input id="recalcFrom" type="date" value={recalcFrom} max={recalcTo || undefined}
-                  onChange={(e) => { setRecalcFrom(e.target.value); setRecalcPreview(null); }} disabled={recalcBusy} />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="recalcTo">To (optional)</Label>
-                <Input id="recalcTo" type="date" value={recalcTo} min={recalcFrom || undefined}
-                  onChange={(e) => { setRecalcTo(e.target.value); setRecalcPreview(null); }} disabled={recalcBusy} />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">Leave both blank to cover all usage. Dates are India time.</p>
-            {recalcPreview && (
-              <Alert>
-                <AlertDescription className="flex flex-col gap-1 text-sm">
-                  {recalcPreview.rows > 0 ? (
-                    <span>
-                      <strong>{recalcPreview.rows.toLocaleString()}</strong> calls will change
-                      {recalcPreview.previousMultipliers.length > 0 && ` (from ×${recalcPreview.previousMultipliers.join(' / ×')} to ×${recalcPreview.multiplier})`}:
-                      final cost ₹{recalcPreview.finalBefore.toFixed(2)} → <strong>₹{recalcPreview.finalAfter.toFixed(2)}</strong>.
-                    </span>
-                  ) : (
-                    <span>Nothing to change — every call in this range already uses ×{recalcPreview.multiplier}.</span>
-                  )}
-                  {recalcPreview.skippedNoInr > 0 && (
-                    <span className="text-muted-foreground">{recalcPreview.skippedNoInr.toLocaleString()} calls have no Gemini ₹ figure and are skipped.</span>
-                  )}
-                  {recalcPreview.skippedPreTracking > 0 && (
-                    <span className="text-muted-foreground">{recalcPreview.skippedPreTracking.toLocaleString()} earlier calls pre-date final costs and are skipped.</span>
-                  )}
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRecalcOpen(false)} disabled={recalcBusy}>Cancel</Button>
-            <Button type="button" variant="outline" onClick={() => runRecalc(false)} disabled={recalcBusy}>
-              {recalcBusy && !recalcPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Preview
-            </Button>
-            <Button type="button" onClick={() => runRecalc(true)} disabled={recalcBusy || !recalcPreview || recalcPreview.rows === 0}>
-              {recalcBusy && recalcPreview ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Apply to {recalcPreview ? recalcPreview.rows.toLocaleString() : ''} calls
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </PageContainer>
   );
 }

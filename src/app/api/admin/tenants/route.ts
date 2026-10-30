@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { tenants, users, documents, passwords, tenantAiUsages, profiles, subscriptionPlans, tenantAddons, addons, creditTransactions } from '@/db/schema';
+import { tenants, users, documents, passwords, tenantAiUsages, profiles, subscriptionPlans, tenantAddons, addons, creditTransactions, payments, companies, companyAccess } from '@/db/schema';
 import { eq, desc, sum, count, and, ne, isNull, sql } from 'drizzle-orm';
 import { getUserFromRequest, hashPassword } from '@/lib/auth';
 import { checkStorageLimit } from '@/lib/storage';
@@ -39,6 +39,8 @@ export async function GET(req: Request) {
       accountType: tenants.accountType,
       subscriptionPlanId: tenants.subscriptionPlanId,
       subscriptionExpiry: tenants.subscriptionExpiry,
+      businessPlanId: tenants.businessPlanId,
+      businessPlanExpiry: tenants.businessPlanExpiry,
       amcNextDueDate: tenants.amcNextDueDate,
       planNoticeStage: tenants.planNoticeStage,
       hasCompletedOnboarding: tenants.hasCompletedOnboarding,
@@ -62,7 +64,7 @@ export async function GET(req: Request) {
     // Everything below is fleet-wide and grouped by tenant, run ONCE. This used
     // to be seven queries per tenant inside the map — a plain N+1 that grew
     // with the customer list.
-    const [memberRows, recordRows, credentialRows, adminRows, planRows, addonRows, ledgerRows] = await Promise.all([
+    const [memberRows, recordRows, credentialRows, adminRows, planRows, addonRows, ledgerRows, paymentRows, rosterRows, companyAccessRows] = await Promise.all([
       db.select({ tenantId: users.tenantId, value: count() })
         .from(users)
         .where(isNull(users.deletedAt))
@@ -126,6 +128,9 @@ export async function GET(req: Request) {
         name: addons.name,
         extraMembers: addons.extraMembers,
         aiCredits: addons.aiCredits,
+        quantity: tenantAddons.quantity,
+        purchasedAt: tenantAddons.purchasedAt,
+        expiresAt: tenantAddons.expiresAt,
       })
         .from(tenantAddons)
         .innerJoin(addons, eq(tenantAddons.addonId, addons.id))
@@ -144,8 +149,95 @@ export async function GET(req: Request) {
         // any: counted, it would inflate both sides by the same amount.
         .where(ne(creditTransactions.reason, 'pool_split'))
         .groupBy(creditTransactions.tenantId),
+
+      // `payments.id` is written out, not interpolated: in a one-table select
+      // Drizzle renders the column bare (`"id"`), which is ambiguous against
+      // discount_usages.id inside the subqueries.
+      // Money actually taken, newest first, so the first row per tenant is its
+      // latest payment. The coupon comes from the same correlated lookup the
+      // Payments page uses: a coupon-covered order is Rs 0 BECAUSE of the code.
+      db.select({
+        tenantId: payments.tenantId,
+        amount: payments.amount,
+        currency: payments.currency,
+        createdAt: payments.createdAt,
+        couponCode: sql<string | null>`(
+          SELECT dc.code FROM discount_usages du
+          JOIN discount_codes dc ON dc.id = du.discount_code_id
+          WHERE du.payment_id = payments.id
+          ORDER BY du.created_at LIMIT 1
+        )`,
+        amountSaved: sql<number>`(
+          SELECT COALESCE(SUM(du.amount_saved), 0) FROM discount_usages du WHERE du.payment_id = payments.id
+        )`.mapWith(Number),
+      })
+        .from(payments)
+        .where(eq(payments.status, 'captured'))
+        .orderBy(desc(payments.createdAt)),
+
+      // Names only — no email, phone or hash — for the expanded row's roster.
+      db.select({
+        id: users.id,
+        tenantId: users.tenantId,
+        name: users.name,
+        role: users.role,
+        accountScope: users.accountScope,
+      })
+        .from(users)
+        .where(isNull(users.deletedAt))
+        .orderBy(users.name),
+
+      db.select({
+        userId: companyAccess.userId,
+        companyId: companies.id,
+        companyName: companies.name,
+      })
+        .from(companyAccess)
+        .innerJoin(companies, eq(companyAccess.companyId, companies.id))
+        .where(isNull(companies.deletedAt)),
     ]);
     const ledgerByTenant = new Map(ledgerRows.map((r) => [r.tenantId, r]));
+
+    // `paymentRows` is newest-first, so the first row seen per tenant wins.
+    const latestPaymentByTenant = new Map<string, (typeof paymentRows)[number]>();
+    for (const row of paymentRows) {
+      if (!latestPaymentByTenant.has(row.tenantId)) latestPaymentByTenant.set(row.tenantId, row);
+    }
+
+    // Roster split the way seats are counted (seatPredicate): the household is
+    // the admin plus every 'personal' member; the business side is whoever holds
+    // company access, grouped by company. A TENANT_ADMIN needs no company_access
+    // row, so they are listed once under their own heading rather than dropped.
+    const companiesByUser = new Map<string, { companyId: string; companyName: string }[]>();
+    for (const row of companyAccessRows) {
+      const list = companiesByUser.get(row.userId);
+      if (list) list.push({ companyId: row.companyId, companyName: row.companyName });
+      else companiesByUser.set(row.userId, [{ companyId: row.companyId, companyName: row.companyName }]);
+    }
+    type RosterMember = { id: string; name: string; role: string };
+    type BusinessGroup = { companyId: string | null; companyName: string; members: RosterMember[] };
+    const rosterByTenant = new Map<string, { personal: RosterMember[]; business: Map<string, BusinessGroup> }>();
+    for (const row of rosterRows) {
+      let roster = rosterByTenant.get(row.tenantId);
+      if (!roster) {
+        roster = { personal: [], business: new Map() };
+        rosterByTenant.set(row.tenantId, roster);
+      }
+      const member: RosterMember = { id: row.id, name: row.name, role: row.role };
+      const isAdmin = row.role === 'TENANT_ADMIN';
+      if (isAdmin || row.accountScope === 'personal') roster.personal.push(member);
+      if (isAdmin || row.accountScope === 'business') {
+        const groups = isAdmin
+          ? [{ companyId: null, companyName: 'Owner (all companies)' }]
+          : companiesByUser.get(row.id) ?? [{ companyId: null, companyName: 'No company assigned' }];
+        for (const g of groups) {
+          const key = g.companyId ?? g.companyName;
+          const group = roster.business.get(key) ?? { ...g, members: [] };
+          group.members.push(member);
+          roster.business.set(key, group);
+        }
+      }
+    }
 
     const membersByTenant = new Map(memberRows.map((r) => [r.tenantId, Number(r.value)]));
     const recordsByTenant = new Map(recordRows.map((r) => [r.tenantId, r]));
@@ -194,6 +286,10 @@ export async function GET(req: Request) {
       const planDetails = (t.subscriptionPlanId ? planById.get(t.subscriptionPlanId) : defaultPlanFor(t.accountType))
         ?? { name: 'Default Plan', maxMembers: 1, storageLimitGB: 1, aiCredits: 0 };
 
+      const businessPlan = t.businessPlanId ? planById.get(t.businessPlanId) : null;
+      const latestPayment = latestPaymentByTenant.get(t.id);
+      const roster = rosterByTenant.get(t.id);
+
       const activeAddons = addonsByTenant.get(t.id) ?? [];
       // The household's seat allowance — plan seats + live add-on seats × qty —
       // from the one helper POST /api/users enforces.
@@ -220,6 +316,22 @@ export async function GET(req: Request) {
             }
           : null,
         planName: planDetails.name,
+        businessPlanName: businessPlan?.name ?? null,
+        latestPayment: latestPayment
+          ? {
+              amount: Number(latestPayment.amount),
+              currency: latestPayment.currency,
+              couponCode: latestPayment.couponCode,
+              amountSaved: latestPayment.amountSaved,
+              createdAt: latestPayment.createdAt,
+            }
+          : null,
+        members: {
+          personal: roster?.personal ?? [],
+          business: roster
+            ? [...roster.business.values()].sort((a, b) => a.companyName.localeCompare(b.companyName))
+            : [],
+        },
         planAiCredits: planDetails.aiCredits,
         /** Balance, plus the ledger totals that explain it. */
         credits: {

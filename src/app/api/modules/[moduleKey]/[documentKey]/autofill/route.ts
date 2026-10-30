@@ -20,6 +20,16 @@
  * /api/documents/autofill so the two cannot drift on page caps, size limits or
  * how a read name resolves to a member.
  *
+ * ── IT CAN QUESTION THE PICK ───────────────────────────────────────────────
+ * The add forms send `checkCategory=1`. Then, before the (expensive) field read,
+ * the document is CLASSIFIED — one cheap DOC_CLASSIFY on the pages already in
+ * hand — and when it clearly belongs somewhere else the route answers with a
+ * `mismatch` instead of fields. The browser asks the user; their answer is
+ * either "read it against the category you found" (re-sent with
+ * `skipCategoryCheck=1`, so the classify is not billed twice) or "file it under
+ * this module's Other". The rule for "clearly" is records/categoryMismatch.ts.
+ * Never sent on an edit: an existing record is not silently re-filed.
+ *
  * ── IT WRITES NOTHING ──────────────────────────────────────────────────────
  * No record, no attachment, no audit row — the form is still unsaved, and the
  * user may discard everything this returns. The file is processed in a scratch
@@ -42,7 +52,10 @@
 import { NextResponse } from 'next/server';
 import { canonicalCategory } from '@/lib/categoryMirrors';
 import { db } from '@/lib/db';
-import { withCategory } from '@/lib/records/handler';
+import { documentManagerContext, withCategory } from '@/lib/records/handler';
+import { catchAllFor, MODULE_OTHER_KEY } from '@/lib/documentCategories';
+import { classifyDocument } from '@/lib/ai';
+import { judgeCategoryFit } from '@/lib/records/categoryMismatch';
 import { loadCategoryFieldSpec } from '@/lib/records/categorySpec';
 import { resolveCategory } from '@/lib/documentCategoryResolver';
 import { subCategoryTitle, withoutReadTitle } from '@/lib/records/autoTitle';
@@ -54,7 +67,7 @@ import {
   AI_STATUS, MAX_BYTES, matchHolderByName, pagesForAi, pdfPasswordFrom,
   pdfPasswordResponse, runAutofill, UNREADABLE_FILE_MESSAGE,
 } from '@/lib/records/autofillRun';
-import { linkAiUsageToExistingDocument } from '@/lib/aiUsageLink';
+import { linkAiUsageToExistingDocument, setAiUsageCategory } from '@/lib/aiUsageLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,6 +122,84 @@ export async function POST(req: Request, { params }: Params) {
         }, { status: 422 });
       }
 
+      // ── Does it belong here at all? ─────────────────────────────────────
+      const usageIds: string[] = [];
+      if (form.get('checkCategory') === '1' && form.get('skipCategoryCheck') !== '1') {
+        const scope = companyId ? 'business' : 'personal';
+        // Best effort. A classifier that answered with something unparseable is
+        // not a reason to refuse the read the user asked for — it falls back to
+        // exactly what this route did before it checked. Anything else (an empty
+        // credit balance, a retired model) would fail the read too, so it
+        // surfaces as it always did.
+        let proposal: Awaited<ReturnType<typeof classifyDocument>> | null = null;
+        try {
+          proposal = await classifyDocument(
+            aiFiles, user.tenantId, user.id, scope, companyId,
+            { fileCount: 1, pageCount: aiFiles.length },
+          );
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+          console.error(`Autofill ${moduleKey}/${documentKey}: unparseable classify response`, error);
+        }
+        if (proposal) {
+          if (proposal.usageId) {
+            usageIds.push(proposal.usageId);
+            await setAiUsageCategory(user.tenantId, proposal.usageId, proposal.moduleKey, proposal.documentKey);
+            await linkAiUsageToExistingDocument(user.tenantId, proposal.usageId, form.get('recordId'));
+          }
+
+          const fit = judgeCategoryFit({
+            selected: categoryKey,
+            detected: { moduleKey: proposal.moduleKey, documentKey: proposal.documentKey },
+            alternatives: proposal.alternatives ?? [],
+          });
+
+          if (fit === 'mismatch') {
+            const [detected, selected] = await Promise.all([
+              resolveCategory(db, null, { moduleKey: proposal.moduleKey, documentKey: proposal.documentKey }),
+              resolveCategory(db, null, categoryKey),
+            ]);
+            // "Other" of the category the user picked: its module's own Other, or
+            // the workspace's catch-all if the module somehow has none.
+            const otherCategory = await resolveCategory(db, null, {
+              moduleKey: categoryKey.moduleKey, documentKey: MODULE_OTHER_KEY,
+            }) ?? await resolveCategory(db, null, catchAllFor(scope));
+
+            // Drift between the taxonomy and the master list: say nothing rather
+            // than ask a question the form cannot answer.
+            if (detected && selected && otherCategory) {
+              const ctx = await documentManagerContext(user, 'add', companyId);
+              const detectedPermitted = ctx.keys.some(
+                (k) => k.moduleKey === detected.moduleKey && k.documentKey === detected.documentKey,
+              );
+              const names = (c: typeof detected) => ({
+                id: c.id,
+                moduleKey: c.moduleKey,
+                documentKey: c.documentKey,
+                moduleName: c.moduleName,
+                documentName: c.documentName,
+              });
+              return NextResponse.json({
+                success: true,
+                mismatch: {
+                  selected: names(selected),
+                  detected: names(detected),
+                  detectedPermitted,
+                  otherCategory: names(otherCategory),
+                },
+                fields: {},
+                title: subCategoryTitle(detected.documentName, proposal.holderName) || proposal.title,
+                holderId: await matchHolderByName(proposal.holderName, user.tenantId, companyId),
+                holderName: proposal.holderName,
+                pagesRead: aiFiles.length,
+                pagesTotal,
+                usageIds,
+              });
+            }
+          }
+        }
+      }
+
       const result = await runAutofill({
         aiFiles, categoryKey, spec, tenantId: user.tenantId, userId: user.id, companyId,
       });
@@ -156,7 +247,7 @@ export async function POST(req: Request, { params }: Params) {
          * The usage row(s) this read wrote. The form posts them back with the
          * save so the AI cost is attributed to the record that is created.
          */
-        usageIds: result.usageId ? [result.usageId] : [],
+        usageIds: result.usageId ? [...usageIds, result.usageId] : usageIds,
       });
     } catch (error: any) {
       // An unusable Google Drive grant is the tenant's to fix, not a fault here.

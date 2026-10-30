@@ -54,7 +54,7 @@ const STOPWORDS = new Set([
 ]);
 
 /** Keys whose values never belong in an index, hashed or not. */
-const SECRET_KEY = /pass(word|code|phrase)|cvv|cvc|(^|_)pin($|_)|secret|token|otp|private_?key|auth_?code/i;
+export const SECRET_KEY = /pass(word|code|phrase)|cvv|cvc|(^|_)pin($|_)|secret|token|otp|private_?key|auth_?code/i;
 
 /** Hex characters kept per hash — 128 bits is ample and halves the store cost. */
 const HASH_LENGTH = 32;

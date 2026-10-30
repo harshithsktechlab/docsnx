@@ -36,6 +36,9 @@ import { type CategoryKey, categoryLabel } from '@/lib/documentCategories';
 import { activeCategoryKeys, moduleNames } from '@/lib/taxonomyRegistry';
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { dateTokens, hashSearchToken, parseQuery, textTokens } from '@/lib/search/tokens';
+import {
+  type PreparedQuery, type Tier, type TierText, addText, classifiedText, readTierHashes, scoreByTier,
+} from '@/lib/search/tiers';
 
 import { serverError } from '@/lib/routeError';
 
@@ -50,22 +53,24 @@ const MAX_RESULTS = 60;
  * order. A word term matches when it is
  *   · a substring of the record's plaintext — title, file name, category,
  *     sub-category, members, issuer, open and masked values; or
- *   · one of the record's hashed `searchTokens` — its full text, its sealed
- *     fields (address and the like), written by `storeRecordInVault`.
+ *   · one of the record's hashed tier tokens — its sealed fields (address and
+ *     the like), written by `storeRecordInVault`; or
+ *   · (last resort) one of the hashed tokens of the document's own text.
  * A date term matches a date in the record's fields or text; the upload date
  * counts too, at half weight, so a record with no dated field is still found
  * by the month it was filed in.
+ *
+ * ── PRIORITY ───────────────────────────────────────────────────────────────
+ * Where a term matched decides the rank (see src/lib/search/tiers.ts): name,
+ * then city / address, pincode, document name, issuer, identifiers, contact,
+ * dates, other fields. The document's own TEXT is searched only when the fields
+ * cannot satisfy every term on their own: pass 1 excludes it, and pass 2 (run
+ * when pass 1 found no record matching every term) includes it.
  *
  * Records matching EVERY term are returned when there are any. Otherwise the
  * best partial matches (at least half the terms) are, so a query with one word
  * too many still finds something.
  */
-interface PreparedQuery {
-  terms: { term: string; hash: string }[];
-  dateTerms: { term: string; hash: string }[];
-  size: number;
-}
-
 function prepareQuery(query: string): PreparedQuery {
   const { terms, dateTerms } = parseQuery(query);
   const withHash = (t: string) => ({ term: t, hash: hashSearchToken(t) });
@@ -76,23 +81,67 @@ function prepareQuery(query: string): PreparedQuery {
   };
 }
 
-function scoreRecord(
-  q: PreparedQuery,
-  plain: string,
-  dates: Set<string>,
-  uploadDates: Set<string>,
-  hashes: Set<string> | null,
-): { score: number; complete: boolean } {
-  let score = 0;
-  let matched = 0;
-  for (const { term, hash } of q.terms) {
-    if (plain.includes(term) || hashes?.has(hash)) { score += 1; matched += 1; }
+/** A record with everything the scorer needs, built once and scored per pass. */
+interface Candidate {
+  mod: string;
+  hit: {
+    id: string; documentId?: string; title: string; subtitle: string; link: string; module: string;
+  };
+  plain: TierText;
+  dates: Set<string>;
+  uploadDates: Set<string>;
+  hashes: ReturnType<typeof readTierHashes>;
+  exact: boolean;
+}
+
+interface Scored {
+  mod: string;
+  hit: Candidate['hit'];
+  exact: boolean;
+  complete: boolean;
+  score: number;
+  coverage: number;
+  matchedIn: Tier | null;
+}
+
+/** Score every candidate; `includeContent` is the second pass. */
+function scoreAll(q: PreparedQuery, candidates: Candidate[], includeContent: boolean): Scored[] {
+  const out: Scored[] = [];
+  for (const c of candidates) {
+    const r = scoreByTier(q, c.plain, c.dates, c.uploadDates, c.hashes, includeContent);
+    if (!c.exact && r.score === 0) continue;
+    out.push({
+      mod: c.mod, hit: c.hit, exact: c.exact,
+      complete: r.complete, score: r.score, coverage: r.coverage, matchedIn: r.tier,
+    });
   }
-  for (const { term, hash } of q.dateTerms) {
-    if (dates.has(term) || hashes?.has(hash)) { score += 1; matched += 1; }
-    else if (uploadDates.has(term)) { score += 0.5; matched += 1; }
+  return out;
+}
+
+const rank = (a: Scored, b: Scored) =>
+  Number(b.exact) - Number(a.exact)
+  || Number(b.complete) - Number(a.complete)
+  || b.score - a.score;
+
+/**
+ * Everything that matched every term if anything did; otherwise the best
+ * partial matches. Each module keeps its own cap so one large module cannot
+ * crowd the rest out.
+ */
+function select(q: PreparedQuery, scored: Scored[]): Scored[] {
+  const anyComplete = scored.some((r) => r.complete);
+  const minCoverage = q.size / 2;
+  const byModule = new Map<string, Scored[]>();
+  for (const r of scored) {
+    if (!(r.exact || (anyComplete ? r.complete : r.coverage >= minCoverage))) continue;
+    const bucket = byModule.get(r.mod) ?? [];
+    bucket.push(r);
+    byModule.set(r.mod, bucket);
   }
-  return { score, complete: q.size > 0 && matched === q.size };
+  return [...byModule.values()]
+    .flatMap((bucket) => bucket.sort(rank).slice(0, MAX_RESULTS_PER_MODULE))
+    .sort(rank)
+    .slice(0, MAX_RESULTS);
 }
 
 /** Every string value inside an object, for the plaintext haystack. */
@@ -291,7 +340,7 @@ export async function GET(req: Request) {
       holdersOf.set(h.documentId, list);
     }
 
-    const perModule = new Map<string, any[]>();
+    const candidates: Candidate[] = [];
 
     for (const { module: mod, key, companyId, rows: storeRows } of stores.values()) {
       const ctx = {
@@ -307,59 +356,60 @@ export async function GET(req: Request) {
 
       for (const row of storeRows) {
         const record = records[row.id];
-        const members = [
-          row.holderId ? memberName.get(row.holderId) : null,
-          ...(holdersOf.get(row.id) ?? []),
-          row.isGlobal ? 'all members' : null,
-        ];
-        const openText = valuesText(record?.open);
-        const plain = [
+
+        // Plaintext, grouped by tier. The record's open and masked values are
+        // classified by field key; the rest is named for what it is.
+        const plain: TierText = {};
+        addText(plain, 'name', row.holderId ? memberName.get(row.holderId) : null);
+        for (const n of holdersOf.get(row.id) ?? []) addText(plain, 'name', n);
+        if (row.isGlobal) addText(plain, 'name', 'all members');
+        for (const v of [
           row.title, record?.name, row.fileName, row.categoryName, row.customSubcategory,
-          row.moduleName, LABELS.get(mod), ...members, record?.issuer,
-          openText, valuesText(record?.masked),
-        ].filter(Boolean).join(' ').toLowerCase();
+          row.moduleName, LABELS.get(mod),
+        ]) addText(plain, 'docname', v);
+        addText(plain, 'org', record?.issuer);
+        classifiedText(record?.open, plain);
+        classifiedText(record?.masked, plain);
+
         // Plaintext tokens too, so a stemmed term ("bill") meets its plural and
         // a written date in an open field ("01/04/2025") meets "april".
+        const openText = valuesText(record?.open);
         const dates = textTokens(`${row.title ?? ''} ${openText}`);
         const uploadDates = row.createdAt ? dateTokens(new Date(row.createdAt).toISOString()) : new Set<string>();
-        // Hashed tokens for the sealed fields and the document's own text —
-        // written by `storeRecordInVault`; absent on records saved before it.
-        const tokenList = [
-          ...(Array.isArray(record?.searchTokens) ? record.searchTokens : []),
-          ...(Array.isArray(record?.contentTokens) ? record.contentTokens : []),
-        ];
-        const hashes = tokenList.length ? new Set<string>(tokenList) : null;
 
         const idHashes: Record<string, string> = record?.searchHashes ?? {};
-        const exactHit = Boolean(queryHash) && Object.values(idHashes).includes(queryHash as string);
-        const { score, complete } = scoreRecord(prepared, plain, dates, uploadDates, hashes);
+        const exact = Boolean(queryHash) && Object.values(idHashes).includes(queryHash as string);
 
-        if (!exactHit && score === 0) continue;
-
-        const bucket = perModule.get(mod) ?? [];
-        bucket.push({
-          id: `${mod}-${row.id}`,
-          title: record?.name ?? row.title,
-          subtitle: [row.categoryName, record?.issuer].filter(Boolean).join(' — ')
-            || LABELS.get(mod) || mod,
-          // Into the workspace the record actually lives in. A business hit
-          // linked at `/modules/...` would open a route that 400s.
-          //
-          // Filtered by the record's own TITLE, not the query: the list page's
-          // filter is one substring match, so a multi-word query such as
-          // "april bank statement" would land on an empty list.
-          link: `${linkFor(key, companyId)}?search=${encodeURIComponent(record?.name ?? row.title ?? query)}`,
-          module: LABELS.get(mod) || mod,
-          // An exact identifier match is what the user was most likely after.
-          exact: exactHit,
-          complete,
-          score,
+        candidates.push({
+          mod,
+          exact,
+          plain,
+          dates,
+          uploadDates,
+          // Hashed tiers for the sealed fields, and the document's own text —
+          // written by `storeRecordInVault`; absent on records saved before it.
+          hashes: readTierHashes(record),
+          hit: {
+            id: `${mod}-${row.id}`,
+            documentId: row.id,
+            title: record?.name ?? row.title,
+            subtitle: [row.categoryName, record?.issuer].filter(Boolean).join(' — ')
+              || LABELS.get(mod) || mod,
+            // Into the workspace the record actually lives in. A business hit
+            // linked at `/modules/...` would open a route that 400s.
+            //
+            // Filtered by the record's own TITLE, not the query: the list page's
+            // filter is one substring match, so a multi-word query such as
+            // "april bank statement" would land on an empty list.
+            link: `${linkFor(key, companyId)}?search=${encodeURIComponent(record?.name ?? row.title ?? query)}`,
+            module: LABELS.get(mod) || mod,
+          },
         });
-        perModule.set(mod, bucket);
       }
     }
 
     // Passwords keep their own table and their own permission.
+    const passwordHits: Scored[] = [];
     if (await hasPermission(user, 'passwords', 'view')) {
       const pwRows = await withTenant(user.tenantId, async (tx) =>
         tx.select({
@@ -390,52 +440,48 @@ export async function GET(req: Request) {
        * company B's. `mayReach` is the same cached `hasCompanyAccess` the
        * document arm uses, and it returns true for the personal account.
        */
-      const reachable: any[] = [];
-      for (const p of pwRows) {
-        if (await mayReach(p.companyId ?? null)) reachable.push(p);
-      }
-
       const none = new Set<string>();
-      const hits = reachable
-        .map((p: any) => ({
-          p,
-          ...scoreRecord(prepared, `${p.title} ${p.username} ${p.category}`.toLowerCase(), none, none, null),
-        }))
-        .filter(({ score }) => score > 0)
-        .map(({ p, score, complete }) => ({
-          id: `password-${p.id}`,
-          title: p.title,
-          subtitle: `Username: ${p.username} (${String(p.category || '').toUpperCase()})`,
-          // The company's own page when it is a company's credential, so the
-          // link lands in the workspace that holds it. Same builder the sidebar
-          // uses, so the two cannot drift.
-          link: `${utilityNavPath('/passwords', p.companyId ?? null)}?search=${encodeURIComponent(p.title || query)}`,
-          module: 'Passwords',
+      for (const p of pwRows) {
+        if (!(await mayReach(p.companyId ?? null))) continue;
+        const plain: TierText = {};
+        addText(plain, 'docname', `${p.title} ${p.username} ${p.category}`);
+        const r = scoreByTier(prepared, plain, none, none, null, false);
+        if (r.score === 0) continue;
+        passwordHits.push({
+          mod: 'passwords',
           exact: false,
-          complete,
-          score,
-        }));
-      if (hits.length) perModule.set('passwords', hits);
+          complete: r.complete,
+          score: r.score,
+          coverage: r.coverage,
+          matchedIn: r.tier,
+          hit: {
+            id: `password-${p.id}`,
+            title: p.title,
+            subtitle: `Username: ${p.username} (${String(p.category || '').toUpperCase()})`,
+            // The company's own page when it is a company's credential, so the
+            // link lands in the workspace that holds it. Same builder the sidebar
+            // uses, so the two cannot drift.
+            link: `${utilityNavPath('/passwords', p.companyId ?? null)}?search=${encodeURIComponent(p.title || query)}`,
+            module: 'Passwords',
+          },
+        });
+      }
     }
 
-    // Everything that matched every term if anything did; otherwise the best
-    // partial matches. Each module keeps its own cap so one large module
-    // cannot crowd the rest out.
-    const all = [...perModule.values()].flat();
-    const anyComplete = all.some((r) => r.complete);
-    const minScore = prepared.size / 2;
-    const rank = (a: any, b: any) =>
-      Number(b.exact) - Number(a.exact)
-      || Number(b.complete) - Number(a.complete)
-      || b.score - a.score;
-    const kept = [...perModule.values()].flatMap((bucket) => bucket
-      .filter((r) => r.exact || (anyComplete ? r.complete : r.score >= minScore))
-      .sort(rank)
-      .slice(0, MAX_RESULTS_PER_MODULE));
-    const results = kept
-      .sort(rank)
-      .slice(0, MAX_RESULTS)
-      .map(({ complete: _c, score: _s, ...r }) => r);
+    // Pass 1: fields only. Pass 2, only when no record matched every term there:
+    // the documents' own text joins in. The same in-memory records, so the second
+    // pass costs no store reads.
+    let kept = select(prepared, [...scoreAll(prepared, candidates, false), ...passwordHits]);
+    if (!kept.some((r) => r.complete)) {
+      kept = select(prepared, [...scoreAll(prepared, candidates, true), ...passwordHits]);
+    }
+    const results = kept.map((r) => ({
+      ...r.hit,
+      // An exact identifier match is what the user was most likely after.
+      exact: r.exact,
+      // Which kind of field the best term hit — "name", "location", "content".
+      matchedIn: r.matchedIn,
+    }));
 
     return NextResponse.json({ success: true, results });
   } catch (error) {

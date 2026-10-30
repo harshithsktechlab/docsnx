@@ -1017,6 +1017,41 @@ export const auditLogs = pgTable("audit_logs", {
   };
 });
 
+/**
+ * What people search for and which document it led to — one row per (tenant,
+ * keyword, document). The future tag source. See drizzle/0088.
+ *
+ *   documentId set   the keyword led to that document; `hitCount` = times opened
+ *   documentId NULL  the keyword found nothing; `hitCount` = times searched
+ *
+ * Keywords and `lastQueryText` are redacted before insert
+ * (src/lib/search/trackingTerms.ts). `documentTitle` is a snapshot of the
+ * plaintext title. Written when a search ENDS, never per keystroke.
+ */
+export const searchKeywords = pgTable("search_keywords", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  keyword: varchar("keyword", { length: 100 }).notNull(),
+  documentId: uuid("document_id").references(() => documents.id, { onDelete: 'cascade' }),
+  documentTitle: varchar("document_title", { length: 255 }),
+  categoryKey: varchar("category_key", { length: 200 }),
+  companyId: uuid("company_id").references(() => companies.id, { onDelete: 'cascade' }),
+  hitCount: integer("hit_count").notNull().default(1),
+  lastQueryText: varchar("last_query_text", { length: 200 }),
+  lastResultCount: integer("last_result_count").notNull().default(0),
+  lastMatchedTier: varchar("last_matched_tier", { length: 16 }),
+  lastUserId: uuid("last_user_id").references(() => users.id, { onDelete: 'set null' }),
+  firstAt: timestamp("first_at", { withTimezone: true }).defaultNow().notNull(),
+  lastAt: timestamp("last_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // Partial, because a NULL document_id never collides under a plain unique index.
+  docUq: uniqueIndex("search_keywords_doc_uq").on(table.tenantId, table.keyword, table.documentId)
+    .where(sql`${table.documentId} IS NOT NULL`),
+  noDocUq: uniqueIndex("search_keywords_nodoc_uq").on(table.tenantId, table.keyword)
+    .where(sql`${table.documentId} IS NULL`),
+  keywordIdx: index("search_keywords_keyword_idx").on(table.tenantId, table.keyword),
+}));
+
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   label: varchar("label", { length: 255 }).notNull(),

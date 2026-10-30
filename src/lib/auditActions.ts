@@ -215,6 +215,8 @@ export const ACTIONS = {
     generate_followups: 'ai.generate_followups',
     update_context: 'ai.update_context',
     optimize_context: 'ai.optimize_context',
+    // No longer written: the "Recalculate past usage" button was removed. Kept so the
+    // entries it left in the audit trail still read as a sentence.
     recalculate_usage: 'ai.recalculate_usage',
   },
 

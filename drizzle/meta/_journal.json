@@ -610,6 +610,20 @@
       "when": 1786243321000,
       "tag": "0086_credit_pools",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1786329721000,
+      "tag": "0087_search_keyword_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1786416121000,
+      "tag": "0088_search_keywords_single_table",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,7 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef,
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Loader2, Search, X } from 'lucide-react';
-import { apiCall } from '@/lib/net/apiRequest';
+import { apiCall, apiRequest } from '@/lib/net/apiRequest';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +25,12 @@ interface SearchResult {
   subtitle?: string;
   link: string;
   module: string;
+  /** The `documents` row behind the hit, for the search log. Absent on passwords. */
+  documentId?: string;
+  /** An exact lookup of a sealed identifier — never logged. */
+  exact?: boolean;
+  /** Which kind of field the best word matched in. */
+  matchedIn?: string | null;
 }
 
 export interface GlobalSearchHandle {
@@ -64,6 +70,28 @@ const GlobalSearch = forwardRef<GlobalSearchHandle, GlobalSearchProps>(function 
 
   const trimmed = query.trim();
   const showDropdown = open && trimmed.length >= MIN_QUERY;
+
+  // The search log. Written when a search ENDS — a result is opened, or the box
+  // is closed on a query that found nothing — never per keystroke. Fire and
+  // forget: a failed log write must never be seen by the person searching.
+  const settled = useRef({ query: '', searching: false, count: 0, lastNoResult: '' });
+  settled.current.query = trimmed;
+  settled.current.searching = searching;
+  settled.current.count = results.length;
+  const track = useCallback((body: Record<string, unknown>) => {
+    apiRequest('/api/search/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      keepalive: true,
+    }).catch(() => {});
+  }, []);
+  const trackNoResult = useCallback(() => {
+    const s = settled.current;
+    if (s.query.length < MIN_QUERY || s.searching || s.count > 0 || s.lastNoResult === s.query) return;
+    s.lastNoResult = s.query;
+    track({ query: s.query, outcome: 'no_result', resultCount: 0 });
+  }, [track]);
 
   // Debounced fetch. A sequence number drops a slow response that lands after
   // a newer query's, so the list never shows results for text no longer typed.
@@ -114,19 +142,31 @@ const GlobalSearch = forwardRef<GlobalSearchHandle, GlobalSearchProps>(function 
     const onPointer = (e: PointerEvent) => {
       const t = e.target as Node;
       if (boxRef.current?.contains(t) || dropdownRef.current?.contains(t)) return;
+      trackNoResult();
       setOpen(false);
     };
     document.addEventListener('pointerdown', onPointer);
     return () => document.removeEventListener('pointerdown', onPointer);
-  }, [open]);
+  }, [open, trackNoResult]);
 
   const reset = () => {
+    trackNoResult();
     setQuery('');
     setResults([]);
     setOpen(false);
   };
 
   const go = (res: SearchResult) => {
+    if (res.documentId) {
+      track({
+        query: trimmed,
+        outcome: 'clicked',
+        documentId: res.documentId,
+        resultCount: results.length,
+        matchedIn: res.matchedIn ?? undefined,
+        exact: res.exact === true,
+      });
+    }
     router.push(res.link);
     reset();
     inputRef.current?.blur();

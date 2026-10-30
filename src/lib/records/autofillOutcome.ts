@@ -232,3 +232,37 @@ export function resolveAutofillOutcome(
     fields: (json.fields && typeof json.fields === 'object') ? json.fields : {},
   };
 }
+
+/**
+ * The `mismatch` object `/api/modules/:m/:d/autofill` answers with when the
+ * document the user filed under one category clearly belongs in another. See
+ * records/categoryMismatch.ts for when that is.
+ */
+export interface MismatchCategory {
+  id: string;
+  moduleKey: string;
+  documentKey: string;
+  moduleName: string;
+  documentName: string;
+}
+
+export interface CategoryMismatch {
+  /** What the user picked. */
+  selected: MismatchCategory;
+  /** What the AI says it is. */
+  detected: MismatchCategory;
+  /** False when the member may not add to `detected` — Yes is then not offered. */
+  detectedPermitted: boolean;
+  /** The picked category's module's own Other — where "No" files it. */
+  otherCategory: MismatchCategory;
+}
+
+/** Said after the user accepts the AI's category. */
+export function mismatchAcceptedMessage(c: Pick<MismatchCategory, 'moduleName' | 'documentName'>): string {
+  return `Filed under ${c.moduleName} › ${c.documentName}. Reading the document against it...`;
+}
+
+/** Said after the user keeps their module but declines the AI's category. */
+export function mismatchDeclinedMessage(c: Pick<MismatchCategory, 'moduleName'>): string {
+  return `Filed under ${c.moduleName} › Other. Add a label below if you like.`;
+}

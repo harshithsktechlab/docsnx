@@ -11,7 +11,8 @@ import { loadCategoryFieldSpec } from '../records/categorySpec';
 import { identifierFields } from '../documentCategoryFields';
 import { vaultFilePath } from '../records/fileUrl';
 import { scopeForCategory } from '../records/registry';
-import { fieldTokens, hashSearchTokens, textTokens } from '../search/tokens';
+import { hashSearchTokens, textTokens } from '../search/tokens';
+import { hashSearchTiers } from '../search/tiers';
 
 /**
  * The one place any record becomes vault content.
@@ -281,10 +282,12 @@ export async function storeRecordInVault(
     } | null;
   } = { value: null };
 
-  // Keyword index, hashed. Built from `metadata` BEFORE the split, so sealed
-  // fields (an address, a name on the document) are searchable by whole word
-  // without their plaintext being kept anywhere.
-  const searchTokens = hashSearchTokens(fieldTokens(name, metadata ?? {}));
+  // Keyword index, hashed and grouped by kind of field (name, location,
+  // pincode, ...) so search can rank where a word was found. Built from
+  // `metadata` BEFORE the split, so sealed fields (an address, a name on the
+  // document) are searchable by whole word without their plaintext being kept
+  // anywhere.
+  const searchTiers = hashSearchTiers(name, metadata ?? {});
   const newContentTokens = input.contentText
     ? hashSearchTokens(textTokens(input.contentText))
     : null;
@@ -335,7 +338,10 @@ export async function storeRecordInVault(
       pages: keep ? keep.pages : storedPages,
       pageCount: keep ? keep.pages.length : storedPages.length,
       searchHashes: input.searchHashes ?? {},
-      searchTokens,
+      searchTiers,
+      // The flat list this replaces. `...prev` would carry the old one forward
+      // next to the new tiers, doubling the index.
+      searchTokens: undefined,
       contentTokens: newContentTokens
         ?? (pageInputs.length === 0 && Array.isArray(prev.contentTokens) ? prev.contentTokens : []),
       masked: input.masked ?? {},

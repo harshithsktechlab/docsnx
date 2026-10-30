@@ -60,6 +60,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Loader2, Save, Sparkles, Upload,
 } from 'lucide-react';
@@ -68,6 +69,10 @@ import { toastStorageError } from '@/lib/storageToast';
 import { apiRequest } from '@/lib/net/apiRequest';
 import { useWorkspaceCompanyId, withCompany } from '@/lib/net/useWorkspaceApi';
 import { postUpload } from '@/lib/records/uploadRequest';
+import { stashPendingFiles } from '@/lib/pendingUpload';
+import { utilityNavPath } from '@/lib/moduleRegistry';
+import CategoryMismatchDialog from '@/components/records/CategoryMismatchDialog';
+import { mismatchAcceptedMessage, mismatchDeclinedMessage } from '@/lib/records/autofillOutcome';
 import { apiErrorMessage } from '@/lib/net/apiErrorMessage';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -141,6 +146,7 @@ export default function CategoryRecordForm({
    */
   const companyId = useWorkspaceCompanyId();
   const scoped = (url) => withCompany(url, companyId);
+  const router = useRouter();
 
   const [spec, setSpec] = useState(null);
   const [loadingSpec, setLoadingSpec] = useState(true);
@@ -175,6 +181,13 @@ export default function CategoryRecordForm({
   const [removedPhotos, setRemovedPhotos] = useState([]);
   /** The AI read of the attached document is in flight. */
   const [autofilling, setAutofilling] = useState(false);
+  /**
+   * The AI says the attached document is not a <this category>: the `mismatch`
+   * object from the autofill route, or null. This page's category is fixed by
+   * its URL, so either answer takes the file to the Document Manager, which
+   * files it where the user said. See CategoryMismatchDialog.
+   */
+  const [categoryMismatch, setCategoryMismatch] = useState(null);
   /** What the read produced, said in one line under the picker. */
   const [autofillNote, setAutofillNote] = useState('');
   const [autofillError, setAutofillError] = useState('');
@@ -574,6 +587,10 @@ export default function CategoryRecordForm({
       body.append('file', file);
       // Editing: the record exists, so the server links the read to it now.
       if (recordId) body.append('recordId', recordId);
+      // Have the server check the document really is this category before it
+      // spends a field read on it. Not on an edit: an existing record is not
+      // re-filed behind the user's back.
+      if (!recordId) body.append('checkCategory', '1');
       // `postUpload`, not `fetch`: this posts a file, so nginx's 413 HTML page
       // is on the table and `res.json()` used to throw a SyntaxError on it —
       // landing in the catch below as "Network error — the document was not
@@ -594,6 +611,12 @@ export default function CategoryRecordForm({
       const json = outcome.json;
       if (!json.success) {
         setAutofillError(json.error || 'Could not read this document — fill the form in yourself.');
+        return;
+      }
+
+      // "This is not what you filed it as." No fields came back; ask the user.
+      if (json.mismatch) {
+        setCategoryMismatch(json.mismatch);
         return;
       }
 
@@ -679,6 +702,22 @@ export default function CategoryRecordForm({
     } finally {
       setAutofilling(false);
     }
+  };
+
+  /**
+   * Both answers end the same way: the file goes to the Document Manager with
+   * the category already chosen. YES also starts the read there (the user
+   * accepted the AI's category); NO files it under this module's Other and
+   * reads nothing. Navigate first, then stash — the same order as the one
+   * Upload button (useUploadPicker).
+   */
+  const answerCategoryMismatch = (yes) => {
+    const target = yes ? categoryMismatch?.detected : categoryMismatch?.otherCategory;
+    setCategoryMismatch(null);
+    if (!target?.id || !file) return;
+    toast.info(yes ? mismatchAcceptedMessage(target) : mismatchDeclinedMessage(target));
+    router.push(utilityNavPath('/documents', companyId));
+    stashPendingFiles([file], { categoryId: target.id, read: yes });
   };
 
   /**
@@ -1055,6 +1094,12 @@ export default function CategoryRecordForm({
             prompt as the Document Manager now: both documents rendered, three
             answers. Portalled by Radix, so nesting it here is only where it
             lives in the tree, not where it draws. */}
+        <CategoryMismatchDialog
+          open={Boolean(categoryMismatch)}
+          mismatch={categoryMismatch}
+          onYes={() => answerCategoryMismatch(true)}
+          onNo={() => answerCategoryMismatch(false)}
+        />
         <DuplicateResolveDialog
           open={Boolean(duplicate)}
           match={duplicate}

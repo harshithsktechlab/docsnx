@@ -1011,9 +1011,21 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
     const record = { holderName: typeof out.parsed?.holderName === 'string' ? out.parsed.holderName.trim() : '', extractedData: {} };
     applyHufSuffixIfApplicable(record, `${out.parsed?.title || ''} ${files.map((f) => f.fileName || '').join(' ')}`);
 
+    // The model's other validated choices, best first. Not the winner, not the
+    // catch-all: "it could also be these" is what lets a caller tell a near miss
+    // from a contradiction. See records/categoryMismatch.ts.
+    const alternatives = [];
+    for (const c of out.proposals) {
+      if (c.moduleKey === moduleKey && c.documentKey === documentKey) continue;
+      if (isCatchAll(c) || alternatives.some((a) => a.moduleKey === c.moduleKey && a.documentKey === c.documentKey)) continue;
+      if (await knownCategory(c.moduleKey, c.documentKey)) alternatives.push({ moduleKey: c.moduleKey, documentKey: c.documentKey });
+      if (alternatives.length === 3) break;
+    }
+
     return {
       moduleKey,
       documentKey,
+      alternatives,
       title: typeof out.parsed?.title === 'string' ? out.parsed.title.trim() : '',
       holderName: record.holderName || '',
       // Read by executeTenantWithRotation for per-tenant usage accounting —

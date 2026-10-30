@@ -3,28 +3,26 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Plus, Trash2, Edit2, CheckCircle, AlertCircle,
-  Loader2, Save, X, FileText, KeyRound, FolderOpen,
-  Copy, Check, Search, Shield, Zap, CreditCard, Sparkles,
-  Calendar, ToggleLeft, ToggleRight, Info, Ticket
+  Users, Plus, CheckCircle, AlertCircle,
+  Loader2, Save, X, FileText, KeyRound,
+  Search, Zap, CreditCard, Sparkles,
+  ToggleLeft, ToggleRight, Info, Ticket
 } from 'lucide-react';
 import { clientGetMe } from '@/lib/clientAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogBody } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { storagePressure } from '@/lib/storagePressure';
 import { formatDate } from '@/lib/dateHelper';
 import { aiTaskLabel } from '@/lib/creditLedger';
 import PageContainer from '@/app/components/PageContainer';
-import CreditMeter from '@/app/components/CreditMeter';
 import { apiCall } from '@/lib/net/apiRequest';
+import TenantRow, { TenantListHeader } from './TenantRow';
 
 
 /**
@@ -367,12 +365,24 @@ export default function TenantsPage() {
     }
   };
 
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const toggleExpanded = (id) => setExpandedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
   const handleCopy = (text, id) => { navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); };
 
   const filteredTenants = tenants.filter(t => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
-    return t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q);
+    // Name and id, plus what an admin looks a customer up by: phone, email, plan.
+    const haystack = [
+      t.name, t.id, t.planName, t.businessPlanName, t.adminContact?.name, t.contactName,
+      t.adminContact?.phoneNumber, t.adminContact?.email, t.billingPhone, t.billingEmail,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(q);
   });
 
   const openPaymentModal = (tenant) => {
@@ -1139,239 +1149,28 @@ export default function TenantsPage() {
           <p className="text-xs">Try a different search query.</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-4 animate-fade-in">
-          {filteredTenants.map((tenant) => {
-            const counts = tenant._count || {};
-            const storage = tenant.storageData;
-            const storagePct = storage && !storage.unlimited && storage.limitBytes
-              ? Math.min(100, (storage.currentBytes / storage.limitBytes) * 100)
-              : 0;
-            // The same three states the tenant's own meter uses, so an admin
-            // looking at a workspace sees what its owner sees.
-            const storageState = storagePressure(storage);
-            const isCurrentTenant = tenant.id === currentUser?.tenantId;
-            const ai = tenant.aiUsage || { promptTokens: 0, completionTokens: 0, cost: 0 };
-
-            return (
-              <Card
+        <div className="flex flex-col gap-2 animate-fade-in">
+          <TenantListHeader />
+          <ul className="flex flex-col gap-2 p-0 m-0">
+            {filteredTenants.map((tenant) => (
+              <TenantRow
                 key={tenant.id}
-                className={cn(
-                  'border-l-4 transition-all hover:shadow-glass-hover bg-card backdrop-blur border-border/60',
-                  isCurrentTenant ? 'border-l-primary' : 'border-l-border',
-                  !tenant.isActive && 'opacity-65'
-                )}
-              >
-                <CardContent className="p-5">
-                  {/* Header Row */}
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="font-extrabold text-lg text-foreground">{tenant.name}</span>
-                        <Badge variant="secondary" className="font-mono text-xs flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(`${window.location.origin}/login`, tenant.id)}
-                            className="hover:text-primary transition-colors ml-0.5"
-                            title="Copy login URL"
-                          >
-                            {copiedId === tenant.id ? <Check size={9} /> : <Copy size={9} />}
-                          </button>
-                        </Badge>
-                        {isCurrentTenant && <Badge variant="default" className="bg-primary text-primary-foreground">Active Session</Badge>}
-                        {!tenant.isActive && <Badge variant="destructive">Suspended</Badge>}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                        <span>ID:</span>
-                        <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{tenant.id}</code>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(tenant.id, `id-${tenant.id}`)}
-                          className="text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          {copiedId === `id-${tenant.id}` ? <Check size={10} /> : <Copy size={10} />}
-                        </button>
-                        <span className="text-faint">|</span>
-                        
-                        <span className="flex items-center gap-1 font-bold text-foreground">
-                          <Badge variant="outline" className="text-xs border-primary/50 text-primary bg-primary/5">{tenant.planName || "Default Plan"}</Badge>
-                        </span>
-                        
-                        {tenant.activeAddons?.map(addon => (
-                          <Badge key={addon.id} variant="secondary" className="text-2xs border border-border">
-                            {addon.name}
-                          </Badge>
-                        ))}
-
-                        <span className="flex items-center gap-1 ml-1">
-                          <Calendar size={11} />
-                          {tenant.subscriptionExpiry ? (
-                            <span className={cn(
-                              "font-bold",
-                              new Date(tenant.subscriptionExpiry) < new Date() ? "text-danger-text" : "text-emerald-500"
-                            )}>
-                              {new Date(tenant.subscriptionExpiry) < new Date() ? 'Expired' : 'Expires'} {formatDate(tenant.subscriptionExpiry)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">No Expiry</span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <Button variant="outline" size="sm" onClick={() => openDetailModal(tenant)} className="h-8 text-xs font-bold">
-                        <Info size={12} className="mr-1" />
-                        Details
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openAddonsModal(tenant)} disabled={isProcessingPayment} className="h-8 text-xs font-bold border-purple-600/30 hover:bg-purple-600/10 text-purple-500">
-                        <Sparkles size={12} className="mr-1" />
-                        Manage Add-ons
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openPaymentModal(tenant)} disabled={isProcessingPayment} className="h-8 text-xs font-bold border-blue-600/30 hover:bg-blue-600/10 text-blue-500">
-                        {isProcessingPayment ? <Loader2 size={12} className="animate-spin mr-1" /> : <CreditCard size={12} className="mr-1" />}
-                        Change Plan
-                      </Button>
-                      <Button variant="outline" size="icon" onClick={() => openEditForm(tenant)} className="h-8 w-8" title="Edit Settings">
-                        <Edit2 size={13} />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleDelete(tenant)}
-                        disabled={isCurrentTenant}
-                        title={isCurrentTenant ? 'Cannot delete active tenant' : 'Delete Tenant'}
-                        className={cn('h-8 w-8', !isCurrentTenant && 'text-danger-action border-destructive/30 hover:bg-destructive/10 hover:text-danger-action')}
-                      >
-                        <Trash2 size={13} />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-                    {/* Quotas */}
-                    <div className="flex flex-col gap-2 p-3.5 bg-muted/20 border border-border/50 rounded-xl">
-                      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                        <Shield size={11} className="text-blue-500" />
-                        <span>Active Quotas</span>
-                      </div>
-                      
-                      <div className="flex flex-col gap-2.5 mt-1">
-                        {/* Storage */}
-                        <div className="flex flex-col gap-1">
-                          <div className="flex justify-between items-center text-2xs font-bold">
-                            <span className="text-muted-foreground">
-                              {storage?.isGoogleDrive ? 'Drive Storage' : 'Storage'}
-                            </span>
-                            {storage?.unlimited ? (
-                              /* No ceiling to report — a Drive quota we have not
-                                 read yet, or a pooled Workspace account. Said as
-                                 that rather than as "unlimited", which is what
-                                 this row claimed for every Drive tenant however
-                                 full their Drive actually was. */
-                              <span className="text-muted-foreground">
-                                {storage?.isGoogleDrive
-                                  ? `Google Drive · ${((storage?.currentBytes || 0) / (1024*1024*1024)).toFixed(2)} GB used, no limit read`
-                                  : 'Unlimited'}
-                              </span>
-                            ) : (
-                              <span className={cn(
-                                storageState === 'full' ? 'text-destructive'
-                                  : storageState === 'warning' ? 'text-amber-500' : 'text-foreground'
-                              )}>
-                                {`${((storage?.currentBytes || 0) / (1024*1024*1024)).toFixed(2)} GB`} / {`${((storage?.limitBytes || 0) / (1024*1024*1024)).toFixed(0)} GB`}
-                                {` (${Math.round(storagePct)}%)`}
-                              </span>
-                            )}
-                          </div>
-                          {!storage?.unlimited && (
-                            <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                              <div
-                                className={cn(
-                                  "h-full rounded-full",
-                                  storageState === 'full' ? 'bg-destructive'
-                                    : storageState === 'warning' ? 'bg-amber-500' : 'bg-primary'
-                                )}
-                                style={{ width: `${storagePct}%` }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Members */}
-                        <div className="flex flex-col gap-1">
-                          <div className="flex justify-between items-center text-2xs font-bold">
-                            <span className="text-muted-foreground">Members</span>
-                            <span className="text-foreground">
-                              {counts.members || 0} / {tenant.maxMembers || 1}
-                            </span>
-                          </div>
-                          <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={cn("h-full rounded-full", ((counts.members || 0) / (tenant.maxMembers || 1)) >= 1 ? "bg-destructive" : "bg-primary")}
-                              style={{ width: `${Math.min(100, ((counts.members || 0) / (tenant.maxMembers || 1)) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* AI Credits — balance with the ledger totals that explain it */}
-                        <CreditMeter
-                          balance={tenant.credits?.balance ?? tenant.aiCreditsBalance}
-                          received={tenant.credits?.granted}
-                          used={tenant.credits?.used}
-                          onAdjust={() => openCreditsModal(tenant)}
-                        />
-                      </div>
-                    </div>
-                    {/* Database Records Stats */}
-                    <div className="flex flex-col gap-2 p-3.5 bg-muted/20 border border-border/50 rounded-xl">
-                      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                        <FolderOpen size={11} className="text-primary" />
-                        <span>Workspaces Database Records</span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 text-center mt-1">
-                        {[
-                          { label: 'Members', count: counts.members || 0 },
-                          { label: 'Records', count: counts.records || 0 },
-                          { label: 'Files', count: counts.files || 0 },
-                          { label: 'Creds', count: counts.credentials || 0 },
-                        ].map(stat => (
-                          <div key={stat.label} className="flex flex-col">
-                            <span className="text-[16px] font-extrabold text-foreground">{stat.count}</span>
-                            <span className="text-2xs font-bold text-muted-foreground">{stat.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* AI Token Consumption */}
-                    <div className="flex flex-col gap-1.5 p-3.5 bg-muted/20 border border-border/50 rounded-xl">
-                      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
-                        <div className="flex items-center gap-1">
-                          <Zap size={11} className="text-amber-500" />
-                          <span>AI Usage &amp; Cost metrics</span>
-                        </div>
-                        {tenant.hasCustomApiKey ? <Badge variant="success" className="text-2xs py-0 px-1 rounded-sm leading-none">Custom Key</Badge> : <Badge variant="secondary" className="text-2xs py-0 px-1 rounded-sm leading-none">Shared Key</Badge>}
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 mt-1">
-                        <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">Prompt Tkn</span>
-                          <span className="text-sm font-extrabold text-foreground">{ai.promptTokens.toLocaleString()}</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">Compl. Tkn</span>
-                          <span className="text-sm font-extrabold text-foreground">{ai.completionTokens.toLocaleString()}</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">Calculated Cost</span>
-                          <span className="text-sm font-extrabold text-emerald-500">${ai.cost.toFixed(4)}</span>
-                          <span className="text-xs font-bold text-muted-foreground">₹{Number(ai.costInr || 0).toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                tenant={tenant}
+                isCurrentTenant={tenant.id === currentUser?.tenantId}
+                expanded={expandedIds.has(tenant.id)}
+                onToggle={() => toggleExpanded(tenant.id)}
+                copiedId={copiedId}
+                onCopy={handleCopy}
+                busy={isProcessingPayment}
+                onDetails={() => openDetailModal(tenant)}
+                onAddons={() => openAddonsModal(tenant)}
+                onChangePlan={() => openPaymentModal(tenant)}
+                onEdit={() => openEditForm(tenant)}
+                onDelete={() => handleDelete(tenant)}
+                onAdjustCredits={() => openCreditsModal(tenant)}
+              />
+            ))}
+          </ul>
         </div>
       )}
     </PageContainer>

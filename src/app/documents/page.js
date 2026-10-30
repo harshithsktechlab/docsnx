@@ -52,9 +52,10 @@ import { holderRequired, holdersForWrite } from '@/lib/records/holderScope';
 import { describeFieldErrors } from '@/lib/records/fieldValidation';
 import { docField, docCustomFields } from '@/lib/records/docFieldsClient';
 import {
+  mismatchAcceptedMessage, mismatchDeclinedMessage,
   needsPdfPassword, PDF_PASSWORD_INCORRECT, PDF_PASSWORD_SKIPPED_MESSAGE, resolveAutofillOutcome,
 } from '@/lib/records/autofillOutcome';
-import { autoReadFor } from '@/lib/records/autoReadOnPick';
+import { autoReadFor, autoReadKey } from '@/lib/records/autoReadOnPick';
 import { decidePendingAutofill } from '@/lib/records/pendingAutofillDecision';
 import CategorySelect from '@/app/components/CategorySelect';
 import CategoryFieldInputs, {
@@ -65,6 +66,7 @@ import { LINKED_CARDS_KEY } from '@/lib/records/linkedCards';
 import useCategoryFields from '@/app/components/useCategoryFields';
 import { usePermittedCategories } from '@/lib/usePermittedCategories';
 import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
+import CategoryMismatchDialog from '@/components/records/CategoryMismatchDialog';
 import FilePreviewPane from '@/components/records/FilePreviewPane';
 import {
   UPLOAD_ACCEPT_ATTRIBUTE,
@@ -76,7 +78,7 @@ import { prepareUploadFile } from '@/lib/records/fileSnapshot';
 import { postUpload, uploadErrorMessage } from '@/lib/records/uploadRequest';
 import PageContainer from '@/app/components/PageContainer';
 import MultiPageCapture from '@/app/components/MultiPageCapture';
-import { stashPendingFiles, takePendingFiles, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
+import { stashPendingFiles, takePendingFiles, takePendingHint, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
 import { apiDownload } from '@/lib/net/apiRequest';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
 import { acceptsCustomLabel, belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
@@ -281,6 +283,18 @@ export default function DocumentsPage() {
    * missing, instead of leaving a second button for them to find.
    */
   const [scanNeedsCategory, setScanNeedsCategory] = useState(false);
+  /**
+   * The AI read the document and says it is NOT what the user filed it as — the
+   * `mismatch` object from the autofill route, or null. The dialog it opens is
+   * answered with Yes (use the AI's category) or No (that module's Other).
+   */
+  const [categoryMismatch, setCategoryMismatch] = useState(null);
+  /**
+   * The (file, category) pair the classifier has ALREADY weighed in on, so the
+   * read that follows does not ask it again. Set before the re-read that the
+   * user's answer — or their pick after an unplaced classify — starts.
+   */
+  const categoryCheckedRef = useRef('');
   /**
    * The password prompt for a locked PDF — bank statements usually are.
    * `retry` re-runs the read that was refused; `incorrect` says the last
@@ -637,6 +651,15 @@ export default function DocumentsPage() {
       if (editingDoc?.id) body.append('recordId', editingDoc.id);
       const pdfPassword = pdfPasswordFor(selectedFile);
       if (pdfPassword) body.append('pdfPassword', pdfPassword);
+      // Ask the server to check the document really is this category before it
+      // spends a field read on it. Never on an edit — that record's category is
+      // not re-filed behind the user's back — and not twice for the same pick.
+      if (!editingDoc) {
+        body.append('checkCategory', '1');
+        if (categoryRef.id && categoryCheckedRef.current === autoReadKey(selectedFile, categoryRef)) {
+          body.append('skipCategoryCheck', '1');
+        }
+      }
       // `postUpload`: this posts a file, so a 413 from nginx is on the table
       // and the AI wait can outrun any short client timeout.
       //
@@ -666,6 +689,19 @@ export default function DocumentsPage() {
         // in this same line rather than as a dead control.
         setAiError(json.error || 'Could not read this document. Fill the details in below.');
         setAiMessage('');
+        return;
+      }
+
+      // ── "This is not what you filed it as" ───────────────────────────────
+      // No fields came back — the server did not spend the read. The holder is
+      // true whatever the category turns out to be; the title names the AI's
+      // category, so it waits for the answer (a Yes re-reads and names it).
+      if (json.mismatch) {
+        rememberScanText(selectedFile, json);
+        scanHolderRef.current = json.holderName || '';
+        applyScannedHolder(json);
+        setAiMessage('');
+        setCategoryMismatch(json.mismatch);
         return;
       }
 
@@ -789,6 +825,9 @@ export default function DocumentsPage() {
     setScanNeedsCategory(false);
     setAiScanning(true);
     setAiError('');
+    // The classify pass (or the user's answer to the mismatch dialog) already
+    // chose this category: do not ask the classifier a second time.
+    categoryCheckedRef.current = key;
     runCategoryAutofill(file, uploadCategory, uploadFields)
       .finally(() => setAiScanning(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -891,6 +930,36 @@ export default function DocumentsPage() {
     }, 15000);
     return () => clearTimeout(timer);
   }, [pendingAutofill]);
+
+  /**
+   * YES — the AI's category. Selecting it is the whole job: `scanNeedsCategory`
+   * re-arms the pick-triggered read above, which reads the file against the new
+   * category once its spec has arrived (and skips the classify, see
+   * `categoryCheckedRef`).
+   */
+  const acceptCategoryMismatch = () => {
+    const found = categoryMismatch?.detected;
+    setCategoryMismatch(null);
+    if (!found?.id) return;
+    setAiError('');
+    setAiMessage(mismatchAcceptedMessage(found));
+    setScanNeedsCategory(true);
+    setCategoryId(found.id);
+  };
+
+  /**
+   * NO — the user's module, filed under its Other. Nothing is read: Other has
+   * no fields worth guessing at, and the label input is how the user says what
+   * it is.
+   */
+  const declineCategoryMismatch = () => {
+    const other = categoryMismatch?.otherCategory;
+    setCategoryMismatch(null);
+    if (!other?.id) return;
+    setAiError('');
+    setAiMessage(mismatchDeclinedMessage(other));
+    setCategoryId(other.id);
+  };
 
   const handleAiScan = async () => {
     const selectedFile = editingDoc ? editFile : file;
@@ -1127,12 +1196,24 @@ export default function DocumentsPage() {
   // Rebuilt every render so it calls this render's helpers, not the first's.
   const addFormRef = useRef(null);
   const receivePendingRef = useRef(null);
-  receivePendingRef.current = () => {
+  receivePendingRef.current = async () => {
     if (pendingFileCount() !== 1) return;
     const picked = takePendingFiles();
+    // Sent from a category page whose user has already answered "this does not
+    // look like a <that>": the category is chosen for them.
+    const hint = takePendingHint();
     // No reset: the same as re-picking in the form's own dropzone.
     setShowAddForm(true);
-    attachPickedFiles(picked);
+    const attached = attachPickedFiles(picked);
+    if (hint?.categoryId) {
+      // After the attach, which disarms any read waiting on the PREVIOUS file.
+      // A file the form refused (wrong type, too big) has nothing to file.
+      if ((await attached) === false) return;
+      setCategoryId(hint.categoryId);
+      // The same re-arm the in-page Yes uses: the effect that owns the read
+      // starts it once the file, the category and its spec are all in hand.
+      if (hint.read) setScanNeedsCategory(true);
+    }
     requestAnimationFrame(() =>
       addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
     );
@@ -3002,6 +3083,15 @@ export default function DocumentsPage() {
         onKeepExisting={handleDuplicateCancel}
         onKeepNew={() => answerDuplicate('replace')}
         onKeepBoth={() => answerDuplicate('keepBoth')}
+      />
+
+      {/* ── Category mismatch ───────────────────────────────────────────
+          The AI says this is not what it was filed as. See CategoryMismatchDialog. */}
+      <CategoryMismatchDialog
+        open={Boolean(categoryMismatch)}
+        mismatch={categoryMismatch}
+        onYes={acceptCategoryMismatch}
+        onNo={declineCategoryMismatch}
       />
 
       {/* Edit Document Modal */}
