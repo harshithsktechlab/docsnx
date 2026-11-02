@@ -183,7 +183,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // lives in. See src/lib/records/workspaceMembers.ts.
     if (holderSent && holder.holderId
       && !await isWorkspaceMember(user.tenantId, holder.holderId, scope.companyId)) {
-      return NextResponse.json({ error: 'That member is not part of this workspace' }, { status: 400 });
+      return NextResponse.json({ error: 'That user is not part of this workspace' }, { status: 400 });
     }
 
     const blocked = requireDriveConnected(user.tenant);

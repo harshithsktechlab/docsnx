@@ -30,7 +30,7 @@ onBackgroundMessage(messaging, (payload) => {
   const notificationTitle = payload.notification?.title || 'New Notification';
   const notificationOptions = {
     body: payload.notification?.body,
-    icon: '/icon-192.png',
+    icon: '/api/brand/logo',
     data: {
       url: payload.data?.link || payload.data?.url || (payload.notification as any)?.click_action || '/dashboard'
     }

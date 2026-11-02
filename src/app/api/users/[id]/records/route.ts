@@ -73,6 +73,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       pagination: { page: query.page, limit },
     });
   } catch (error) {
-    return serverError(error, 'listing member records');
+    return serverError(error, 'listing user records');
   }
 }

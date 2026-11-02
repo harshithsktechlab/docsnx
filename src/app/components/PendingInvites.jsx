@@ -14,10 +14,13 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { clientRespondToInvite } from '@/lib/clientMemberships';
 
-export default function PendingInvites({ invites = [], onAnswered }) {
+/**
+ * Accept / decline an invitation. Shared by the banner and the bell so both
+ * answer the same way: toast, then `onAnswered` (the shell reloads to pick up
+ * the new switcher).
+ */
+export function useInviteResponder(onAnswered) {
   const [busy, setBusy] = useState(null);
-
-  if (!invites.length) return null;
 
   const answer = async (invite, action) => {
     setBusy(invite.userId);
@@ -30,6 +33,14 @@ export default function PendingInvites({ invites = [], onAnswered }) {
     toast.success(action === 'accept' ? `You joined ${invite.tenantName}.` : 'Invitation declined.');
     onAnswered?.();
   };
+
+  return { busy, answer };
+}
+
+export default function PendingInvites({ invites = [], onAnswered }) {
+  const { busy, answer } = useInviteResponder(onAnswered);
+
+  if (!invites.length) return null;
 
   return (
     <div role="region" aria-label="Invitations" className="flex flex-col gap-2 border-b border-border bg-primary/5 px-4 py-3">

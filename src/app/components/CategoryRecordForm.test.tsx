@@ -97,7 +97,7 @@ describe('in a company workspace', () => {
     await awaitSpec();
     // The statement, not a combobox — this is why there is nothing to answer.
     expect(await screen.findByText('HSKTechlab')).toBeTruthy();
-    expect(screen.queryByText('All members')).toBeNull();
+    expect(screen.queryByText('All users')).toBeNull();
   });
 
   it('SAVES a complete record without ever asking who it belongs to', async () => {
@@ -123,7 +123,7 @@ describe('in a company workspace', () => {
 
     await waitFor(() => expect(postUpload).toHaveBeenCalled());
     const body = postUpload.mock.calls[0][1] as unknown as FormData;
-    // Not '' — an empty holder reads as an explicit "All members" and would set
+    // Not '' — an empty holder reads as an explicit "All users" and would set
     // is_global on a record that belongs to the company. See holderScope.ts.
     expect(body.has('holderId')).toBe(false);
   });

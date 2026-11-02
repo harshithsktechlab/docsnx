@@ -14,8 +14,8 @@
  * message the user cannot act on.
  *
  * The form is shorter than it was: the workspace name and the first company are
- * asked by the onboarding wizard, and the plan and discount code by /billing.
- * What remains is the five answers an account cannot be created without, plus
+ * asked by the onboarding wizard, and the plan (which decides the account type)
+ * and discount code by /billing. What remains is the four answers an account cannot be created without, plus
  * the one rule that exists only here — the password confirmation.
  */
 import { describe, it, expect } from 'vitest';
@@ -30,7 +30,6 @@ const VALID = {
   password: 'hunter2hunter2',
   confirmPassword: 'hunter2hunter2',
   phoneNumber: '+919876543210',
-  accountType: 'personal',
   consentData: true,
 };
 
@@ -38,27 +37,10 @@ const check = (overrides: Partial<typeof VALID> = {}) =>
   validateRegisterForm({ ...VALID, ...overrides });
 
 describe('a complete signup', () => {
-  it('passes for a personal account', () => {
+  it('passes without asking what the account is for', () => {
+    // The account type is no longer a field on this form: the plan picked in
+    // /billing decides it, and the route defaults a signup to 'personal'.
     expect(check()).toEqual({});
-  });
-
-  it('passes for a business account, which is no longer asked for a company', () => {
-    // The company moved to the wizard's Companies step, where
-    // /api/onboarding/complete refuses to finish without one. Demanding it here
-    // would refuse every business signup on a field that is not on screen.
-    expect(check({ accountType: 'business' })).toEqual({});
-  });
-
-  it('passes for the combo account, whose stored value is still `both`', () => {
-    // The LABEL changed to "Combo (Personal + Business)". The value must not:
-    // it is the tenant's `account_type`, read by the register route,
-    // `getDefaultPlan`, `planStatus` and the onboarding step list.
-    expect(check({ accountType: 'both' })).toEqual({});
-  });
-
-  it('refuses an account type that is not one of the three', () => {
-    expect(check({ accountType: 'enterprise' }).accountType)
-      .toBe('Choose what you will use DocsNX for');
   });
 });
 
@@ -150,7 +132,7 @@ describe('which field gets focused', () => {
     // the one scrolled to, which is exactly the silent half of the old bug.
     const everythingWrong = validateRegisterForm({
       name: '', email: '', password: '', confirmPassword: '',
-      phoneNumber: '', accountType: '', consentData: false,
+      phoneNumber: '', consentData: false,
     });
     for (const key of Object.keys(everythingWrong)) {
       expect(REGISTER_FIELD_ORDER).toContain(key);

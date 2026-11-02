@@ -14,13 +14,16 @@ const state: {
   plan: any;
   addons: any[];
   used: number;
-} = { tenant: null, plan: null, addons: [], used: 0 };
+  pending: number;
+  /** `seatUsage` runs the seat count first, then the pending count. */
+  calls: number;
+} = { tenant: null, plan: null, addons: [], used: 0, pending: 0, calls: 0 };
 
 vi.mock('@/lib/db', () => {
   const tx: any = {
     select: () => tx,
     from: () => tx,
-    where: async () => [{ n: state.used }],
+    where: async () => [{ n: state.calls++ % 2 === 0 ? state.used : state.pending }],
   };
   return {
     db: {
@@ -48,6 +51,8 @@ beforeEach(() => {
   state.plan = { maxMembers: 5, maxMembersPerCompany: 10 };
   state.addons = [];
   state.used = 0;
+  state.pending = 0;
+  state.calls = 0;
 });
 
 describe('seatAllowance', () => {
@@ -80,11 +85,17 @@ describe('seatAllowance', () => {
 describe('seatUsage', () => {
   it('reports used, limit and remaining', async () => {
     state.used = 4;
-    expect(await seatUsage(TENANT, 'business', ACME)).toEqual({ used: 4, limit: 12, remaining: 8 });
+    expect(await seatUsage(TENANT, 'business', ACME)).toEqual({ used: 4, limit: 12, remaining: 8, pending: 0 });
   });
 
   it('never reports negative remaining after a downgrade', async () => {
     state.used = 9;
-    expect(await seatUsage(TENANT, 'personal')).toEqual({ used: 9, limit: 6, remaining: 0 });
+    expect(await seatUsage(TENANT, 'personal')).toEqual({ used: 9, limit: 6, remaining: 0, pending: 0 });
+  });
+
+  it('reports pending members, who already hold a seat', async () => {
+    state.used = 3;
+    state.pending = 1;
+    expect(await seatUsage(TENANT, 'personal')).toEqual({ used: 3, limit: 6, remaining: 3, pending: 1 });
   });
 });

@@ -79,7 +79,7 @@ describe('every module route reads the holder', () => {
       it(`${mod}/${file} passes holderFrom into createRecord`, () => {
         // The failure being prevented is a route that reads the holder off the
         // request ITSELF — `formData.get('holderId') || null`, which collapses
-        // "not sent" into "All members" and loses the module default. So either
+        // "not sent" into "All users" and loses the module default. So either
         // form counts: passed inline (what fourteen routes do), or bound to a
         // `holderId` const first, which /api/documents needs because it also
         // validates the holder against the tenant before writing.
@@ -223,7 +223,7 @@ describe('the Holder column names whoever the record belongs to', () => {
    * A business record belongs to the COMPANY and to nobody else: `holder_id` is
    * null on every one of them by design (records/holderScope.ts), and
    * `is_global` is false because the write omits the holder rather than sending
-   * an explicit "All members". So all three member answers came up empty and
+   * an explicit "All users". So all three member answers came up empty and
    * the Document Manager rendered '-' in the Holder column — directly below an
    * upload form that had just said "Belongs to: <company>".
    */
@@ -255,7 +255,7 @@ describe('the Holder column names whoever the record belongs to', () => {
   it('leaves the personal answers exactly as they were', () => {
     expect(holderDisplayName({ holder: { name: 'Priya' } }, meta())).toBe('Priya');
     expect(holderDisplayName({}, meta({ holder_name: 'Arjun' }))).toBe('Arjun');
-    expect(holderDisplayName({ isGlobal: true }, meta())).toBe('All members');
+    expect(holderDisplayName({ isGlobal: true }, meta())).toBe('All users');
     expect(holderDisplayName({}, meta())).toBeNull();
   });
 
@@ -356,7 +356,7 @@ describe('the picker is reachable by every role', () => {
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * Category and sub-category have always arrived pre-selected from a scan.
- * "Belongs to" did not — it sat on a silent "All members" default, so a
+ * "Belongs to" did not — it sat on a silent "All users" default, so a
  * document belonging to one person was filed against the whole household
  * whenever nobody thought to touch the picker, indistinguishably from a
  * deliberate choice.
@@ -381,7 +381,7 @@ describe('the scan fills "Belongs to" in, or the form refuses', () => {
     expect(missing).toEqual([]);
   });
 
-  it('no add form opens on a silent "All members" default', () => {
+  it('no add form opens on a silent "All users" default', () => {
     // `useState(ALL_MEMBERS)` is exactly the default this replaced. The EDIT
     // pickers are a different question — a stored null genuinely means the
     // all members there — so only the add state is pinned.

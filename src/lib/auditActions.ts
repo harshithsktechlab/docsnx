@@ -208,6 +208,9 @@ export const ACTIONS = {
   },
   system_config: {
     upload_limit_updated: 'system_config.upload_limit_updated',
+    profile_options_updated: 'system_config.profile_options_updated',
+    app_logo_updated: 'system_config.app_logo_updated',
+    app_logo_removed: 'system_config.app_logo_removed',
   },
 
   // ─── AI ────────────────────────────────────────────────────────────────────
@@ -489,7 +492,7 @@ const ENTITY_LABELS: Record<string, string> = {
   password: 'Passwords',
   emergency_contact: 'Important Contact',
   todo: 'To-Do',
-  user: 'Member',
+  user: 'User',
   profile: 'Profile',
   tenant: 'Account',
   auth: 'Sign-in',

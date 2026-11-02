@@ -7,6 +7,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { zodFieldErrors, firstFieldError } from '@/lib/zodFieldErrors';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { namesCollide } from '@/lib/workspaceName';
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
@@ -34,6 +35,14 @@ const workspaceSchema = z.object({
     .trim()
     .min(2, 'Workspace name is too short')
     .max(255, 'Workspace name must be at most 255 characters'),
+  // A combo account names its personal side too (0089). Required for one and
+  // refused for the rest — checked against the tenant row below, since the
+  // account type is not in the body and must not be taken from it.
+  personalName: z.string()
+    .trim()
+    .min(2, 'Personal workspace name is too short')
+    .max(255, 'Personal workspace name must be at most 255 characters')
+    .optional(),
 });
 
 export async function POST(req: Request) {
@@ -59,14 +68,31 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name } = parsed.data;
+    const { name, personalName } = parsed.data;
 
-    await withTenant(user.tenantId, async (tx) => {
+    const outcome = await withTenant(user.tenantId, async (tx) => {
+      const [tenant] = await tx.select({ accountType: tenants.accountType })
+        .from(tenants)
+        .where(eq(tenants.id, user.tenantId))
+        .limit(1);
+      const isCombo = tenant?.accountType === 'both';
+
+      if (isCombo && !personalName) {
+        return { error: 'Give your personal workspace a name as well.', field: 'personalName' };
+      }
+      if (isCombo && namesCollide(name, personalName)) {
+        return { error: 'Your personal workspace and business account need different names.', field: 'personalName' };
+      }
+
       // `tenants.id` IS the tenant id — there is no `tenantId` column to filter
       // on here, and the id comes from the session, never from the body. Same
       // shape as the update in POST /api/onboarding/complete.
       await tx.update(tenants)
-        .set({ name, updatedAt: new Date() })
+        .set({
+          name,
+          ...(isCombo ? { personalWorkspaceName: personalName } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(tenants.id, user.tenantId));
 
       await writeAudit({
@@ -75,7 +101,7 @@ export async function POST(req: Request) {
         action: ACTIONS.tenant.update,
         resource: 'Tenant',
         details: auditSentence('update', {
-          kind: 'workspace name',
+          kind: isCombo ? 'business account name' : 'workspace name',
           name,
           note: 'set during onboarding',
         }),
@@ -83,9 +109,33 @@ export async function POST(req: Request) {
         entityType: 'tenants',
         entityId: user.tenantId,
       }, tx);
+      if (isCombo) {
+        await writeAudit({
+          tenantId: user.tenantId,
+          userId: user.id,
+          action: ACTIONS.tenant.update,
+          resource: 'Tenant',
+          details: auditSentence('update', {
+            kind: 'personal workspace name',
+            name: personalName!,
+            note: 'set during onboarding',
+          }),
+          req,
+          entityType: 'tenants',
+          entityId: user.tenantId,
+        }, tx);
+      }
+      return null;
     });
 
-    return NextResponse.json({ success: true, name });
+    if (outcome) {
+      return NextResponse.json(
+        { success: false, error: outcome.error, fieldErrors: { [outcome.field]: outcome.error } },
+        { status: 400 },
+      );
+    }
+
+    return NextResponse.json({ success: true, name, personalName: personalName ?? null });
   } catch (error: any) {
     return serverError(error, 'saving your workspace name');
   }

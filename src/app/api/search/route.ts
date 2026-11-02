@@ -362,7 +362,7 @@ export async function GET(req: Request) {
         const plain: TierText = {};
         addText(plain, 'name', row.holderId ? memberName.get(row.holderId) : null);
         for (const n of holdersOf.get(row.id) ?? []) addText(plain, 'name', n);
-        if (row.isGlobal) addText(plain, 'name', 'all members');
+        if (row.isGlobal) addText(plain, 'name', 'all users all members');
         for (const v of [
           row.title, record?.name, row.fileName, row.categoryName, row.customSubcategory,
           row.moduleName, LABELS.get(mod),

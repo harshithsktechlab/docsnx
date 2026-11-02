@@ -60,7 +60,7 @@ List/collection endpoints decrypt then MASK (`maskTail/maskCard/maskCvv/maskUser
 
 ### 6. AI key rotation  [lib/aiKeyManager.ts] — never call LLM SDKs directly
 - `executeWithRotation(callFn)`: pool = active DB `apiKeys` (order priority→dailyUsage→errorCount, daily reset) + env `GEMINI_API_KEY` fallback. Classifies errors, rotates on QUOTA/RATE/OVERLOAD/INVALID, tracks usage/errors per key.
-- `executeTenantWithRotation(tenantId, action, callFn)`: tenant's own `apiKey`→free (no credits); else check `aiCreditsBalance` ≥ cost (cost from systemConfigs × member multiplier), run pool, deduct credits, log `tenantAiUsages`. Actions: RECORD_ANALYSIS / CATEGORY_ANALYSIS / PORTFOLIO_ANALYSIS / BULK_SCAN.
+- `executeTenantWithRotation(tenantId, action, callFn)`: tenant's own `apiKey`→free (no credits); else check `aiCreditsBalance` ≥ cost (cost from systemConfigs × user multiplier), run pool, deduct credits, log `tenantAiUsages`. Actions: RECORD_ANALYSIS / CATEGORY_ANALYSIS / PORTFOLIO_ANALYSIS / BULK_SCAN.
 - Keys decrypted via `decryptField` before building `GoogleGenAI`/`OpenAI` client. (`lib/ai.js` = higher-level helpers.)
 
 ### 7. Zero-View client-side encryption  [lib/clientCrypto.ts] (browser only)

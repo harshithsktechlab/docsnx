@@ -173,7 +173,7 @@ export async function POST(req: Request) {
     if (accountScope === 'business' && grantCompanies.length === 0) {
       return NextResponse.json({
         success: false,
-        error: 'Choose which company this member works on. Add the company first if it does not exist yet.',
+        error: 'Choose which company this user works on. Add the company first if it does not exist yet.',
       }, { status: 400 });
     }
 
@@ -227,8 +227,8 @@ export async function POST(req: Request) {
           return NextResponse.json({
             success: false,
             error: totalAllowed === 0
-              ? 'Your plan does not include a business account. Upgrade to add employees.'
-              : `${company.name} is full. Your plan allows ${totalAllowed} member(s) per company. `
+              ? 'Your plan does not include a business account. Upgrade to add users.'
+              : `${company.name} is full. Your plan allows ${totalAllowed} user(s) per company. `
                 + 'Upgrade or buy an add-on to add more.',
           }, { status: 403 });
         }
@@ -236,7 +236,7 @@ export async function POST(req: Request) {
     } else if (await seatsIn(null) >= totalAllowed) {
       return NextResponse.json({
         success: false,
-        error: `Member limit reached. Your plan allows ${totalAllowed} member(s). `
+        error: `User limit reached. Your plan allows ${totalAllowed} user(s). `
           + 'Please purchase an add-on to add more.',
       }, { status: 403 });
     }
@@ -355,16 +355,16 @@ export async function POST(req: Request) {
         // For an existing person the note names the invitation instead, and no
         // number: what the person holds is not the admin's to read back.
         details: auditSentence(attachTo ? 'membership_invited' : 'onboarding_create', {
-          kind: 'member',
+          kind: 'user',
           name: user.name,
           note: attachTo
             ? [
               'during onboarding; they accept when they sign in',
-              grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the household',
+              grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the personal account',
             ].join(', ')
             : [
               'during onboarding',
-              grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the household',
+              grantCompanies.length ? `onto ${grantCompanies.map((c) => c.name).join(', ')}` : 'onto the personal account',
               user.phoneNumber ? `on ${user.phoneNumber}` : null,
             ].filter(Boolean).join(', '),
         }),
@@ -409,6 +409,6 @@ export async function POST(req: Request) {
     if (isDuplicateEmail(error)) {
       return NextResponse.json({ success: false, error: DUPLICATE_EMAIL_MESSAGE }, { status: 400 });
     }
-    return serverError(error, 'adding this member');
+    return serverError(error, 'adding this user');
   }
 }

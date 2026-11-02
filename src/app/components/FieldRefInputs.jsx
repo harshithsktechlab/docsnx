@@ -63,7 +63,7 @@ export function MemberRefInput({
           className={cn('text-base sm:text-sm', invalid && 'border-destructive')}
           onBlur={() => onBlur?.(spec)}
         >
-          <SelectValue placeholder="Choose a member" />
+          <SelectValue placeholder="Choose a user" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={NONE}>— Not set —</SelectItem>
@@ -72,7 +72,7 @@ export function MemberRefInput({
           ))}
           {/* A stored member who has since left the workspace still shows. */}
           {ref && 'memberId' in ref && !known && (
-            <SelectItem value={ref.memberId}>Former member</SelectItem>
+            <SelectItem value={ref.memberId}>Former user</SelectItem>
           )}
           <SelectItem value={OTHER}>Other (type a name)…</SelectItem>
         </SelectContent>

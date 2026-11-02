@@ -80,9 +80,9 @@ const KEY_SOURCE_LABELS = { pool: 'Platform key (pool)', env: 'Platform key (ser
 
 const TABS = [
   { value: 'task', label: 'By Task', help: 'Which AI features consume credits and cost. "Before tracking" is AI usage recorded before tasks were logged.' },
-  { value: 'tenant', label: 'By Tenant', help: 'Each customer account. Click a row to see its members.' },
-  { value: 'member', label: 'By Member', help: 'Each person who ran AI. Click a row to see the documents they processed.' },
-  { value: 'workspace', label: 'By Workspace', help: 'Household vs. each company inside an account.' },
+  { value: 'tenant', label: 'By Tenant', help: 'Each customer account. Click a row to see its users.' },
+  { value: 'member', label: 'By User', help: 'Each person who ran AI. Click a row to see the documents they processed.' },
+  { value: 'workspace', label: 'By Workspace', help: 'Personal vs. each company inside an account.' },
   { value: 'category', label: 'By Category', help: 'Which document types (e.g. PAN Card, Bank statement) the AI worked on.' },
   { value: 'document', label: 'By Document', help: 'Each saved document: its own AI calls plus its fair share of the Power Scan that grouped it. Click a row to see its calls.' },
   { value: 'batch', label: 'By Power Scan', help: 'Each Power Scan upload: files, pages, records read and saved. Click a row to see its calls.' },
@@ -117,12 +117,12 @@ const COLUMNS = {
   ],
   tenant: [
     { key: 'label', label: 'Tenant', sort: 'name', render: (r) => sub(r.label) },
-    { key: 'memberCount', label: 'Members', align: 'right', render: (r) => formatCount(r.memberCount) },
+    { key: 'memberCount', label: 'Users', align: 'right', render: (r) => formatCount(r.memberCount) },
     { key: 'documentCount', label: 'Documents', align: 'right', render: (r) => formatCount(r.documentCount) },
     ...MEASURE_COLS,
   ],
   member: [
-    { key: 'label', label: 'Member', sort: 'name', render: (r) => sub(r.label || (r.userId ? 'Unknown member' : 'Not recorded'), r.email || r.phone) },
+    { key: 'label', label: 'User', sort: 'name', render: (r) => sub(r.label || (r.userId ? 'Unknown user' : 'Not recorded'), r.email || r.phone) },
     { key: 'tenantName', label: 'Tenant', render: (r) => r.tenantName || '—' },
     { key: 'documentCount', label: 'Documents', align: 'right', render: (r) => formatCount(r.documentCount) },
     ...MEASURE_COLS,
@@ -152,7 +152,7 @@ const COLUMNS = {
         </div>
       ),
     },
-    { key: 'memberName', label: 'Member', render: (r) => sub(r.memberName, r.tenantName) },
+    { key: 'memberName', label: 'User', render: (r) => sub(r.memberName, r.tenantName) },
     { key: 'pageCount', label: 'Pages', align: 'right', render: (r) => (r.pageCount != null ? formatCount(r.pageCount) : '—') },
     ...MEASURE_COLS.filter((c) => !['lastAt', 'costUsd'].includes(c.key)),
     { key: 'shareFinalCostInr', label: 'Scan share ₹', align: 'right', render: (r) => (r.batchId ? formatInr(r.shareFinalCostInr) : '—') },
@@ -160,7 +160,7 @@ const COLUMNS = {
   ],
   batch: [
     { key: 'startedAt', label: 'Scanned', render: (r) => sub(r.startedAt ? formatDate(r.startedAt) : '—', r.startedAt ? new Date(r.startedAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '') },
-    { key: 'label', label: 'Member', sort: 'name', render: (r) => sub(r.label, r.tenantName) },
+    { key: 'label', label: 'User', sort: 'name', render: (r) => sub(r.label, r.tenantName) },
     { key: 'fileCount', label: 'Files', align: 'right', render: (r) => (r.fileCount != null ? formatCount(r.fileCount) : '—') },
     { key: 'pageCount', label: 'Pages', align: 'right', render: (r) => (r.pageCount != null ? formatCount(r.pageCount) : '—') },
     { key: 'recordsRead', label: 'Read', align: 'right', render: (r) => formatCount(r.recordsRead) },
@@ -178,7 +178,7 @@ const COLUMNS = {
       render: (r) => sub(formatDate(r.createdAt), new Date(r.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })),
     },
     { key: 'action', label: 'Task', render: (r) => aiTaskLabel(r.action) },
-    { key: 'member', label: 'Member', render: (r) => sub(r.memberName || '—', [r.tenantName, r.workspaceName].filter(Boolean).join(' · ')) },
+    { key: 'member', label: 'User', render: (r) => sub(r.memberName || '—', [r.tenantName, r.workspaceName].filter(Boolean).join(' · ')) },
     {
       key: 'about', label: 'About',
       render: (r) => (
@@ -399,8 +399,8 @@ export default function AiUsagePage() {
   const tenantName = (id) => options.tenants.find((x) => x.id === id)?.name;
   const chipLabels = {
     tenantId: (v) => `Tenant: ${tenantName(v) || v.slice(0, 8)}`,
-    userId: (v) => `Member: ${table.rows.find((r) => r.userId === v)?.memberName || table.rows.find((r) => r.userId === v)?.label || v.slice(0, 8)}`,
-    companyId: (v) => (v === 'household' ? 'Workspace: Household' : `Workspace: ${v.slice(0, 8)}`),
+    userId: (v) => `User: ${table.rows.find((r) => r.userId === v)?.memberName || table.rows.find((r) => r.userId === v)?.label || v.slice(0, 8)}`,
+    companyId: (v) => (v === 'household' ? 'Workspace: Personal' : `Workspace: ${v.slice(0, 8)}`),
     action: (v) => `Task: ${aiTaskLabel(v)}`,
     model: (v) => `Model: ${v}`,
     keySource: (v) => `Key: ${KEY_SOURCE_LABELS[v] || v}`,

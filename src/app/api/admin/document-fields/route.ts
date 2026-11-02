@@ -333,7 +333,7 @@ function configurationError(
     return `"${key}" cannot be a linked-record field — only fields that ship as one can.`;
   }
   if ((f.dataType === 'record_link' || f.dataType === 'member') && f.isIdentifier === true) {
-    return `"${key}" points at a member or a record, so it cannot identify a record.`;
+    return `"${key}" points at a user or a record, so it cannot identify a record.`;
   }
 
   const choice = CHOICE_DATA_TYPES.includes(f.dataType as never);

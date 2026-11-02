@@ -127,10 +127,10 @@ function ActivateFlow() {
                 {lead} <span className="gradient-text">{accent}</span>
               </h1>
               <p className="text-muted-foreground text-sm">
-                {step === 'identify' && 'You were added as a member. Enter the mobile number or email your family admin registered for you.'}
+                {step === 'identify' && 'You were added as a user. Enter the mobile number or email your family admin registered for you.'}
                 {step === 'code' && (sentTo
                   ? `We sent a 6-digit code to ${sentTo}. Either one works.`
-                  : 'If this number or email belongs to an invited member, a 6-digit code is on its way.')}
+                  : 'If this number or email belongs to an invited user, a 6-digit code is on its way.')}
                 {step === 'password' && `${firstName ? `Hi ${firstName}! ` : ''}Pick a password you will use to sign in.`}
               </p>
             </div>

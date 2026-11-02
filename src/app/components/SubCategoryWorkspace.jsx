@@ -611,7 +611,7 @@ export default function SubCategoryWorkspace() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {denied
-              ? 'Ask a workspace admin to grant you access to it under Members → Permissions.'
+              ? 'Ask a workspace admin to grant you access to it under Users → Permissions.'
               : 'The link may be out of date. Pick a sub-category from the sidebar to continue.'}
           </p>
         </div>
@@ -881,7 +881,7 @@ export default function SubCategoryWorkspace() {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-bold flex items-center gap-2">
                         <Users size={15} className="text-primary" />
-                        Member coverage
+                        User coverage
                         <span className="ml-auto text-xs font-bold text-muted-foreground tabular-nums">
                           {summary.coverage.coveredMembers} / {summary.coverage.totalMembers}
                         </span>
@@ -931,7 +931,7 @@ export default function SubCategoryWorkspace() {
                           </div>
                           {summary.coverage.coversAllMembers && (
                             <p className="text-xs text-faint">
-                              Some records here are filed for all members rather than one member.
+                              Some records here are filed for all users rather than one user.
                             </p>
                           )}
                         </>
@@ -1036,7 +1036,7 @@ export default function SubCategoryWorkspace() {
                 key: 'holderId',
                 label: 'Belongs to',
                 options: (summary?.coverage
-                  ? [{ value: 'none', label: 'All members' }]
+                  ? [{ value: 'none', label: 'All users' }]
                   : []),
               },
               {

@@ -696,15 +696,15 @@ async function checkBatch({
           await assertHolderInTenant(user, memberId);
         } catch (error) {
           if (!(error instanceof InvalidHolderError)) throw error;
-          holderProblem = 'The member this record belongs to is no longer in your account — pick someone else.';
+          holderProblem = 'The user this record belongs to is no longer in your account — pick someone else.';
           break;
         }
         // The holder must be a member of THIS workspace — the same list the
         // row's picker offered. See src/lib/records/workspaceMembers.ts.
         if (!await isWorkspaceMember(user.tenantId, memberId, companyId ?? null)) {
           holderProblem = companyId
-            ? 'That member does not work on this company — pick one of its members, or the company itself.'
-            : 'That member is not part of your household — pick someone else.';
+            ? 'That user does not work on this company — pick one of its users, or the company itself.'
+            : 'That user is not part of your personal account — pick someone else.';
           break;
         }
       }

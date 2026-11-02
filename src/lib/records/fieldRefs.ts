@@ -63,7 +63,7 @@ export function parseMemberRef(value: unknown): MemberRef | null {
 /** The shape rule for a `member` value, or null when it is acceptable. */
 export function memberRefError(label: string, value: string): string | null {
   if (value.startsWith(MEMBER_REF_PREFIX)) {
-    return isUuid(value.slice(MEMBER_REF_PREFIX.length)) ? null : `${label} is not a valid member`;
+    return isUuid(value.slice(MEMBER_REF_PREFIX.length)) ? null : `${label} is not a valid user`;
   }
   return value.length > MEMBER_NAME_MAX
     ? `${label} cannot be longer than ${MEMBER_NAME_MAX} characters`
@@ -110,7 +110,7 @@ export function formatFieldValue(
     const ref = parseMemberRef(text);
     if (!ref) return '';
     if ('name' in ref) return ref.name;
-    return lookup(lookups.membersById, ref.memberId) ?? 'Former member';
+    return lookup(lookups.membersById, ref.memberId) ?? 'Former user';
   }
   if (spec.dataType === 'record_link') {
     if (!text.trim()) return '';

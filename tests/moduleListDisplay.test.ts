@@ -10,10 +10,10 @@
  *   · the sub-category workspace had no Number column at all, because
  *     `project()` was never handed the category's spec and so could not say
  *     which of the record's fields was its number;
- *   · its "Belongs to" read `holder?.name || (isGlobal ? 'All members' : '—')`,
+ *   · its "Belongs to" read `holder?.name || (isGlobal ? 'All users' : '—')`,
  *     which is a member answer — and a company's records carry a null
  *     `holder_id` by design (records/holderScope.ts), so every business row
- *     claimed to belong to "All members".
+ *     claimed to belong to "All users".
  *
  * Both are now `documentDisplay`, the same function `/api/documents` derives its
  * Number and Holder columns from. That is the invariant here: not that the
@@ -138,7 +138,7 @@ describe('a company’s record, in its module’s Files list', () => {
     expect(records[0].display.numberLabel).toBe('PAN');
   });
 
-  it('names the COMPANY as who it belongs to, not "All members"', async () => {
+  it('names the COMPANY as who it belongs to, not "All users"', async () => {
     // The bug: `holder_id` is null on every business row by design, so the old
     // expression fell through to the global-record answer.
     const { records } = await listRecords(
@@ -175,12 +175,12 @@ describe('a household record, unchanged', () => {
     expect(records[0].display.numberLabel).toBe('PAN Number');
   });
 
-  it('says "All members" for a record deliberately filed against nobody', async () => {
+  it('says "All users" for a record deliberately filed against nobody', async () => {
     rows = [row({
       categoryModuleKey: 'identity', categoryDocumentKey: 'pan_card', isGlobal: true,
     })];
     const { records } = await listRecords(ctxFor('identity', 'pan_card', null), {});
-    expect(records[0].display.holderName).toBe('All members');
+    expect(records[0].display.holderName).toBe('All users');
   });
 });
 

@@ -52,7 +52,7 @@ export async function POST(req: Request) {
         userId: user.id,
         action: ACTIONS.user.activated,
         details: auditSentence('activated', {
-          kind: 'member account',
+          kind: 'user account',
           name: user.name,
           note: 'set their own password from the invite',
         }),

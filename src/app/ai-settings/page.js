@@ -738,7 +738,7 @@ export default function AISettingsPage() {
             AI Action Base Costs
           </CardTitle>
           <CardDescription>
-            Configure the base credit cost for each AI action. The final cost deducted from a tenant&apos;s balance will be (Base Cost × Allowed Members).
+            Configure the base credit cost for each AI action. The final cost deducted from a tenant&apos;s balance will be (Base Cost × Allowed Users).
           </CardDescription>
         </CardHeader>
         <CardContent>

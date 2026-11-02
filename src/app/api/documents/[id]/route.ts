@@ -284,8 +284,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         if (!await isWorkspaceMember(user.tenantId, memberId, scope.companyId ?? null)) {
           return NextResponse.json({
             error: scope.companyId
-              ? 'That member does not work on this company'
-              : 'That member is not part of your household',
+              ? 'That user does not work on this company'
+              : 'That user is not part of your personal account',
           }, { status: 400 });
         }
       }

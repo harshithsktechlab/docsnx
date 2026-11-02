@@ -4,7 +4,7 @@ test.describe('User Management', () => {
   // Use the global authenticated state
   test.use({ storageState: 'playwright/.auth/user.json' });
 
-  test('should successfully add a new member', async ({ page }) => {
+  test('should successfully add a new user', async ({ page }) => {
     await page.on('response', async res => {
       if (res.url().includes('/api/') && !res.ok()) {
         console.log('API Error Body:', await res.text().catch(()=>''));
@@ -13,15 +13,15 @@ test.describe('User Management', () => {
     
     await page.goto('/users');
 
-    // Click "Add Member" button
-    await page.click('button:has-text("Add Member")');
+    // Click "Add User" button
+    await page.click('button:has-text("Add User")');
 
     // Wait for the modal to open
-    await expect(page.getByText('Add Member')).toBeVisible();
+    await expect(page.getByText('Add User')).toBeVisible();
 
     const randomStr = Math.random().toString(36).substring(7);
-    const testEmail = `new-member-${randomStr}@example.com`;
-    const testName = `New Member ${randomStr}`;
+    const testEmail = `new-user-${randomStr}@example.com`;
+    const testName = `New User ${randomStr}`;
 
     // Fill basic details
     await page.fill('#addName', testName);
@@ -31,7 +31,7 @@ test.describe('User Management', () => {
     
     // Select Role
     await page.click('#addRole'); // open select
-    await page.click('div[role="option"]:has-text("Standard Member")');
+    await page.click('div[role="option"]:has-text("Standard User")');
 
     // Submit form. We find the submit button inside the dialog
     // We can just press Enter on an input or find the button by type
@@ -40,7 +40,7 @@ test.describe('User Management', () => {
     // Verify success toast appears
     await expect(page.getByText('Successfully added user')).toBeVisible();
 
-    // Verify the new user appears in the members list
+    // Verify the new user appears in the users list
     await expect(page.getByText(testName).first()).toBeVisible();
     await expect(page.getByText(testEmail).first()).toBeVisible();
   });

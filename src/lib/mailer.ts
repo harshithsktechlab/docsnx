@@ -168,13 +168,13 @@ export async function sendMemberInviteEmail(
     const info = await send({
       from,
       to: email,
-      subject: `${inviterName} added you as a member in ${platformName}`,
-      text: `Hello ${name},\n\n${inviterName} added you as a member in ${platformName}.\n\nOpen this link, enter your registered mobile number or email, and we will send you a code to set your password:\n\n${activateLink}\n`,
+      subject: `${inviterName} added you as a user in ${platformName}`,
+      text: `Hello ${name},\n\n${inviterName} added you as a user in ${platformName}.\n\nOpen this link, enter your registered mobile number or email, and we will send you a code to set your password:\n\n${activateLink}\n`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
           <h2 style="color: #0f172a; margin-top: 0;">You're invited to ${platformName}</h2>
           <p style="color: #475569; font-size: 15px;">Hello <strong>${escapeHtml(name)}</strong>,</p>
-          <p style="color: #475569; font-size: 15px;"><strong>${who}</strong> added you as a member in ${platformName}.</p>
+          <p style="color: #475569; font-size: 15px;"><strong>${who}</strong> added you as a user in ${platformName}.</p>
           <div style="margin: 24px 0; text-align: center;">
             <a href="${activateLink}" style="display: inline-block; padding: 12px 24px; font-size: 15px; font-weight: bold; color: #ffffff; background-color: #7c3aed; border-radius: 8px; text-decoration: none;">Set up my account</a>
           </div>

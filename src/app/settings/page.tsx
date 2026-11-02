@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner';
 import { clientGetMe } from '@/lib/clientAuth';
 import { setFlash } from '@/lib/flashToast';
+import { erasureConfirmMatches, erasureConfirmSpec } from '@/lib/account/erasureConfirm';
 // Toast the outcome of the OAuth round-trip, which comes back as ?google=<status>.
 // Shared with the onboarding wizard, which starts the same flow.
 import { connectResult, DRIVE_CHECKBOX_LABEL } from '@/lib/googleConnectResults';
@@ -44,6 +45,7 @@ import {
 } from '@/components/ui/dialog';
 import PageContainer from '@/app/components/PageContainer';
 import AccountSettings from '@/app/components/AccountSettings';
+import WorkspaceNamesSettings from '@/app/components/WorkspaceNamesSettings';
 import { apiCall } from '@/lib/net/apiRequest';
 
 
@@ -79,8 +81,9 @@ export default function SettingsPage() {
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
-  // Account erasure. `workspaceName` is what the admin has to type back, so it
-  // has to come from the server rather than anything the form remembers.
+  // Account erasure. `workspaceName` (and the admin's mobile number, from
+  // `meUser`) is what the admin has to type back, so it has to come from the
+  // server rather than anything the form remembers.
   const [workspaceName, setWorkspaceName] = useState('');
   const [deleteInput, setDeleteInput] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -95,8 +98,8 @@ export default function SettingsPage() {
    *   { kind: 'business' }                  every company   — POST /api/account/erase
    *   { kind: 'company', id, name }         one company     — DELETE /api/companies/<id>
    *
-   * One dialog rather than four, because the GUARD is identical in all four —
-   * type the name back exactly — and four copies of an irreversible confirmation
+   * One dialog rather than four, because the GUARD is the same shape in all
+   * four — type a given string back — and four copies of an irreversible confirmation
    * is four places for one of them to lose its guard. What differs is the copy
    * and the endpoint, and both are derived from `target`.
    */
@@ -254,14 +257,24 @@ export default function SettingsPage() {
   };
 
   /**
-   * What the admin must type, and where the request goes, per target.
+   * What the admin must type, per target.
    *
-   * The company erasure confirms on the COMPANY's name rather than the
-   * workspace's: the two dialogs are otherwise identical, and typing the
-   * workspace name to delete one company inside it is the kind of muscle memory
-   * that erases the wrong thing.
+   * The workspace-level erasures (all / personal / business) confirm on the
+   * admin's own MOBILE NUMBER — short and numeric, unlike a long workspace name
+   * with a curly apostrophe on a phone keyboard. An admin with no number on file
+   * falls back to the workspace name (see erasureConfirm.ts).
+   *
+   * The company erasure confirms on the COMPANY's name: typing the workspace
+   * name or your own number to delete one company inside it is the kind of
+   * muscle memory that erases the wrong thing.
    */
-  const targetConfirmName = target?.kind === 'company' ? target.name : workspaceName;
+  const confirmSpec = target?.kind === 'company'
+    ? { by: 'name' as const, display: target.name }
+    : erasureConfirmSpec(meUser, workspaceName);
+  const targetConfirmName = confirmSpec.display;
+  const confirmMatches = target?.kind === 'company'
+    ? deleteInput.trim() === target.name.trim()
+    : erasureConfirmMatches(deleteInput, meUser, workspaceName);
 
   const handleErase = async () => {
     if (!target) return;
@@ -576,6 +589,14 @@ export default function SettingsPage() {
             the real gate. */}
         <TabsContent value="account" className="space-y-6">
           {meUser && (
+            <WorkspaceNamesSettings
+              accountType={accountType}
+              tenant={meUser.tenant}
+              companies={companies}
+              onChanged={refreshMe}
+            />
+          )}
+          {meUser && (
             <AccountSettings
               key={`${meUser.id}:${meUser.name}:${meUser.email}:${meUser.phoneNumber}`}
               user={meUser}
@@ -598,7 +619,7 @@ export default function SettingsPage() {
               <div className="rounded-xl border border-border bg-background/20 p-4 flex flex-col gap-2">
                 <p className="text-sm font-bold text-foreground">What gets erased</p>
                 <p className="text-muted-foreground leading-relaxed">
-                  Every document, record, password, member and audit entry in this
+                  Every document, record, password, user and audit entry in this
                   workspace &mdash; from our database <span className="font-bold">and</span> from
                   the <span className="font-mono">/{integration?.folderName || 'DocsNX_Data'}</span>{' '}
                   folder in your connected Google Drive. Drive files are deleted outright, not sent
@@ -612,7 +633,7 @@ export default function SettingsPage() {
               <div className="rounded-xl border border-border bg-background/20 p-4 flex flex-col gap-2">
                 <p className="text-sm font-bold text-foreground">What we keep</p>
                 <p className="text-muted-foreground leading-relaxed">
-                  A minimal record of each member of this workspace &mdash; name, phone number and
+                  A minimal record of each user of this workspace &mdash; name, phone number and
                   email address &mdash; and nothing else. It is kept as the record that the
                   erasure happened, and it does not stop you signing up again.
                 </p>
@@ -661,8 +682,8 @@ export default function SettingsPage() {
                 <div className="rounded-xl border border-border bg-background/20 p-4 flex flex-col gap-2">
                   <p className="text-sm font-bold text-foreground">Personal account</p>
                   <p className="text-muted-foreground leading-relaxed">
-                    Erases every household record, password, to-do and contact, and removes every
-                    member added to the personal account. Your companies, their records and their
+                    Erases every personal record, password, to-do and contact, and removes every
+                    user added to the personal account. Your companies, their records and their
                     people are untouched. You keep your own login.
                   </p>
                   <Button
@@ -681,7 +702,7 @@ export default function SettingsPage() {
                   <p className="text-muted-foreground leading-relaxed">
                     Erases <span className="font-bold text-foreground">every</span> company
                     {companies.length > 0 && <> ({companies.map((c) => c.name).join(', ')})</>}, all
-                    of their records, and the employees who worked only on them. Your household is
+                    of their records, and the employees who worked only on them. Your personal account is
                     untouched.
                   </p>
                   <Button
@@ -700,7 +721,7 @@ export default function SettingsPage() {
                     <p className="text-sm font-bold text-foreground">A single company</p>
                     <p className="text-muted-foreground leading-relaxed">
                       Erases that company&rsquo;s records and its folder on your Google Drive, and
-                      removes the members who worked on no other company. The rest of the business
+                      removes the users who worked on no other company. The rest of the business
                       account carries on.
                     </p>
                     <div className="flex flex-col gap-2">
@@ -823,7 +844,8 @@ export default function SettingsPage() {
 
       {/*
         ── ONE CONFIRMATION, FOUR SCOPES ──────────────────────────────────────
-        The button stays disabled until the name is typed back EXACTLY — the same
+        The button stays disabled until the admin's mobile number (workspace name if
+        none on file; the company's name for a company) is typed back — the same
         check every one of the four APIs enforces independently. Load-bearing
         rather than ceremonial: each of these is irreversible, none has a backup
         to restore from, and each destroys data in a third party's storage.
@@ -862,17 +884,17 @@ export default function SettingsPage() {
                   <>
                     Every record, password, to-do and contact filed under{' '}
                     <span className="font-bold text-foreground">{target.name}</span> is erased from
-                    our database and permanently deleted from your Google Drive. Members who worked
+                    our database and permanently deleted from your Google Drive. Users who worked
                     on no other company lose their access.{' '}
                     <span className="font-bold text-foreground">
-                      Your household and your other companies are not touched.
+                      Your personal account and your other companies are not touched.
                     </span>
                   </>
                 ) : target?.kind === 'personal' ? (
                   <>
-                    Every household record, password, to-do and contact in{' '}
+                    Every personal record, password, to-do and contact in{' '}
                     <span className="font-bold text-foreground">{workspaceName}</span> is erased,
-                    and every member added to the personal account loses their login.{' '}
+                    and every user added to the personal account loses their login.{' '}
                     <span className="font-bold text-foreground">
                       Your companies and their records are not touched.
                     </span>
@@ -883,14 +905,14 @@ export default function SettingsPage() {
                     <span className="font-bold text-foreground">{workspaceName}</span> is erased,
                     along with all of their records and the employees who worked only on them.{' '}
                     <span className="font-bold text-foreground">
-                      Your household is not touched.
+                      Your personal account is not touched.
                     </span>
                   </>
                 ) : (
                   <>
                     Every document, record and password in{' '}
                     <span className="font-bold text-foreground">{workspaceName}</span> is erased from
-                    our database and permanently deleted from your Google Drive. Every member
+                    our database and permanently deleted from your Google Drive. Every user
                     loses access immediately.
                   </>
                 )}
@@ -898,7 +920,7 @@ export default function SettingsPage() {
             </Alert>
             <p className="leading-relaxed">
               {target?.kind === 'company' || target?.kind === 'business' || target?.kind === 'personal'
-                ? 'For each member removed we retain only their name, phone number and email '
+                ? 'For each user removed we retain only their name, phone number and email '
                   + 'address, as the record that the deletion happened. Everything else is gone '
                   + 'for good.'
                 : 'We retain only your name, phone number and email address as the record that '
@@ -906,13 +928,15 @@ export default function SettingsPage() {
             </p>
             <div className="flex flex-col gap-2">
               <Label htmlFor="delete-confirm" className="text-xs font-bold text-foreground">
-                Type <span className="font-mono text-danger-text">{targetConfirmName}</span> to confirm
+                Type{confirmSpec.by === 'phone' ? ' your mobile number ' : ' '}
+                <span className="font-mono text-danger-text">{targetConfirmName}</span> to confirm
               </Label>
               <Input
                 id="delete-confirm"
                 value={deleteInput}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDeleteInput(e.target.value)}
                 placeholder={targetConfirmName}
+                inputMode={confirmSpec.by === 'phone' ? 'tel' : undefined}
                 autoComplete="off"
                 disabled={deleting}
               />
@@ -932,7 +956,7 @@ export default function SettingsPage() {
               disabled={
                 deleting
                 || !targetConfirmName
-                || deleteInput.trim() !== targetConfirmName.trim()
+                || !confirmMatches
               }
               className="flex items-center gap-2"
             >

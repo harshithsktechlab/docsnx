@@ -67,7 +67,10 @@ export interface RegisterInput {
   password: string;
   phoneNumber?: string | null;
   consentDataProcessing?: boolean;
-  /** 'personal' | 'business' | 'both'. Omitted means personal. */
+  /**
+   * 'personal' | 'business' | 'both'. Omitted means personal — and the signup
+   * form omits it: the plan bought in /billing decides the account type.
+   */
   accountType?: string;
   /**
    * Not asked at signup any more — the onboarding wizard names the workspace.

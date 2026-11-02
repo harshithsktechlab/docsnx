@@ -171,7 +171,7 @@
 | AIS-UI-009 | Positive | Delete a configured key. | Confirmation dialog first; on delete the tenant falls back to the platform credit pool. | — | — |
 | AIS-UI-010 | Positive | Open `/ai-costs`. | Shows the four action costs (record / category / portfolio / bulk scan), the base costs, the multiplier and the current credit balance. | — | — |
 | AIS-UI-011 | Positive | View both pages at 375px. | Forms and cost tables reflow; no horizontal page scroll. | — | — |
-| AIS-UI-012 | Negative | Open `/ai-settings` as a `STANDARD` user. | Access denied or read-only — a standard member must not be able to change the tenant's AI key. Record actual. | — | — |
+| AIS-UI-012 | Negative | Open `/ai-settings` as a `STANDARD` user. | Access denied or read-only — a standard user must not be able to change the tenant's AI key. Record actual. | — | — |
 
 ## C2. Business Rules
 
@@ -184,7 +184,7 @@
 | AIS-BR-005 | Negative | Configure an invalid tenant key, then run an AI action. | A clear provider error; **no silent fallback** to the platform pool that spends credits without the user's knowledge. Record actual — a silent fallback that charges credits is **S3**. | — | — |
 | AIS-BR-006 | Positive | Verify the effective cost calculation on `/ai-costs`. | `effective = base × (max_members + extra_members)` for all four actions. | — | — |
 | AIS-BR-007 | Boundary | Set `max_members = 1`, `extra_members = 0`. | Multiplier is 1; effective costs equal the base costs. | — | — |
-| AIS-BR-008 | Boundary | Purchase an add-on granting extra members. | The multiplier and all four effective costs increase accordingly on `/ai-costs`. | — | — |
+| AIS-BR-008 | Boundary | Purchase an add-on granting extra users. | The multiplier and all four effective costs increase accordingly on `/ai-costs`. | — | — |
 | AIS-BR-009 | Edge | Set `max_members` to NULL/0 in the database. | The multiplier defaults to 1 — costs never become 0 or negative. | — | — |
 | AIS-BR-010 | Positive | Super Admin changes the base costs under platform settings. | The tenant's `/ai-costs` reflects the new base costs after a reload. | — | — |
 | AIS-BR-011 | Edge | Delete the `system_configs` row entirely, then open `/ai-costs`. | Falls back to the documented defaults (1.00 / 2.00 / 5.00 / 10.00) rather than erroring. | — | — |

@@ -396,7 +396,7 @@ export default function TenantsPage() {
               
               <div className="flex flex-col gap-1.5">
                 <Label>Workspace Name *</Label>
-                <Input placeholder="e.g. Sharma Household or Acme Corp" value={formData.name} onChange={e => handleNameChange(e.target.value)} required disabled={saving} />
+                <Input placeholder="e.g. Sharma Personal or Acme Corp" value={formData.name} onChange={e => handleNameChange(e.target.value)} required disabled={saving} />
               </div>
 
               <Separator className="my-1 border-border/40" />
@@ -505,7 +505,7 @@ export default function TenantsPage() {
                       <span className="text-xs font-bold text-foreground">{ta.addon.name}</span>
                       <div className="flex items-center gap-2 mt-1">
                         {ta.addon.aiCredits > 0 && <span className="text-xs text-blue-500 bg-blue-500/10 px-1.5 rounded">+{ta.addon.aiCredits} AI Credits</span>}
-                        {ta.addon.extraMembers > 0 && <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 rounded">+{ta.addon.extraMembers} Members</span>}
+                        {ta.addon.extraMembers > 0 && <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 rounded">+{ta.addon.extraMembers} Users</span>}
                       </div>
                     </div>
                   ))}
@@ -709,7 +709,7 @@ export default function TenantsPage() {
                         {/* Members */}
                         <div className="flex flex-col gap-1">
                           <div className="flex justify-between items-center text-2xs font-bold">
-                            <span className="text-muted-foreground">Members</span>
+                            <span className="text-muted-foreground">Users</span>
                             <span className="text-foreground">
                               {counts.users || 0} / {tenant.maxMembers || 1}
                             </span>

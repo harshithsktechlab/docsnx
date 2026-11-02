@@ -78,7 +78,7 @@ For each module, capture a TENANT_A record id, then log in as **ADMIN_B** and ru
 | SEC-ISO-017 | Rentals & Subscriptions | ✗ | 403/404 | 403/404 | 403/404 | — | — |
 | SEC-ISO-018 | Important Contacts | ✗ | 403/404 | 403/404 | 403/404 | — | — |
 | SEC-ISO-019 | To-Dos | ✗ | 403/404 | 403/404 | 403/404 | — | — |
-| SEC-ISO-020 | Members (users) | ✗ | 403/404 | 403/404 | 403/404 | — | — |
+| SEC-ISO-020 | Users | ✗ | 403/404 | 403/404 | 403/404 | — | — |
 | SEC-ISO-021 | Profiles | ✗ | 403/404 | 403/404 | 403/404 | — | — |
 | SEC-ISO-022 | Notifications | ✗ | 403/404 | 403/404 | 403/404 | — | — |
 | SEC-ISO-023 | Invoices | ✗ | 403/404 | 403/404 | 403/404 | — | — |
@@ -96,7 +96,7 @@ For each module, capture a TENANT_A record id, then log in as **ADMIN_B** and ru
 | SEC-ISO-034 | Security | Export the backup from TENANT_A. | The file contains zero TENANT_B rows; every `tenantId` inside equals TENANT_A. | — | — |
 | SEC-ISO-035 | Security | Open TENANT_A's `/analysis` and `/ai-costs`. | Analysis reflects only TENANT_A's records; credits/usage figures are TENANT_A's. | — | — |
 | SEC-ISO-036 | Security | Open TENANT_A's `/invoices` and payment history. | Only TENANT_A's billing documents. | — | — |
-| SEC-ISO-037 | Security | Open the member dropdowns (holder/assignee) in every module as ADMIN_A. | Only TENANT_A's members are listed. | — | — |
+| SEC-ISO-037 | Security | Open the user dropdowns (holder/assignee) in every module as ADMIN_A. | Only TENANT_A's users are listed. | — | — |
 | SEC-ISO-038 | Security | Check the notification bell as USER_A1 after generating notifications for USER_B1. | Nothing from TENANT_B appears. | — | — |
 
 ### 1.3 Request-supplied tenant/user identifiers (the trust rule)

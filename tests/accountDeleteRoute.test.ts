@@ -92,7 +92,7 @@ beforeEach(() => {
   insertedRows = [];
   insertThrows = false;
   driveThrows = false;
-  sessionUser = { id: 'u1', tenantId: 'tenant-1', role: 'TENANT_ADMIN' };
+  sessionUser = { id: 'u1', tenantId: 'tenant-1', role: 'TENANT_ADMIN', phoneNumber: '+91 98765 43210', phoneDial: '919876543210' };
   tenantRow = { ...TENANT };
   members = [
     { id: 'u1', name: 'Asha Sharma', email: 'asha@example.com', phoneNumber: '+919876543210', phoneDial: '919876543210', role: 'TENANT_ADMIN' },
@@ -105,7 +105,7 @@ describe('DELETE /api/account/delete', () => {
   it('refuses anyone who is not a tenant admin', async () => {
     sessionUser = { id: 'u2', tenantId: 'tenant-1', role: 'STANDARD' };
 
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(res.status).toBe(403);
     expect(events).not.toContain('cascade');
@@ -113,15 +113,41 @@ describe('DELETE /api/account/delete', () => {
 
   it('refuses an unauthenticated caller', async () => {
     sessionUser = null;
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
     expect(res.status).toBe(401);
   });
 
-  it('refuses a workspace name that does not match, and deletes nothing', async () => {
-    const res = await DELETE(request({ confirm: 'the sharma workspace' }));
+  it('refuses a mobile number that does not match, and deletes nothing', async () => {
+    const res = await DELETE(request({ confirm: '+91 90000 00000' }));
 
     expect(res.status).toBe(400);
     expect(events).toEqual([]);
+  });
+
+  it('no longer accepts the workspace name when the admin has a mobile number', async () => {
+    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+
+    expect(res.status).toBe(400);
+    expect(events).toEqual([]);
+  });
+
+  it('accepts the number however it is spelled', async () => {
+    for (const typed of ['+919876543210', '9876543210', '+91 98765-43210']) {
+      events.length = 0;
+      const res = await DELETE(request({ confirm: typed }));
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('falls back to the workspace name for an admin with no number on file', async () => {
+    sessionUser = { id: 'u1', tenantId: 'tenant-1', role: 'TENANT_ADMIN', phoneNumber: null, phoneDial: null };
+
+    const wrong = await DELETE(request({ confirm: 'the sharma workspace' }));
+    expect(wrong.status).toBe(400);
+    expect(events).toEqual([]);
+
+    const right = await DELETE(request({ confirm: 'The Sharma Household' }));
+    expect(right.status).toBe(200);
   });
 
   it('refuses a body with no confirmation at all', async () => {
@@ -131,13 +157,13 @@ describe('DELETE /api/account/delete', () => {
   });
 
   it('retains the members BEFORE the cascade that would make them unreadable', async () => {
-    await DELETE(request({ confirm: 'The Sharma Household' }));
+    await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(events).toEqual(['collect', 'retain', 'drive', 'uploads', 'cascade']);
   });
 
   it('retains name, phone, email and the phone lookup key — and nothing else', async () => {
-    await DELETE(request({ confirm: 'The Sharma Household' }));
+    await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(insertedRows).toHaveLength(2);
     expect(Object.keys(insertedRows[0]).sort()).toEqual(
@@ -146,7 +172,7 @@ describe('DELETE /api/account/delete', () => {
   });
 
   it('writes the phone lookup key as blindIndex(phone_dial), and NULL for a member with no number', async () => {
-    await DELETE(request({ confirm: 'The Sharma Household' }));
+    await DELETE(request({ confirm: '+91 98765 43210' }));
 
     const [asha, ravi] = insertedRows;
     // What lets a later mobile-number sign-in be told the account was erased
@@ -158,7 +184,7 @@ describe('DELETE /api/account/delete', () => {
   });
 
   it('stores the retained name and phone as ciphertext, sealed under the app key', async () => {
-    await DELETE(request({ confirm: 'The Sharma Household' }));
+    await DELETE(request({ confirm: '+91 98765 43210' }));
 
     const [asha] = insertedRows;
     // The tenant key is a `tenant_encryption_keys` row and cascades away, so
@@ -180,7 +206,7 @@ describe('DELETE /api/account/delete', () => {
     members = [];
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(res.status).toBe(500);
     expect(events).not.toContain('cascade');
@@ -193,14 +219,14 @@ describe('DELETE /api/account/delete', () => {
     // to erase an account over a missing name is the wrong trade.
     members = [{ id: 'u1', name: '', email: 'a@x.com', phoneNumber: null, phoneDial: null, role: 'TENANT_ADMIN' }];
 
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(res.status).toBe(200);
     expect(decryptField(insertedRows[0].name)).toBe('(no name recorded)');
   });
 
   it('scopes the retention row to the SESSION tenant, never one from the body', async () => {
-    await DELETE(request({ confirm: 'The Sharma Household', tenantId: 'tenant-victim' }));
+    await DELETE(request({ confirm: '+91 98765 43210', tenantId: 'tenant-victim' }));
 
     expect(insertedRows.every((r) => r.tenantId === 'tenant-1')).toBe(true);
   });
@@ -211,7 +237,7 @@ describe('DELETE /api/account/delete', () => {
     insertThrows = true;
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(res.status).toBe(500);
     expect(events).not.toContain('cascade');
@@ -223,7 +249,7 @@ describe('DELETE /api/account/delete', () => {
     driveThrows = true;
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
 
     // The helpers swallow their own failures; this proves the route survives one
     // that escapes anyway — a bug in the purge must not block the erasure.
@@ -232,7 +258,7 @@ describe('DELETE /api/account/delete', () => {
   });
 
   it('clears the session cookie — the JWT outlives the account otherwise', async () => {
-    const res = await DELETE(request({ confirm: 'The Sharma Household' }));
+    const res = await DELETE(request({ confirm: '+91 98765 43210' }));
 
     expect(res.status).toBe(200);
     // 7-day expiry, checked against no session store; without this the cookie
@@ -241,7 +267,7 @@ describe('DELETE /api/account/delete', () => {
   });
 
   it('tolerates a workspace name typed with stray whitespace', async () => {
-    const res = await DELETE(request({ confirm: '  The Sharma Household  ' }));
+    const res = await DELETE(request({ confirm: '  9876543210  ' }));
     expect(res.status).toBe(200);
   });
 });

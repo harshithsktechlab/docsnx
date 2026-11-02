@@ -43,7 +43,7 @@ import { permissionsForLevel } from './permissionLevels';
  */
 export const UTILITY_MODULES = [
   { key: 'profiles',           path: '/profile',            name: 'Profiles'           },
-  { key: null,                 path: '/users',              name: 'Members'     },
+  { key: null,                 path: '/users',              name: 'Users'       },
   { key: 'passwords',          path: '/passwords',          name: 'Passwords'          },
   { key: 'todos',              path: '/todos',              name: 'To-Dos'             },
   { key: 'emergency_contacts', path: '/important-contacts', name: 'Important Contacts' },

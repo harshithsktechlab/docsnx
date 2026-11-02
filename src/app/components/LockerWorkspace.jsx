@@ -129,7 +129,7 @@ export function LockerInventoryPanel({ canAddItems, onAddItem, onPreviewItem, re
       <CardContent className="flex flex-col gap-3">
         {items.forbidden ? (
           <p className="text-xs text-muted-foreground">
-            You don&apos;t have access to locker items. Ask a workspace admin to grant it under Members → Permissions.
+            You don&apos;t have access to locker items. Ask a workspace admin to grant it under Users → Permissions.
           </p>
         ) : lockers.records.length === 0 ? (
           <p className="text-xs text-muted-foreground">Add a locker first, then record what is kept in it.</p>

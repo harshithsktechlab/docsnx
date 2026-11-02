@@ -608,7 +608,7 @@ export default function TenantsPage() {
                   ))}
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  Personal credits are spent by the household workspace, Business credits by the companies.
+                  Personal credits are spent by the personal workspace, Business credits by the companies.
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-muted/40 border border-border/50">
@@ -731,7 +731,7 @@ export default function TenantsPage() {
                     <DetailRow label="Address" value={detail.contact.billing.billingAddress} />
                   </DetailSection>
 
-                  <DetailSection title={`Members (${detail.contact.members.length})`}>
+                  <DetailSection title={`Users (${detail.contact.members.length})`}>
                     <DetailTable
                       head={['Name', 'Role', 'Email', 'Mobile']}
                       rows={detail.contact.members.map(m => [
@@ -740,7 +740,7 @@ export default function TenantsPage() {
                         m.email || '—',
                         m.phoneNumber || '—',
                       ])}
-                      empty="No members."
+                      empty="No users."
                     />
                   </DetailSection>
                 </TabsContent>
@@ -762,7 +762,7 @@ export default function TenantsPage() {
                   </DetailSection>
 
                   <DetailSection title="Entitlements">
-                    <DetailRow label="Member Seats" value={`${detail.contact.members.length} / ${detail.entitlements.maxMembers}`} />
+                    <DetailRow label="Users" value={`${detail.contact.members.length} / ${detail.entitlements.maxMembers}`} />
                     <DetailRow
                       label="Storage"
                       value={detail.entitlements.storage.unlimited
@@ -797,7 +797,7 @@ export default function TenantsPage() {
 
                   <DetailSection title={`Add-ons (${detail.addons.length})`}>
                     <DetailTable
-                      head={['Add-on', 'Status', 'Seats', 'Credits', 'Purchased', 'Expires']}
+                      head={['Add-on', 'Status', 'Users', 'Credits', 'Purchased', 'Expires']}
                       rows={detail.addons.map(a => [
                         a.name,
                         a.isActive ? 'Active' : 'Inactive',
@@ -960,7 +960,7 @@ export default function TenantsPage() {
               
               <div className="flex flex-col gap-1.5">
                 <Label>Workspace Name *</Label>
-                <Input placeholder="e.g. Sharma Household or Acme Corp" value={formData.name} onChange={e => handleNameChange(e.target.value)} required disabled={saving} />
+                <Input placeholder="e.g. Sharma Personal or Acme Corp" value={formData.name} onChange={e => handleNameChange(e.target.value)} required disabled={saving} />
               </div>
 
               <Separator className="my-1 border-border/40" />
@@ -968,7 +968,7 @@ export default function TenantsPage() {
               <div className="text-xs font-bold text-primary uppercase tracking-wider">Billing Contact (Optional)</div>
               <p className="text-xs text-muted-foreground leading-relaxed -mt-2">
                 Who to invoice and reach about this workspace. The sign-in owner&apos;s own name, email
-                and mobile live on their member record and are edited under Users.
+                and mobile live on their user record and are edited under Users.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
@@ -1076,7 +1076,7 @@ export default function TenantsPage() {
                       <span className="text-xs font-bold text-foreground">{ta.addon.name}</span>
                       <div className="flex items-center gap-2 mt-1">
                         {ta.addon.aiCredits > 0 && <span className="text-xs text-blue-500 bg-blue-500/10 px-1.5 rounded">+{ta.addon.aiCredits} AI Credits</span>}
-                        {ta.addon.extraMembers > 0 && <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 rounded">+{ta.addon.extraMembers} Members</span>}
+                        {ta.addon.extraMembers > 0 && <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 rounded">+{ta.addon.extraMembers} Users</span>}
                       </div>
                     </div>
                   ))}

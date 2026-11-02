@@ -350,7 +350,7 @@ export default function PasswordsPage() {
     const fields = [
       { label: 'Title', value: cred.title },
       { label: 'Category', value: cred.category.toUpperCase() },
-      { label: 'Belongs to', value: cred.holder?.name || 'All members' },
+      { label: 'Belongs to', value: cred.holder?.name || 'All users' },
       { label: 'URL', value: cred.url },
       { label: 'Username', value: cred.username },
       { label: 'Password', value: secret }
@@ -706,7 +706,7 @@ export default function PasswordsPage() {
                         {cred.category}
                       </span>
                       <span className="text-xs text-muted-foreground truncate mt-0.5">
-                        {cred.holder?.name || 'All members'}
+                        {cred.holder?.name || 'All users'}
                       </span>
                     </div>
                   </div>

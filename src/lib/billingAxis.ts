@@ -245,11 +245,24 @@ export function planColumnsForAxis(
  * column at 'personal' would hide the half they paid for (no tab, no switcher,
  * no company). Never narrows: erasing a half is `/api/account/erase`, a
  * deliberate and confirmed act, not a side effect of a checkout.
+ *
+ * ── THE FIRST PURCHASE DECIDES, IT DOES NOT WIDEN ────────────────────────────
+ * A signup is stored as 'personal' because the form no longer asks, not because
+ * the person chose a household account. For a tenant that has never held a plan
+ * (`neverSubscribed`), that default holds nothing, so the account becomes
+ * exactly what the first purchase covers: Business gives 'business', not the
+ * 'both' it would be if the placeholder 'personal' were unioned with it.
  */
 export function widenAccountType(
   current: string | null | undefined,
   axesWritten: ReadonlyArray<AccountAxis>,
+  opts: { neverSubscribed?: boolean } = {},
 ): 'personal' | 'business' | 'both' {
+  if (opts.neverSubscribed && axesWritten.length > 0) {
+    const bought = new Set<AccountAxis>(axesWritten);
+    if (bought.size === 2) return 'both';
+    return bought.has('business') ? 'business' : 'personal';
+  }
   const held = new Set<AccountAxis>(
     current === 'both' ? ACCOUNT_AXES : current === 'business' ? ['business'] : ['personal'],
   );

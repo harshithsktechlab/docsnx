@@ -51,7 +51,7 @@ export async function sendPushNotification(userId: string, title: string, body: 
       // Webpush specific options can be added here if needed
       webpush: {
         notification: {
-          icon: '/icon-192.png',
+          icon: '/api/brand/logo',
         }
       }
     };

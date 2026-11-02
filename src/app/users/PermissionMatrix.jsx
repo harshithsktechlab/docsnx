@@ -719,7 +719,7 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
             </Button>
             {showOtherAccount && (
               <p className="px-3 pb-1 text-2xs text-muted-foreground">
-                Granting these makes this member part of both accounts.
+                Granting these makes this user part of both accounts.
               </p>
             )}
           </div>
@@ -750,7 +750,7 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
                up with, in the same words as the rows above. ───────────── */}
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/60 bg-popover/95 py-2 backdrop-blur">
           <span className="text-xs font-bold uppercase tracking-widest text-faint">
-            This member gets
+            This user gets
           </span>
           {summarySegments.map((seg) => (
             <Badge key={seg.key} variant={LEVEL_BADGE[seg.key] || 'muted'} className="text-2xs">

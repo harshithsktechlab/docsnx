@@ -282,7 +282,7 @@ export function holderDisplayName(
   if (present(assigned)) return String(assigned);
   const typed = meta.open?.holder_name;
   if (present(typed)) return String(typed);
-  return row.isGlobal ? 'All members' : null;
+  return row.isGlobal ? 'All users' : null;
 }
 
 /**

@@ -10,8 +10,9 @@
  * way, including zod's own machine wording.
  *
  * The form is shorter than it was — the workspace name moved to onboarding, the
- * company name to its own wizard step, and the plan to /billing — so what is
- * left is the five answers an account cannot be created without.
+ * company name to its own wizard step, and the plan (and with it the account
+ * type) to /billing — so what is left is the four answers an account cannot be
+ * created without.
  *
  * This returns the shape the rest of the product already uses for that:
  * `fieldErrors`, keyed by the input's `id` (see src/lib/records/
@@ -40,7 +41,6 @@ export interface RegisterFormValues {
   password: string;
   confirmPassword: string;
   phoneNumber: string;
-  accountType: string;
   consentData: boolean;
 }
 
@@ -54,18 +54,12 @@ export type RegisterFieldErrors = Partial<Record<keyof RegisterFormValues, strin
  */
 export const REGISTER_FIELD_ORDER: readonly (keyof RegisterFormValues)[] = [
   'name', 'email', 'phoneNumber', 'password', 'confirmPassword',
-  'accountType', 'consentData',
+  'consentData',
 ];
-
-const ACCOUNT_TYPES = new Set(['personal', 'business', 'both']);
 
 export function validateRegisterForm(values: RegisterFormValues): RegisterFieldErrors {
   const errors: RegisterFieldErrors = {};
   const trimmed = (v: string) => (v || '').trim();
-
-  if (!ACCOUNT_TYPES.has(values.accountType)) {
-    errors.accountType = 'Choose what you will use DocsNX for';
-  }
 
   const name = trimmed(values.name);
   if (!name) errors.name = 'Full name is required.';

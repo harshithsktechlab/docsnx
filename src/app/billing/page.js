@@ -288,8 +288,29 @@ export default function BillingPage() {
    * account) rather than as one more card among the household's plans. A
    * two-half tenant keeps them in each tab exactly as before.
    */
-  const gridPlans = isSingleAccount ? plansForAxis.filter((p) => p.appliesTo !== 'both') : plansForAxis;
-  const comboPlans = isSingleAccount ? sellablePlans.filter((p) => p.appliesTo === 'both') : [];
+  /**
+   * ── A BRAND-NEW ACCOUNT CHOOSES ONE OF THE THREE PLANS ──────────────────
+   *
+   * Signup no longer asks Personal / Business / Combo — this is where that is
+   * answered, and the plan picked decides the account type (see
+   * `widenAccountType`). So an account that has never bought anything sees
+   * every plan, Personal, Business and Personal + Business, side by side in ONE
+   * grid: no per-half sections, no separate "upgrade" block for the combo, and
+   * picking a card replaces the previous pick rather than adding to it.
+   *
+   * `accountType === 'personal'` is the signup default, so it is also what keeps
+   * this off a business-only or two-half tenant that has simply let a plan
+   * lapse. Everyone who has ever subscribed keeps the per-half view below.
+   */
+  // The same test as `neverSubscribed` further down, written out because that
+  // const is declared after this point in the component.
+  const choosePlanMode = !!billing
+    && !billing.personal?.hasPlan && !billing.business?.hasPlan
+    && billing.accountType === 'personal';
+  const gridPlans = choosePlanMode
+    ? sellablePlans
+    : isSingleAccount ? plansForAxis.filter((p) => p.appliesTo !== 'both') : plansForAxis;
+  const comboPlans = isSingleAccount && !choosePlanMode ? sellablePlans.filter((p) => p.appliesTo === 'both') : [];
 
   /** The prorated line for one combo card, or null when the full price applies. */
   const offerFor = (plan) => {
@@ -303,7 +324,10 @@ export default function BillingPage() {
   /** Add to the cart, replacing whatever was held for the axes it covers. */
   const addToCart = (plan) => {
     setCart((prev) => {
-      const next = { ...prev };
+      // Choosing among the three plans is one pick, not a basket: a second
+      // card replaces the first, otherwise Personal then Business would be
+      // bought together.
+      const next = choosePlanMode ? {} : { ...prev };
       // A 'both' plan occupies BOTH slots: buying it alongside a separate
       // business plan would pay twice for the same entitlement.
       if (planCovers(plan.appliesTo, 'personal')) next.personal = plan;
@@ -444,7 +468,7 @@ export default function BillingPage() {
           </h1>
           <p className="text-muted-foreground text-sm">
             {isWelcome
-              ? 'Pick a plan to activate your workspace. You can add extra members and companies at checkout.'
+              ? 'Pick a plan to activate your workspace. You can add extra users and companies at checkout.'
               : 'Manage your plan, upgrade, and view payment history'}
           </p>
         </div>
@@ -569,14 +593,14 @@ export default function BillingPage() {
                         room. */}
                     {activeAxis === 'business' ? (
                       <span>
-                        Members per company:{' '}
+                        Users per company:{' '}
                         <span className="font-bold text-foreground">
                           {axisState.members.perCompanyLimit}
                         </span>
                       </span>
                     ) : (
                       <span>
-                        Members:{' '}
+                        Users:{' '}
                         <span className="font-bold text-foreground">
                           {axisState.members.used} / {axisState.members.limit}
                         </span>
@@ -606,7 +630,7 @@ export default function BillingPage() {
                           'font-bold',
                           c.used >= c.limit ? 'text-danger-text' : 'text-foreground',
                         )}>
-                          {c.used} / {c.limit} members
+                          {c.used} / {c.limit} users
                         </span>
                       </span>
                     ))}
@@ -634,7 +658,9 @@ export default function BillingPage() {
         <div className="flex items-center gap-2 mb-4">
           <Sparkles size={18} className="text-primary" />
           <h2 className="text-lg font-extrabold text-foreground">
-            {axisTabs.length > 1 ? `${axisLabel(activeAxis)} plans` : 'Upgrade Your Plan'}
+            {choosePlanMode
+              ? 'Choose your plan'
+              : axisTabs.length > 1 ? `${axisLabel(activeAxis)} plans` : 'Upgrade Your Plan'}
           </h2>
         </div>
 
@@ -738,39 +764,37 @@ export default function BillingPage() {
                           ₹{plan.amcAmount}/year AMC
                         </span>
                       )}
-                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                        <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                        Up to {plan.maxMembers} Members
-                      </span>
-                      {/*
-                        The two numbers a business plan is actually sold on, and
-                        the card never showed either — so "3 companies, 10
-                        members each" was invisible at the moment of choosing.
-                        Rendered only when non-zero, which is what keeps a
-                        personal card exactly as it was: `max_companies` and
-                        `max_members_per_company` are 0 on a personal plan.
-
-                        Note the grain: `maxMembersPerCompany` is per company,
-                        not a business-wide pool — a tenant on 3x10 can hold
-                        thirty people and still be refused an eleventh in one
-                        company. Saying "each" is not padding.
-                      */}
+                      {/* A Business-only plan's real member limit is per company
+                          (`maxMembersPerCompany`); its own `maxMembers` is the
+                          admin alone. The card quotes the number people will
+                          actually get, and the separate "in each company" line
+                          is gone. A combined plan has both halves, so it names
+                          each. Display only — enforcement is unchanged. */}
+                      {plan.appliesTo === 'both' && plan.maxMembersPerCompany > 0 ? (
+                        <>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                            <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
+                            Up to {plan.maxMembers} Users for personal
+                          </span>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                            <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
+                            Up to {plan.maxMembersPerCompany} Users for business
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
+                          Up to {plan.appliesTo === 'business' && plan.maxMembersPerCompany > 0 ? plan.maxMembersPerCompany : plan.maxMembers} Users
+                        </span>
+                      )}
+                      {/* Rendered only when non-zero: `max_companies` is 0 on a
+                          personal plan. */}
                       {plan.maxCompanies > 0 && (
                         <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                           <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
                           {plan.maxCompanies} {plan.maxCompanies === 1 ? 'Company' : 'Companies'}
                         </span>
                       )}
-                      {plan.maxMembersPerCompany > 0 && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                          {plan.maxMembersPerCompany} Members in each company
-                        </span>
-                      )}
-                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                        <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                        {plan.storageLimitGB} GB Secure Storage
-                      </span>
                       {plan.aiCredits > 0 && (
                         <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                           <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
@@ -905,15 +929,11 @@ export default function BillingPage() {
                     <div className="flex flex-col gap-1.5 mb-4 flex-1">
                       <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                         <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                        Up to {plan.maxMembers} household members
+                        Up to {plan.maxMembers} personal users
                       </span>
                       <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                         <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                        {plan.maxCompanies} {plan.maxCompanies === 1 ? 'company' : 'companies'}, {plan.maxMembersPerCompany} members each
-                      </span>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                        <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
-                        {plan.storageLimitGB} GB Secure Storage
+                        {plan.maxCompanies} {plan.maxCompanies === 1 ? 'company' : 'companies'}, {plan.maxMembersPerCompany} users each
                       </span>
                       {plan.aiCredits > 0 && (
                         <span className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -1076,7 +1096,7 @@ export default function BillingPage() {
                 className="flex h-10 items-center gap-2 bg-primary px-5 text-xs font-bold text-primary-foreground hover:bg-primary/90"
               >
                 <CreditCard size={14} />
-                Checkout together
+                Checkout
               </Button>
             </div>
           </div>

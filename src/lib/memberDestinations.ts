@@ -49,12 +49,10 @@ export interface MemberDestination {
    * were choosing between two companies, when the first row is the personal
    * half of the account and the rest are its companies.
    *
-   * Qualified only when there is something to tell it apart FROM. A personal
-   * account's single row is its household by definition and needs no prefix;
-   * so does a combo account that has not added a company yet. The word is
-   * `Personal` because that is what the workspace switcher already calls this
-   * half (src/app/components/WorkspaceSwitcher.jsx) — a second vocabulary for
-   * the same half is the confusion, not the fix.
+   * The row is not prefixed with `Personal`: the sub-label under it in the
+   * wizard already says `Personal` or `Company`, which is the word the
+   * workspace switcher (src/app/components/WorkspaceSwitcher.jsx) uses for this
+   * half too — a second vocabulary for the same half is the confusion.
    */
   rowLabel: string;
   /**
@@ -68,10 +66,10 @@ export interface MemberDestination {
  * The name to show when the tenant's own has not loaded yet.
  *
  * Lower case and generic on purpose: it sits in a sentence ("…added to your
- * household"), and a placeholder that looked like a proper noun would read as
+ * personal account"), and a placeholder that looked like a proper noun would read as
  * the account having been named that.
  */
-const HOUSEHOLD_FALLBACK = 'your household';
+const HOUSEHOLD_FALLBACK = 'your personal account';
 
 /**
  * Every destination this account genuinely has, in the order the step lists
@@ -122,11 +120,8 @@ export function memberDestinations(
 
   // 'both', and anything unrecognised. The household leads: it is the safe
   // default below, and a list whose default is not first reads as mis-selected.
-  //
-  // And only HERE is its row qualified — a combo account with no company yet
-  // renders one row, which needs no telling apart.
   if (list.length === 0) return [household];
-  return [{ ...household, rowLabel: `Personal — ${household.label}` }, ...list];
+  return [household, ...list];
 }
 
 /**
@@ -165,7 +160,7 @@ export function membersStepBlurb(
   list: readonly MemberDestination[],
 ): string {
   if (list.length === 0) {
-    return 'Add a company first — every business member works on one, so there is '
+    return 'Add a company first — every business user works on one, so there is '
       + 'nowhere to put them yet.';
   }
 
@@ -175,7 +170,7 @@ export function membersStepBlurb(
     const only = list[0];
     return only.scope === 'business'
       ? `Add the people who work on ${only.label}, so they can log in and reach its documents.${tail}`
-      : `Add the members of ${only.label}, so they can log in and reach shared documents.${tail}`;
+      : `Add the users of ${only.label}, so they can log in and reach shared documents.${tail}`;
   }
 
   if (!chosen) {
@@ -183,8 +178,8 @@ export function membersStepBlurb(
   }
 
   return chosen.scope === 'business'
-    ? `Adding to ${chosen.label}. They will reach that company's documents, and not your household's.${tail}`
-    : `Adding to ${chosen.label}. They will reach your household's documents, and none of your companies'.${tail}`;
+    ? `Adding to ${chosen.label}. They will reach that company's documents, and not your personal account's.${tail}`
+    : `Adding to ${chosen.label}. They will reach your personal documents, and none of your companies'.${tail}`;
 }
 
 /**

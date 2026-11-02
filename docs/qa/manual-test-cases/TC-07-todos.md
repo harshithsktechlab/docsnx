@@ -6,11 +6,11 @@
 
 | Aspect | Detail |
 |---|---|
-| Fields | Task* (text), Due Date, Status, Assignee (member or Unassigned), Push Notification (bool) |
+| Fields | Task* (text), Due Date, Status, Assignee (user or Unassigned), Push Notification (bool) |
 | Status values | `PENDING` (default), `COMPLETED` |
 | Server rules | `task` required — "Missing required field: task"; `status` defaults to `PENDING`; `assigneeId` defaults to `null`; `pushNotification` defaults to `false`; `creatorId` = session user |
-| Filters | Status (Pending / Completed / All), Member (Unassigned / All / specific), free-text search on task description |
-| Member filter semantics | Selecting a member returns todos where they are **assignee OR creator** |
+| Filters | Status (Pending / Completed / All), User (Unassigned / All / specific), free-text search on task description |
+| User filter semantics | Selecting a user returns todos where they are **assignee OR creator** |
 | Soft delete | This table has **no** `deleted_at` column — deletion is a hard delete |
 | AI assist | A scan/auto-fill path can propose structured task values |
 
@@ -24,16 +24,16 @@
 | TDO-UI-002 | Positive | Open `/todos` with tasks present. | Each row/card shows the task text, assignee name, due date and a status control. | — | — |
 | TDO-UI-003 | Positive | Observe the loading state. | Skeletons render, then the list; no flash of the empty state. | — | — |
 | TDO-UI-004 | Positive | Trigger a fetch failure (offline) and open `/todos`. | Toast "Network error fetching to-dos"; an error/empty state is shown rather than a hang. | — | — |
-| TDO-UI-005 | Positive | Open the Add Task dialog. | Fields: task description (textarea), Due Date, Status select, Member select, Push Notification toggle. | — | — |
+| TDO-UI-005 | Positive | Open the Add Task dialog. | Fields: task description (textarea), Due Date, Status select, User select, Push Notification toggle. | — | — |
 | TDO-UI-006 | Positive | Inspect the Status select. | Options: Pending, Completed. | — | — |
-| TDO-UI-007 | Positive | Inspect the Member select. | Options: "Unassigned / All" plus every member in the tenant — and **no** members from other tenants. | — | — |
+| TDO-UI-007 | Positive | Inspect the User select. | Options: "Unassigned / All" plus every user in the tenant — and **no** users from other tenants. | — | — |
 | TDO-UI-008 | Positive | Submit the Add form. | Button disables with a spinner; on success a toast appears, the dialog closes and the list refreshes with the new task at the expected position. | — | — |
 | TDO-UI-009 | Positive | Toggle a task's status directly from the list. | The status updates optimistically, a success toast appears and the change survives a reload. | — | — |
 | TDO-UI-010 | Negative | Trigger a status-update failure (offline). | Toast "Network error updating status"; the status reverts to its previous value (no false "completed"). | — | — |
 | TDO-UI-011 | Positive | Filter by Status = Pending, then Completed, then All. | The list shows only matching tasks in each case; the active filter is visually indicated. | — | — |
-| TDO-UI-012 | Positive | Filter by a specific member. | Only tasks where that member is assignee **or** creator are shown. | — | — |
+| TDO-UI-012 | Positive | Filter by a specific user. | Only tasks where that user is assignee **or** creator are shown. | — | — |
 | TDO-UI-013 | Positive | Type into the search box ("Search by task description, assignee…"). | The list filters as you type; clearing restores everything. | — | — |
-| TDO-UI-014 | Positive | Combine a status filter, a member filter and a search term. | Only tasks matching all three are listed. | — | — |
+| TDO-UI-014 | Positive | Combine a status filter, a user filter and a search term. | Only tasks matching all three are listed. | — | — |
 | TDO-UI-015 | Negative | Apply filters that match nothing. | Friendly empty state, not a blank page. | — | — |
 | TDO-UI-016 | Positive | Click Edit on a task. | Dialog pre-populated with the current task text, due date, status, assignee and push flag. | — | — |
 | TDO-UI-017 | Positive | Click Delete. | A confirmation dialog is shown before deletion. | — | — |
@@ -68,7 +68,7 @@
 | TDO-FLD-014 | Status | Positive | Create with `PENDING`, then with `COMPLETED`. | Both saved correctly. | — | — |
 | TDO-FLD-015 | Status | Edge | Create without choosing a status. | Defaults to `PENDING`. | — | — |
 | TDO-FLD-016 | Status | Negative | Force an unknown status value (e.g. via a manipulated select). | Rejected, or normalised to a known value — an arbitrary string must not be persisted. Record actual. | — | — |
-| TDO-FLD-017 | Assignee | Positive | Assign to a member. | Saved; the member's name displays on the task. | — | — |
+| TDO-FLD-017 | Assignee | Positive | Assign to a user. | Saved; the user's name displays on the task. | — | — |
 | TDO-FLD-018 | Assignee | Edge | Leave unassigned. | Saved with `assignee_id = NULL`; displays as Unassigned. | — | — |
 | TDO-FLD-019 | Assignee | Negative | Assign to a user id from another tenant (manipulated). | Rejected; no cross-tenant assignee is stored. | — | — |
 | TDO-FLD-020 | Push Notification | Positive | Enable it and save. | Stored as `true`; a push is dispatched to the assignee's registered devices (if any). | — | — |
@@ -99,11 +99,11 @@
 | TDO-BR-014 | Business rule | Mark an overdue task complete, then open `/follow-up`. | It is no longer listed as pending. | — | — |
 | TDO-BR-015 | Positive | Create/edit/delete tasks and open `/audit-logs`. | An audit entry exists for each mutation. Record actual — a missing entry is **S2** under the house audit rule. | — | — |
 | TDO-BR-016 | Negative | With the subscription expired, open `/todos`. | Access blocked; user directed to billing. | — | — |
-| TDO-BR-017 | Positive | Create a task with push enabled, assigned to a member with a registered device. | The device receives a push notification whose content matches the task; no secret or other tenant's data appears in it. | — | — |
+| TDO-BR-017 | Positive | Create a task with push enabled, assigned to a user with a registered device. | The device receives a push notification whose content matches the task; no secret or other tenant's data appears in it. | — | — |
 | TDO-BR-018 | Edge | Create 300 tasks and open the list. | The list remains responsive; filters and search still return correct results. | — | — |
 | TDO-BR-019 | Business rule | Trigger any AI feature with tasks present. | Task text is passed through the AI privacy masker — any PII inside a task (phone, email, account number) is masked before leaving the platform. | — | — |
-| TDO-BR-020 | Positive | As a **Contributor** member (view + add, no edit — the default for a new member), create a task, assign it to yourself, and click the tick-circle. | Status becomes `COMPLETED` and the row strikes through; clicking again returns it to `PENDING`. No "Forbidden". | — | — |
-| TDO-BR-021 | Positive | As the same Contributor, with a task you created but assigned to another member, click the tick-circle. | Allowed — the creator may complete their own task even after assigning it away. | — | — |
+| TDO-BR-020 | Positive | As a **Contributor** user (view + add, no edit — the default for a new user), create a task, assign it to yourself, and click the tick-circle. | Status becomes `COMPLETED` and the row strikes through; clicking again returns it to `PENDING`. No "Forbidden". | — | — |
+| TDO-BR-021 | Positive | As the same Contributor, with a task you created but assigned to another user, click the tick-circle. | Allowed — the creator may complete their own task even after assigning it away. | — | — |
 | TDO-BR-022 | Negative | As the same Contributor, open Edit on your own task and change its text, date, assignee or push flag. | Refused with Forbidden — the concession is the tick only; every other change still needs `canEdit`. The tick-circle on a task you neither created nor are assigned is disabled. | — | — |
 
 ---
@@ -115,10 +115,10 @@
 | TDO-E2E-001 | Assign → complete | 1. As ADMIN_A create "Pay electricity bill", due in 3 days, assigned to QA Child, push on.<br>2. Log in as QA Child.<br>3. Open `/todos` and mark it Completed.<br>4. Log back in as ADMIN_A. | QA Child sees and completes the task; ADMIN_A sees status `COMPLETED`; the follow-up count drops by one. | — | — |
 | TDO-E2E-002 | Overdue lifecycle | 1. Create a task with yesterday's due date.<br>2. Observe `/todos` and `/follow-up`.<br>3. Complete it.<br>4. Re-check both screens. | It is flagged overdue and listed in follow-ups until completed, then disappears from pending views. | — | — |
 | TDO-E2E-003 | Full CRUD | 1. Create a task.<br>2. Edit its text, due date and assignee.<br>3. Toggle status twice.<br>4. Delete it. | Every step persists across reload; the final delete removes it everywhere including the dashboard count. | — | — |
-| TDO-E2E-004 | Filter workflow | 1. Create 6 tasks: 3 pending / 3 completed, split across 2 members.<br>2. Exercise every combination of status × member × search. | Result sets always match the applied criteria exactly. | — | — |
+| TDO-E2E-004 | Filter workflow | 1. Create 6 tasks: 3 pending / 3 completed, split across 2 users.<br>2. Exercise every combination of status × user × search. | Result sets always match the applied criteria exactly. | — | — |
 | TDO-E2E-005 | Push notification round-trip | 1. Register a device (accept push permission).<br>2. Create a task assigned to that user with push enabled.<br>3. Observe the device. | A push arrives referencing the task; tapping it opens the To-Dos module. | — | — |
-| TDO-E2E-006 | Cross-tenant isolation | 1. Create "Tenant A secret task" in TENANT_A; note its id.<br>2. Log in as ADMIN_B.<br>3. Attempt to view/edit/delete that id; search for the text. | All attempts fail; no text disclosure in search or the member dropdown. | — | — |
-| TDO-E2E-007 | Member deletion impact | 1. Create tasks assigned to QA Child and created by QA Child.<br>2. Delete QA Child.<br>3. Re-open `/todos`. | Assigned tasks survive as Unassigned; tasks created by QA Child are removed by cascade; no broken rows or crashes. | — | — |
+| TDO-E2E-006 | Cross-tenant isolation | 1. Create "Tenant A secret task" in TENANT_A; note its id.<br>2. Log in as ADMIN_B.<br>3. Attempt to view/edit/delete that id; search for the text. | All attempts fail; no text disclosure in search or the user dropdown. | — | — |
+| TDO-E2E-007 | User deletion impact | 1. Create tasks assigned to QA Child and created by QA Child.<br>2. Delete QA Child.<br>3. Re-open `/todos`. | Assigned tasks survive as Unassigned; tasks created by QA Child are removed by cascade; no broken rows or crashes. | — | — |
 
 ---
 
@@ -141,7 +141,7 @@
 | TDO-DB-013 | Cross-tenant isolation (P7) | `SELECT count(*) FROM todos WHERE id = ':record_id' AND tenant_id = ':tenant_b';` | `0` | — | — |
 | TDO-DB-014 | Assignee delete nullifies, does not cascade | Delete the assignee user, then: `SELECT assignee_id FROM todos WHERE id = ':record_id';` | `NULL`; the row still exists | — | — |
 | TDO-DB-015 | Creator delete cascades | Delete the creator user, then: `SELECT count(*) FROM todos WHERE creator_id = ':deleted_user_id';` | `0` | — | — |
-| TDO-DB-016 | Member filter matches assignee OR creator | `SELECT count(*) FROM todos WHERE tenant_id = ':tenant_a' AND (assignee_id = ':user_a1' OR creator_id = ':user_a1');` | Equals the row count shown when filtering the UI by that member | — | — |
+| TDO-DB-016 | User filter matches assignee OR creator | `SELECT count(*) FROM todos WHERE tenant_id = ':tenant_a' AND (assignee_id = ':user_a1' OR creator_id = ':user_a1');` | Equals the row count shown when filtering the UI by that user | — | — |
 | TDO-DB-017 | Search matches the DB predicate | `SELECT count(*) FROM todos WHERE tenant_id = ':tenant_a' AND task ILIKE '%electricity%';` | Equals the number of rows shown for that search term | — | — |
 | TDO-DB-018 | Follow-up threshold matches the DB | `SELECT count(*) FROM todos WHERE tenant_id = ':tenant_a' AND status = 'PENDING' AND due_date IS NOT NULL AND due_date <= now() + interval '15 days';` | Equals the pending-todo count shown on `/follow-up` | — | — |
 | TDO-DB-019 | Long task text stored untruncated | Save a 10 000-char task, then: `SELECT length(task) FROM todos WHERE id = ':record_id';` | `10000` | — | — |

@@ -93,7 +93,7 @@ Run each row: perform the action in the UI, then immediately check the top of `/
 | AUD-BR-011 | Verify email OTP | `VERIFY_EMAIL_OTP` | The verified email address | — | — |
 | AUD-BR-012 | Request a password reset | `PASSWORD_RESET_REQUESTED` | The target email | — | — |
 | AUD-BR-013 | Complete a password reset | `PASSWORD_RESET_SUCCESSFUL` | The user's email; **no password value** | — | — |
-| AUD-BR-014 | Create / edit / delete a member | `CREATE_USER` / `UPDATE_USER` / `DELETE_USER` | Member name or email; **no `passwordHash`** | — | — |
+| AUD-BR-014 | Create / edit / delete a user | `CREATE_USER` / `UPDATE_USER` / `DELETE_USER` | User name or email; **no `passwordHash`** | — | — |
 | AUD-BR-015 | Save a profile | `UPDATE_PROFILE` | Which profile was updated; **no PAN/Aadhaar/passport value** | — | — |
 | AUD-BR-016 | Upload / replace / delete a document | `CREATE_DOCUMENT` / `UPDATE_DOCUMENT` / `DELETE_DOCUMENT` | Document name and category; **no document number** | — | — |
 | AUD-BR-017 | Create / edit / delete a credential | `CREATE_PASSWORD` / `UPDATE_PASSWORD` / `DELETE_PASSWORD` | Credential title; **no password** | — | — |
@@ -151,7 +151,7 @@ Run each row: perform the action in the UI, then immediately check the top of `/
 | AUD-DB-018 | No row without a tenant | `SELECT count(*) FROM audit_logs WHERE tenant_id IS NULL;` | `0` | — | — |
 | AUD-DB-019 | Action vocabulary is from the known set | `SELECT DISTINCT action FROM audit_logs WHERE tenant_id = ':tenant_a' ORDER BY 1;` | Every value appears in the Module Reference table above — no typos, no ad-hoc strings | — | — |
 | AUD-DB-020 | Failed mutations wrote nothing | Trigger a validation failure, then: `SELECT count(*) FROM audit_logs WHERE tenant_id = ':tenant_a' AND created_at > now() - interval '1 minute';` | `0` | — | — |
-| AUD-DB-021 | Actor delete cascades entries | Delete a member who generated entries, then: `SELECT count(*) FROM audit_logs WHERE user_id = ':deleted_user_id';` | `0` | — | — |
+| AUD-DB-021 | Actor delete cascades entries | Delete a user who generated entries, then: `SELECT count(*) FROM audit_logs WHERE user_id = ':deleted_user_id';` | `0` | — | — |
 | AUD-DB-022 | Tenant delete cascades entries | Delete a throwaway tenant, then: `SELECT count(*) FROM audit_logs WHERE tenant_id = ':tenant_x';` | `0` | — | — |
 | AUD-DB-023 | `ip_address` population | `SELECT count(*) FILTER (WHERE ip_address IS NOT NULL) AS with_ip, count(*) AS total FROM audit_logs WHERE tenant_id = ':tenant_a';` | Record actual — a `with_ip` of 0 confirms AUD-BR-036 | — | — |
 | AUD-DB-024 | Mutation count vs. log count | Count the mutations performed during a scripted regression pass and compare with `SELECT count(*) FROM audit_logs WHERE tenant_id = ':tenant_a' AND created_at > ':run_start';` | Equal — every mutation produced exactly one entry, none missing and none duplicated | — | — |
@@ -163,7 +163,7 @@ Run each row: perform the action in the UI, then immediately check the top of `/
 
 | TC ID | Workflow | Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| AUD-E2E-001 | Full-lifecycle trail | 1. Register a tenant and verify OTP.<br>2. Add a member.<br>3. Create one record in 5 different modules.<br>4. Edit 2 of them.<br>5. Delete 1.<br>6. Open `/audit-logs`. | The trail reads as a complete, chronological story: register → verify → create user → 5 creates → 2 updates → 1 delete, with the correct actor on every row. | — | — |
+| AUD-E2E-001 | Full-lifecycle trail | 1. Register a tenant and verify OTP.<br>2. Add a user.<br>3. Create one record in 5 different modules.<br>4. Edit 2 of them.<br>5. Delete 1.<br>6. Open `/audit-logs`. | The trail reads as a complete, chronological story: register → verify → create user → 5 creates → 2 updates → 1 delete, with the correct actor on every row. | — | — |
 | AUD-E2E-002 | Multi-actor attribution | 1. ADMIN_A creates a document.<br>2. USER_A1 edits it.<br>3. ADMIN_A deletes it.<br>4. Review the three entries. | Each entry names the correct acting user — never the record's holder or the tenant admin by default. | — | — |
 | AUD-E2E-003 | Secret-leak sweep | 1. Create a credential, a bank account, a card, a policy and a trading account, each with known sensitive values.<br>2. Run AUD-DB-009 … AUD-DB-015. | All queries return `0`; any hit is logged with its exact action and details text. | — | — |
 | AUD-E2E-004 | Cross-tenant isolation | 1. Generate 20 mutations in TENANT_B.<br>2. Log in as ADMIN_A and open `/audit-logs`.<br>3. Filter aggressively for TENANT_B's record names. | Zero results; the DB confirms TENANT_B's entries exist but are unreachable from TENANT_A. | — | — |

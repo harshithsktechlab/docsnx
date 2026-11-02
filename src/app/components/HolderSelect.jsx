@@ -119,10 +119,10 @@ export const HOLDER_REQUIRED_MESSAGE = 'Choose who this record belongs to';
 export function unmatchedHolderError(scannedName, { compact = false } = {}) {
   const name = typeof scannedName === 'string' ? scannedName.trim() : '';
   if (compact) {
-    return name ? `“${name}” is not a member` : 'Pick who this belongs to';
+    return name ? `“${name}” is not a user` : 'Pick who this belongs to';
   }
   return name
-    ? `The scan read “${name}” — no member by that name. Choose one, or + to add them.`
+    ? `The scan read “${name}” — no user by that name. Choose one, or + to add them.`
     : `${HOLDER_REQUIRED_MESSAGE} — the scan found no name.`;
 }
 
@@ -326,8 +326,8 @@ export default function HolderSelect({
       className="h-10 w-10 shrink-0"
       onClick={openAddMember}
       disabled={disabled}
-      aria-label="Add a member"
-      title="Add a member"
+      aria-label="Add a user"
+      title="Add a user"
     >
       <Plus size={16} />
     </Button>
@@ -353,13 +353,13 @@ export default function HolderSelect({
     const nameOf = new Map(members.map((m) => [m.id, m.name]));
     const named = chosen.map((memberId) => nameOf.get(memberId)).filter(Boolean);
     let summary = '';
-    if (value != null && chosen.length === 0) summary = 'All members';
+    if (value != null && chosen.length === 0) summary = 'All users';
     else if (chosen.length > 0) {
       // Names the members list knows; anyone else (still loading, or since
       // removed) is counted rather than shown as an id.
       summary = named.slice(0, 2).join(', ');
       const extra = chosen.length - Math.min(named.length, 2);
-      if (extra > 0) summary = summary ? `${summary} +${extra}` : `${chosen.length} members`;
+      if (extra > 0) summary = summary ? `${summary} +${extra}` : `${chosen.length} users`;
     }
     const toggle = (memberId, on) => {
       const next = on
@@ -389,7 +389,7 @@ export default function HolderSelect({
             className={`h-10 flex-1 min-w-0 justify-between px-3 font-normal ${error ? 'border-destructive' : ''}`}
           >
             <span className={`truncate ${summary ? '' : 'text-muted-foreground'}`}>
-              {summary || 'Select members'}
+              {summary || 'Select users'}
             </span>
             <ChevronDown size={16} className="shrink-0 opacity-50" />
           </Button>
@@ -407,7 +407,7 @@ export default function HolderSelect({
                   checked={value != null && chosen.length === 0}
                   onCheckedChange={(on) => onChange(on ? [] : (required ? null : []))}
                 />
-                <span className="text-sm font-medium">All members</span>
+                <span className="text-sm font-medium">All users</span>
               </label>
               <div className="my-1 border-t" />
               {members.map((m) => (
@@ -549,7 +549,7 @@ export default function HolderSelect({
                   type="button" variant="link" className="h-auto p-0 text-xs font-medium"
                   onClick={openAddMember}
                 >
-                  Add as member
+                  Add as user
                 </Button>
               </span>
             ) : null}
@@ -623,10 +623,10 @@ export default function HolderSelect({
             id={id}
             className={`flex-1 min-w-0 ${error ? 'border-destructive' : ''}`}
           >
-            <SelectValue placeholder={required ? 'Select a member' : 'All members'} />
+            <SelectValue placeholder={required ? 'Select a user' : 'All users'} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_MEMBERS}>All members</SelectItem>
+            <SelectItem value={ALL_MEMBERS}>All users</SelectItem>
             {members.map((m) => (
               <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
             ))}

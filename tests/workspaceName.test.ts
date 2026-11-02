@@ -9,7 +9,13 @@
  * a wrong answer here is a wrong answer in two places.
  */
 import { describe, it, expect } from 'vitest';
-import { defaultWorkspaceName, workspaceNameCopy } from '@/lib/workspaceName';
+import {
+  defaultWorkspaceName,
+  workspaceNameCopy,
+  personalNameCopy,
+  personalWorkspaceName,
+  namesCollide,
+} from '@/lib/workspaceName';
 
 describe('defaultWorkspaceName', () => {
   it('names the workspace after the person who opened it', () => {
@@ -61,11 +67,11 @@ describe('defaultWorkspaceName', () => {
  * administrator.
  */
 describe('workspaceNameCopy — one box, three questions', () => {
-  it('asks a personal account about its workspace, with a household example', () => {
+  it('asks a personal account about its workspace, with a personal example', () => {
     const copy = workspaceNameCopy('personal');
     expect(copy.label).toMatch(/workspace/i);
     expect(copy.label).not.toMatch(/account/i);
-    expect(copy.placeholder).toMatch(/household/i);
+    expect(copy.placeholder).toMatch(/personal/i);
     expect(copy.noun).toBe('workspace');
   });
 
@@ -78,7 +84,7 @@ describe('workspaceNameCopy — one box, three questions', () => {
     const copy = workspaceNameCopy('business');
     expect(copy.label).toMatch(/account/i);
     expect(copy.label).not.toMatch(/workspace/i);
-    expect(copy.placeholder).not.toMatch(/household/i);
+    expect(copy.placeholder).not.toMatch(/personal/i);
     expect(copy.noun).toBe('account');
   });
 
@@ -90,11 +96,16 @@ describe('workspaceNameCopy — one box, three questions', () => {
     expect(helper).toMatch(/compan/i);
   });
 
-  it('tells a combo account the umbrella name covers its personal side too', () => {
+  it('asks a combo account for its business account name, and says the personal side is named separately', () => {
     const helper = workspaceNameCopy('both').helper;
-    expect(helper).toMatch(/personal side/i);
+    expect(helper).toMatch(/personal side is named separately/i);
     expect(helper).toMatch(/compan/i);
-    expect(workspaceNameCopy('both').noun).toBe('account');
+    expect(workspaceNameCopy('both').noun).toBe('business account');
+  });
+
+  it('asks for the personal workspace in its own words, and requires it to differ', () => {
+    expect(personalNameCopy.label).toMatch(/personal workspace/i);
+    expect(personalNameCopy.helper).toMatch(/different/i);
   });
 
   it('treats an unrecognised account type as a combo one', () => {
@@ -107,13 +118,14 @@ describe('workspaceNameCopy — one box, three questions', () => {
     expect(workspaceNameCopy('enterprise')).toEqual(both);
   });
 
-  it('never promises a rename the product cannot do', () => {
-    // Only PUT /api/admin/tenants/[id] renames a tenant, and it is
-    // SUPER_ADMIN-only — the reader of this line is the TENANT admin.
+  it('points at the rename the product really has', () => {
+    // PUT /api/tenants/workspace lets the TENANT admin rename from the
+    // dashboard header or Settings — the reader of this line.
     for (const type of ['personal', 'business', 'both', null]) {
       const helper = workspaceNameCopy(type).helper;
       expect(helper).not.toMatch(/ask an administrator/i);
-      expect(helper).toMatch(/support/i);
+      expect(helper).not.toMatch(/support/i);
+      expect(helper).toMatch(/dashboard or Settings/);
     }
   });
 
@@ -125,5 +137,29 @@ describe('workspaceNameCopy — one box, three questions', () => {
       expect(helper).toMatch(/sidebar/i);
       expect(helper).toMatch(/invoice/i);
     }
+  });
+});
+
+describe('personalWorkspaceName', () => {
+  it('uses the personal side’s own name when it has one', () => {
+    expect(personalWorkspaceName({ name: 'Menon Group', personalWorkspaceName: ' Menon Household ' }))
+      .toBe('Menon Household');
+  });
+
+  it('falls back to the account name, so existing tenants read as before', () => {
+    expect(personalWorkspaceName({ name: 'Menon Group', personalWorkspaceName: null })).toBe('Menon Group');
+    expect(personalWorkspaceName({ name: 'Menon Group', personalWorkspaceName: '  ' })).toBe('Menon Group');
+  });
+
+  it('falls back to the dashboard’s nameless-tenant string', () => {
+    expect(personalWorkspaceName(null)).toBe('My Workspace');
+    expect(personalWorkspaceName({ name: '' })).toBe('My Workspace');
+  });
+});
+
+describe('namesCollide', () => {
+  it('ignores case and surrounding space', () => {
+    expect(namesCollide(' Menon Group', 'menon group ')).toBe(true);
+    expect(namesCollide('Menon Group', 'Menon Household')).toBe(false);
   });
 });

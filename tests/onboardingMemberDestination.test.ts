@@ -350,7 +350,7 @@ describe('what the audit log says', () => {
     // `account_scope` is immutable, so the log is the only record of a choice
     // that can only be undone by deleting the member.
     await add({});
-    expect(writeAudit.mock.calls[0][0].details).toMatch(/household/i);
+    expect(writeAudit.mock.calls[0][0].details).toMatch(/personal account/i);
   });
 });
 

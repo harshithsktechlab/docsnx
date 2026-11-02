@@ -46,6 +46,7 @@ import { arrivalNotice } from '@/lib/arrivalNotice';
 import { useFlashToast } from '@/hooks/useFlashToast';
 import { clientGetMe, clientCan } from '@/lib/clientAuth';
 import { APP_NAME, APP_MARK } from '@/lib/brand';
+import { personalWorkspaceName } from '@/lib/workspaceName';
 import BrandWordmark from '@/app/components/BrandWordmark';
 import GlobalSearch from '@/app/components/GlobalSearch';
 import { maybeToastStoragePressure } from '@/lib/storageToast';
@@ -67,7 +68,7 @@ import { moduleIcon } from '@/lib/moduleIcons';
 import ModuleFlyout from '@/app/components/ModuleFlyout';
 import WorkspaceSwitcher from '@/app/components/WorkspaceSwitcher';
 import AccountMenu from '@/app/components/AccountMenu';
-import PendingInvites from '@/app/components/PendingInvites';
+import PendingInvites, { useInviteResponder } from '@/app/components/PendingInvites';
 import useUploadPicker from '@/app/components/useUploadPicker';
 import useBackNavigation, { brandHomePath } from '@/app/components/useBackNavigation';
 import { usePermittedCategories, navModulesFrom } from '@/lib/usePermittedCategories';
@@ -250,6 +251,10 @@ export default function Shell({ children }) {
   const [memberships, setMemberships] = useState([]);
   const [pendingInvites, setPendingInvites] = useState([]);
   const [planState, setPlanState] = useState(null);
+  // Version of the super-admin-uploaded app logo (0 = built-in). Appended as
+  // `?v=` so a new upload replaces the sidebar/header logo without a hard reload.
+  const [appLogoVersion, setAppLogoVersion] = useState(0);
+  const appMarkSrc = appLogoVersion ? `${APP_MARK}?v=${appLogoVersion}` : APP_MARK;
   // Owned by src/components/ThemeToggle.tsx, not by local state: the header
   // button and the Appearance card on /more both write it, and two independent
   // copies of that logic is what the 1s poll this replaced was covering for.
@@ -337,6 +342,12 @@ export default function Shell({ children }) {
     ?? defaultCompanyId(switcherMenu);
   const inBusiness = Boolean(activeCompanyId);
   const activeCompany = companies.find((c) => c.id === activeCompanyId) || null;
+  // Under the wordmark: the account (business) name inside a company, the
+  // personal side's own name everywhere else. They differ only on a combo
+  // account — see `personalWorkspaceName` in src/lib/workspaceName.ts.
+  const accountLabel = inBusiness
+    ? (user?.tenant?.name || 'My Workspace')
+    : personalWorkspaceName(user?.tenant);
   // The bottom nav's `+`: one Upload button reachable from every tab, offered
   // only to a member who may add somewhere — the same rule the Document
   // Manager applies to its own Upload button (fails open while loading).
@@ -353,6 +364,10 @@ export default function Shell({ children }) {
   // The list now carries read notifications too (history), so the badge counts
   // the unread ones the API reports rather than the length of the list.
   const [unreadCount, setUnreadCount] = useState(0);
+  // Pending invitations share the bell with notifications: they are answered
+  // from the same panel, so they count toward the badge too.
+  const bellCount = unreadCount + pendingInvites.length;
+  const { busy: inviteBusy, answer: answerInvite } = useInviteResponder(() => window.location.reload());
   /**
    * Unread waiting in the member's OTHER workspaces.
    *
@@ -510,7 +525,8 @@ export default function Shell({ children }) {
         // per state inside the helper — this runs on every navigation.
         maybeToastStoragePressure(data.storageData || null);
         setMaxUploadBytes(data.platformConfig?.maxUploadBytes);
-        
+        setAppLogoVersion(Number(data.appLogoVersion) || 0);
+
         // Setup Push Notifications
         registerDevice(data.user.id, data.user.tenantId);
 
@@ -796,7 +812,7 @@ export default function Shell({ children }) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-background">
         <div className="flex items-center gap-3">
-          <img src={APP_MARK} alt={APP_NAME} className="h-10 w-auto object-contain animate-pulse bg-transparent" />
+          <img src={appMarkSrc} alt={APP_NAME} className="h-10 w-auto object-contain animate-pulse bg-transparent" />
         </div>
         <div className="flex gap-1.5">
           <div className="w-1 h-8 rounded-full bg-primary animate-pulse" />
@@ -1291,7 +1307,7 @@ export default function Shell({ children }) {
     <div className="flex flex-col gap-1 w-full max-h-[320px] overflow-hidden bg-popover text-popover-foreground">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
         <span className="text-xs font-bold">
-          Active Alerts {unreadCount > 0 && <span className="ml-1 bg-destructive text-white rounded-full px-1.5 py-0.5 text-2xs">{unreadCount}</span>}
+          Active Alerts {bellCount > 0 && <span className="ml-1 bg-destructive text-white rounded-full px-1.5 py-0.5 text-2xs">{bellCount}</span>}
         </span>
         <div className="flex items-center gap-1">
           {unreadCount > 0 && (
@@ -1325,7 +1341,23 @@ export default function Shell({ children }) {
         </div>
       </div>
       <div className="overflow-y-auto max-h-[260px] p-1.5 flex flex-col gap-1.5">
-        {notifications.length === 0 ? (
+        {pendingInvites.map((invite) => (
+          <div key={invite.userId} className="w-full p-2 rounded-lg border-l-2 border-primary bg-card text-xs leading-relaxed">
+            <div className="font-bold text-foreground text-xs mb-0.5">Invitation</div>
+            <div className="text-muted-foreground">
+              You were invited to join <strong className="font-bold text-foreground">{invite.tenantName}</strong>.
+            </div>
+            <div className="mt-1.5 flex gap-1.5">
+              <Button size="sm" className="h-6 px-2 text-xs" disabled={inviteBusy === invite.userId} onClick={() => answerInvite(invite, 'accept')}>
+                Accept
+              </Button>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={inviteBusy === invite.userId} onClick={() => answerInvite(invite, 'decline')}>
+                Decline
+              </Button>
+            </div>
+          </div>
+        ))}
+        {notifications.length === 0 && pendingInvites.length === 0 ? (
           <div className="py-6 px-3 text-center text-muted-foreground text-xs flex flex-col items-center gap-1.5">
             <span className="text-emerald-500 text-lg">✓</span>
             <span>All records up to date!</span>
@@ -1426,7 +1458,7 @@ export default function Shell({ children }) {
               isCollapsed ? "justify-center" : ""
             )}
           >
-            <img src={APP_MARK} alt={APP_NAME} className={cn("object-contain shrink-0 rounded-lg border border-border/50 p-0.5 bg-background/50", isCollapsed ? "w-8 h-8" : "w-9 h-9")} />
+            <img src={appMarkSrc} alt={APP_NAME} className={cn("object-contain shrink-0 rounded-lg border border-border/50 p-0.5 bg-background/50", isCollapsed ? "w-8 h-8" : "w-9 h-9")} />
             {!isCollapsed && (
               <div className="flex flex-col justify-center min-w-0 pb-0.5">
                 {/* `min-w-0` here and `truncate` on the two rows below stay even
@@ -1443,7 +1475,7 @@ export default function Shell({ children }) {
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground font-semibold truncate mt-1">
-                  {isSuperAdmin ? 'Platform Admin' : (user?.tenant?.name || 'My Workspace')}
+                  {isSuperAdmin ? 'Platform Admin' : accountLabel}
                 </div>
               </div>
             )}
@@ -1580,13 +1612,13 @@ export default function Shell({ children }) {
                   onClick={() => { setShowDesktopNotifications(!showDesktopNotifications); fetchNotifications(); }}
                   className={cn(
                     'h-8 w-8 relative',
-                    unreadCount > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-foreground'
+                    bellCount > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
                   <Bell size={16} />
-                  {unreadCount > 0 && (
+                  {bellCount > 0 && (
                     <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-destructive text-white rounded-full text-2xs flex items-center justify-center font-bold border border-background">
-                      {unreadCount}
+                      {bellCount}
                     </span>
                   )}
                 </Button>
@@ -1660,7 +1692,7 @@ export default function Shell({ children }) {
                   : 'min-w-0 flex-1',
               )}
             >
-              <img src={APP_MARK} alt={APP_NAME} className="w-7 h-7 object-contain shrink-0 rounded-lg border border-border/50 p-0.5 bg-background/50" />
+              <img src={appMarkSrc} alt={APP_NAME} className="w-7 h-7 object-contain shrink-0 rounded-lg border border-border/50 p-0.5 bg-background/50" />
               {/* ── WHAT GIVES WAY ON A 393px PHONE ────────────────────────
                   The row is 16px gutters, a 28px logo, five 32px controls, and
                   now the workspace chip. That does not fit, so below `sm` the
@@ -1675,7 +1707,7 @@ export default function Shell({ children }) {
                   )}
                 </span>
                 <span className="text-2xs text-muted-foreground font-medium truncate mt-0.5 leading-none">
-                  {isSuperAdmin ? 'Platform Admin' : (user?.tenant?.name || 'My Workspace')}
+                  {isSuperAdmin ? 'Platform Admin' : accountLabel}
                 </span>
               </div>
             </Link>
@@ -1709,13 +1741,13 @@ export default function Shell({ children }) {
                     onClick={() => { setShowMobileNotifications(!showMobileNotifications); fetchNotifications(); }}
                     className={cn(
                       'h-8 w-8 relative',
-                      unreadCount > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-foreground'
+                      bellCount > 0 ? 'text-primary hover:text-primary/80' : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
                     <Bell size={16} />
-                    {unreadCount > 0 && (
+                    {bellCount > 0 && (
                       <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-destructive text-white rounded-full text-2xs flex items-center justify-center font-bold border border-background">
-                        {unreadCount}
+                        {bellCount}
                       </span>
                     )}
                   </Button>
@@ -1770,7 +1802,10 @@ export default function Shell({ children }) {
           <div className="bg-danger-surface border-b border-danger-border px-4 py-2.5 flex items-center gap-2 text-xs font-semibold text-danger-text">
             <Lock size={14} className="shrink-0" />
             <span>
-              {planState?.expiresAt
+              {/* A new account is created with an expiry of "now" and no plan, so
+                  `expiresAt` alone would announce an expiry nobody had a plan
+                  for. `hasPlan` is the durable "has ever subscribed". */}
+              {planState?.expiresAt && (planState.axes?.[lock.axis]?.hasPlan ?? planState.hasPlan) !== false
                 ? `Your plan expired on ${formatDate(planState.expiresAt)}. Your workspace is locked until it is renewed.`
                 : 'Your workspace has no active plan. Choose one to unlock it.'}
             </span>

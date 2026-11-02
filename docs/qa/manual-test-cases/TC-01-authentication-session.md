@@ -100,7 +100,7 @@
 | AUTH-FLD-039 | Password | Boundary | Empty password with a valid email. | Blocked client-side; if bypassed, server rejects with "Password is required". | — | — |
 | AUTH-FLD-039a | Identifier | Positive | Email of an account that was **erased** from Settings → Delete account + any password. | HTTP 410; inline notice "This account was permanently deleted on DD/MM/YYYY…" with a "Create a new account →" link; toast with the same sentence. NOT "Invalid credentials". | — | — |
 | AUTH-FLD-039b | Identifier | Positive | The erased account's **mobile number** (any spelling: `98765 43210`, `+919876543210`) + any password. | Same 410 notice as AUTH-FLD-039a — the lookup matches on the normalised number. | — | — |
-| AUTH-FLD-039c | Identifier | Negative | Email of a **member** (STANDARD) of an erased workspace. | 410 notice reads "The workspace "<name>" this account belonged to was permanently deleted by its admin on …". | — | — |
+| AUTH-FLD-039c | Identifier | Negative | Email of a **user** (STANDARD) of an erased workspace. | 410 notice reads "The workspace "<name>" this account belonged to was permanently deleted by its admin on …". | — | — |
 | AUTH-FLD-039d | Password | Negative | A **live** account's email + wrong password, where the same email also has an older erasure record (register → erase → register again). | Generic "Invalid credentials" — the erased notice must never appear for a live account. | — | — |
 
 ### 2.3 OTP verification (`/verify-email`)

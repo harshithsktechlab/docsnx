@@ -16,7 +16,7 @@
 |---|---|---|
 | [TC-01-authentication-session.md](TC-01-authentication-session.md) | Registration, Email OTP Verification, Login, Forgot/Reset Password, Logout, Session & JWT, Rate Limiting | `AUTH` |
 | [TC-02-onboarding-shell-navigation.md](TC-02-onboarding-shell-navigation.md) | Onboarding wizard, App Shell, Sidebar navigation, Theme, Font-size, PWA, "More" page | `SHL` |
-| [TC-03-members-permissions.md](TC-03-members-permissions.md) | Members (Users), Roles, Per-module Permission Matrix, Member limits | `MEM` |
+| [TC-03-members-permissions.md](TC-03-members-permissions.md) | Users, Roles, Per-module Permission Matrix, User limits | `MEM` |
 | [TC-04-profiles.md](TC-04-profiles.md) | Profiles (personal / education / legal details), auto-profile enrichment | `PRF` |
 | [TC-05-documents.md](TC-05-documents.md) | Document Vault (upload, categories, replace, AI auto-fill, download/share) | `DOC` |
 | [TC-06-passwords.md](TC-06-passwords.md) | Password Manager (encrypted credential vault, reveal, copy, generator) | `PWD` |
@@ -41,7 +41,7 @@
 
 | Item | Value |
 |---|---|
-| Product | docsnx — multi-tenant member management SaaS vault |
+| Product | docsnx — multi-tenant user management SaaS vault |
 | Stack | Next.js 15.1 (App Router), React 19, TypeScript, Drizzle ORM, PostgreSQL, Tailwind CSS v3 + Radix UI |
 | Local URL | `http://localhost:3005` (or the port set in `.env.local` / `PORT`) |
 | DB | PostgreSQL — connection string in `DATABASE_URL` (`.env.local`) |
@@ -54,7 +54,7 @@
 | Module | UI Route | DB Table | Permission key |
 |---|---|---|---|
 | Profiles | `/profile` | `profiles` | `profiles` |
-| Members | `/users` | `users`, `permissions` | *(admin-only; no permission row)* |
+| Users | `/users` | `users`, `permissions` | *(admin-only; no permission row)* |
 | Documents | `/documents` | `documents` | `documents` |
 | Passwords | `/passwords` | `passwords` | `passwords` |
 | To-Dos | `/todos` | `todos` | `todos` |

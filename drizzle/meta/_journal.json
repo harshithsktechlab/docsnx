@@ -624,6 +624,34 @@
       "when": 1786416121000,
       "tag": "0088_search_keywords_single_table",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1786502521000,
+      "tag": "0089_tenant_personal_workspace_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1786588921000,
+      "tag": "0090_system_config_profile_field_options",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1786675321000,
+      "tag": "0091_app_branding",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1786675322000,
+      "tag": "0092_rename_member_seat_to_user",
+      "breakpoints": true
     }
   ]
 }

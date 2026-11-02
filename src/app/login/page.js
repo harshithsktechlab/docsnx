@@ -228,7 +228,7 @@ function LoginContent() {
             {/* Invited members (0071) */}
             <div className="mt-6 text-center">
               <p className="text-muted-foreground text-sm">
-                Added as a member?{' '}
+                Added as a user?{' '}
                 <button
                   onClick={() => router.push('/activate')}
                   className="text-primary font-semibold hover:underline underline-offset-4 transition-colors bg-transparent border-none cursor-pointer font-inherit"

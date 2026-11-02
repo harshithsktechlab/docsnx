@@ -39,7 +39,7 @@ describe('holderForWrite — what goes on the wire', () => {
     expect(holderForWrite(null, MEMBER)).toBe(MEMBER);
   });
 
-  it("spells 'All members' as an empty holder, as the picker always has", () => {
+  it("spells 'All users' as an empty holder, as the picker always has", () => {
     expect(holderForWrite(null, 'all')).toBe('');
     expect(holderForWrite(null, '')).toBe('');
   });
@@ -62,7 +62,7 @@ describe('holderForWrite — what goes on the wire', () => {
   it('answers undefined, NOT an empty string — the two mean different things', () => {
     // This is the whole point of the helper. `holderFrom` keeps a missing key
     // apart from an empty one so `resolveHolder` can tell an explicit
-    // "All members" from "the module decides".
+    // "All users" from "the module decides".
     const business = holderForWrite(COMPANY, '');
     const personalAll = holderForWrite(null, 'all');
     expect(business).not.toBe(personalAll);
@@ -80,7 +80,7 @@ describe('the round trip a form actually makes', () => {
 
   it('a business record: no holder, and NOT flagged household-wide', () => {
     // The reason the key is omitted rather than sent as ''. Sending '' would
-    // read as an explicit "All members" and set is_global on every business
+    // read as an explicit "All users" and set is_global on every business
     // row, which the module summary reports as covering all members.
     expect(post(COMPANY, '')).toEqual({ holderId: null, isGlobal: false, holderIds: [] });
   });
@@ -89,7 +89,7 @@ describe('the round trip a form actually makes', () => {
     expect(post(COMPANY, MEMBER)).toEqual({ holderId: MEMBER, isGlobal: false, holderIds: [MEMBER] });
   });
 
-  it("a personal 'All members' record is still explicitly global", () => {
+  it("a personal 'All users' record is still explicitly global", () => {
     expect(post(null, 'all')).toEqual({ holderId: null, isGlobal: true, holderIds: [] });
   });
 

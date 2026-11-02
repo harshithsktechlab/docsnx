@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
     // password never under a household member, nor a household one under a
     // business-only employee. See src/lib/records/workspaceMembers.ts.
     if (holderId && !await isWorkspaceMember(user.tenantId, holderId, writeScope.companyId)) {
-      return NextResponse.json({ error: 'That member is not part of this workspace' }, { status: 400 });
+      return NextResponse.json({ error: 'That user is not part of this workspace' }, { status: 400 });
     }
 
     if (userId && userId !== user.id && user.role !== 'TENANT_ADMIN' && user.role !== 'SUPER_ADMIN') {

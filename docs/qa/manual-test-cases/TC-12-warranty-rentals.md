@@ -4,7 +4,7 @@
 **Tables:** `warranty_amcs`, `contract_agreements` · **Permission keys:** `warranty`, `rentals`
 
 > Both modules are **holder-scoped, not owner-scoped**: they have `holder_id` and an
-> `is_global` flag that **defaults to `true`** (visible to the all members), and neither table
+> `is_global` flag that **defaults to `true`** (visible to the all users), and neither table
 > has a `user_id` or a `deleted_at` column — **deletes are hard deletes**.
 
 ---
@@ -18,7 +18,7 @@
 | Required fields | Appliance Name*, Company*, Type*, Expiry Date* — otherwise *"Missing required fields: applianceName, company, type, or expiryDate"* |
 | Optional | Purchase Date, Support Contact, Notes, File, Holder |
 | Types | `WARRANTY` (Warranty), `AMC` (Annual Maintenance Contract) |
-| Holder options | "Global (All Members)" (`none` → `holder_id = null`, `is_global = true`) or a specific member |
+| Holder options | "Global (All Users)" (`none` → `holder_id = null`, `is_global = true`) or a specific user |
 | Column limits | `appliance_name` 255 · `company` 255 · `type` 50 · `support_contact` 255 |
 | Follow-ups | Expiry within 15 days surfaces on `/follow-up` |
 | Delete | Hard delete (no `deleted_at`) |
@@ -32,9 +32,9 @@
 | WRN-UI-003 | Positive | View a record whose expiry is in the past. | Flagged as expired. | — | — |
 | WRN-UI-004 | Positive | View a record expiring in 10 days. | Flagged as expiring soon with the correct day count. | — | — |
 | WRN-UI-005 | Positive | Use the Type filter. | Filters correctly between Warranty and AMC. | — | — |
-| WRN-UI-006 | Positive | Use the Holder filter. | Filters to that member's records plus global ones (confirm the intended inclusion of globals and record actual). | — | — |
+| WRN-UI-006 | Positive | Use the Holder filter. | Filters to that user's records plus global ones (confirm the intended inclusion of globals and record actual). | — | — |
 | WRN-UI-007 | Positive | Search "appliances, brands, notes". | Live filtering across appliance name, company and notes. | — | — |
-| WRN-UI-008 | Positive | Open the Add dialog. | Appliance Name, Company, Type select ("Select Type"), Purchase Date, Expiry Date, Support Contact, Notes, file picker, Holder select ("Select Holder" incl. "Global (All Members)"). | — | — |
+| WRN-UI-008 | Positive | Open the Add dialog. | Appliance Name, Company, Type select ("Select Type"), Purchase Date, Expiry Date, Support Contact, Notes, file picker, Holder select ("Select Holder" incl. "Global (All Users)"). | — | — |
 | WRN-UI-009 | Positive | Save a valid record. | Spinner; success toast; list refreshes with the record. | — | — |
 | WRN-UI-010 | Positive | Edit / Delete. | Edit pre-fills everything; Delete confirms first. | — | — |
 | WRN-UI-011 | Positive | Attach and preview a warranty card PDF/photo. | Inline preview; Download available. | — | — |
@@ -61,8 +61,8 @@
 | WRN-FLD-014 | Support Contact | Positive | A phone number and an email address. | Both accepted verbatim. | — | — |
 | WRN-FLD-015 | Notes | Boundary | 10 000-character note. | Accepted (text column) and fully retrievable. | — | — |
 | WRN-FLD-016 | Notes | Edge | Multi-line note. | Line breaks preserved. | — | — |
-| WRN-FLD-017 | Holder | Positive | Assign to a specific member. | `holder_id` set; the member's name shows on the card. | — | — |
-| WRN-FLD-018 | Holder | Positive | Choose "Global (All Members)". | `holder_id = null`; the record is visible to all members. | — | — |
+| WRN-FLD-017 | Holder | Positive | Assign to a specific user. | `holder_id` set; the user's name shows on the card. | — | — |
+| WRN-FLD-018 | Holder | Positive | Choose "Global (All Users)". | `holder_id = null`; the record is visible to all users. | — | — |
 | WRN-FLD-019 | Holder | Negative | Assign to a user id from another tenant (manipulated). | Rejected; no cross-tenant holder is stored. | — | — |
 | WRN-FLD-020 | File | Boundary | Attach a file breaching the storage quota. | Record actual — this route does not visibly gate on `checkStorageLimit`; if the upload succeeds past the quota, raise **S3** (quota bypass). | — | — |
 | WRN-FLD-021 | All | Edge | `<script>alert(1)</script>` in Appliance Name and Notes. | Rendered as literal text. | — | — |
@@ -72,8 +72,8 @@
 
 | TC ID | Type | Rule / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| WRN-BR-001 | Positive | Create a record without choosing a holder. | `is_global` defaults to `true` and `holder_id` is NULL — visible to the all members. | — | — |
-| WRN-BR-002 | Positive | Create a holder-specific record, then log in as a **different** member with `canView`. | Confirm the intended visibility of holder-specific records and record actual. | — | — |
+| WRN-BR-001 | Positive | Create a record without choosing a holder. | `is_global` defaults to `true` and `holder_id` is NULL — visible to the all users. | — | — |
+| WRN-BR-002 | Positive | Create a holder-specific record, then log in as a **different** user with `canView`. | Confirm the intended visibility of holder-specific records and record actual. | — | — |
 | WRN-BR-003 | Business rule | Set an expiry 10 days out and open `/follow-up`. | The item appears under renewals with the correct day count and links to `/warranty`. | — | — |
 | WRN-BR-004 | Business rule | Set an expiry 5 days in the past. | Shown as overdue with "overdue by 5 days". | — | — |
 | WRN-BR-005 | Business rule | Set an expiry 30 days out. | Does **not** appear on `/follow-up` (outside the 15-day threshold). | — | — |
@@ -92,7 +92,7 @@
 |---|---|---|---|---|---|
 | WRN-DB-001 | Tenant stamping (P1) | `SELECT tenant_id, appliance_name, company, type FROM warranty_amcs WHERE id = ':record_id';` | `tenant_id = :tenant_a`; values as entered | — | — |
 | WRN-DB-002 | `is_global` defaults to true | Create without choosing a holder, then: `SELECT is_global, holder_id FROM warranty_amcs WHERE id = ':record_id';` | `t`, `NULL` | — | — |
-| WRN-DB-003 | Holder-specific record stored correctly | `SELECT is_global, holder_id FROM warranty_amcs WHERE id = ':holder_record_id';` | `holder_id` = the chosen member; `is_global` per the UI selection | — | — |
+| WRN-DB-003 | Holder-specific record stored correctly | `SELECT is_global, holder_id FROM warranty_amcs WHERE id = ':holder_record_id';` | `holder_id` = the chosen user; `is_global` per the UI selection | — | — |
 | WRN-DB-004 | Expiry date is mandatory and non-null | `SELECT count(*) FROM warranty_amcs WHERE tenant_id = ':tenant_a' AND expiry_date IS NULL;` | `0` | — | — |
 | WRN-DB-005 | Purchase date nullable | `SELECT purchase_date IS NULL FROM warranty_amcs WHERE id = ':record_no_purchase';` | `t` | — | — |
 | WRN-DB-006 | Type constrained | `SELECT DISTINCT type FROM warranty_amcs WHERE tenant_id = ':tenant_a';` | Only `WARRANTY` and `AMC` | — | — |
@@ -123,7 +123,7 @@
 | Encrypted at rest | `account_number` |
 | Amount handling | Parsed with `parseFloat`; a non-numeric string becomes **NULL** (silently) — see RNT-FLD-011 |
 | Money precision | `amount` decimal(12,2) |
-| Holder options | "Global (All Members)" (default `is_global = true`) or a specific member |
+| Holder options | "Global (All Users)" (default `is_global = true`) or a specific user |
 | Delete | Hard delete (no `deleted_at`) |
 
 ## B1. UI Validation
@@ -135,7 +135,7 @@
 | RNT-UI-003 | Positive | View a contract ending in 10 days. | Flagged as expiring; appears on `/follow-up`. | — | — |
 | RNT-UI-004 | Positive | View a contract that has already ended. | Flagged as expired/overdue. | — | — |
 | RNT-UI-005 | Positive | Use the Category (type) filter. | Filters correctly across all four types. | — | — |
-| RNT-UI-006 | Positive | Use the Holder filter. | Filters to that member plus global records. | — | — |
+| RNT-UI-006 | Positive | Use the Holder filter. | Filters to that user plus global records. | — | — |
 | RNT-UI-007 | Positive | Search "contracts, providers, notes". | Live filtering across name, provider and notes. | — | — |
 | RNT-UI-008 | Positive | Open the Add dialog. | Type select ("Select Category"), Name, Provider, Account Number, Start Date, End Date, Amount, Billing Cycle select ("Select Cycle"), Notes, file picker, Holder select. | — | — |
 | RNT-UI-009 | Positive | Save a valid contract. | Spinner; success toast; list refreshes. | — | — |
@@ -168,7 +168,7 @@
 | RNT-FLD-019 | Start Date | Edge | Start Date **after** the End Date. | Record actual — an inverted contract period should be flagged. | — | — |
 | RNT-FLD-020 | Start Date | Edge | Blank. | Accepted (nullable). | — | — |
 | RNT-FLD-021 | Notes | Boundary | 10 000-character note. | Accepted and fully retrievable. | — | — |
-| RNT-FLD-022 | Holder | Positive | Global vs. a specific member. | Both persist correctly. | — | — |
+| RNT-FLD-022 | Holder | Positive | Global vs. a specific user. | Both persist correctly. | — | — |
 | RNT-FLD-023 | Holder | Negative | Assign to another tenant's user id. | Rejected. | — | — |
 | RNT-FLD-024 | File | Boundary | Attach a file breaching the storage quota. | Record actual — if the upload succeeds past the quota, raise **S3** (quota bypass). | — | — |
 | RNT-FLD-025 | All | Edge | `<script>alert(1)</script>` in Name and Notes. | Rendered as literal text. | — | — |
@@ -226,8 +226,8 @@
 |---|---|---|---|---|---|
 | UTL-E2E-001 | Household coverage setup | 1. Add an AC warranty (expiry 10 days out) as Global.<br>2. Add a laptop AMC assigned to QA Child.<br>3. Add a Netflix subscription (monthly, ends in 12 days).<br>4. Add an apartment lease (yearly, ends in 6 months). | All four created; dashboard counts increment; `/follow-up` lists the AC warranty and Netflix subscription only. | — | — |
 | UTL-E2E-002 | Renewal cycle | 1. Note the two items on `/follow-up`.<br>2. Extend both expiry/end dates by one year.<br>3. Re-open `/follow-up`. | Both disappear from the alert list; the records reflect the new dates. | — | — |
-| UTL-E2E-003 | Global vs. holder visibility | 1. Create one Global and one holder-specific record in each module.<br>2. Log in as a different member with `canView`. | Global records are visible; confirm holder-specific visibility matches the intended model and record actual. | — | — |
+| UTL-E2E-003 | Global vs. holder visibility | 1. Create one Global and one holder-specific record in each module.<br>2. Log in as a different user with `canView`. | Global records are visible; confirm holder-specific visibility matches the intended model and record actual. | — | — |
 | UTL-E2E-004 | Hard-delete verification | 1. Create one record in each module.<br>2. Delete both.<br>3. Query both tables by id. | Both rows are gone entirely (no soft-delete row remains) and neither appears in the UI, search or follow-ups. | — | — |
 | UTL-E2E-005 | Encryption & masking check | 1. Create a rental with a known account number.<br>2. Inspect the list payload, the edit dialog, the DB row and `audit_logs.details`. | Ciphertext at rest; correct on reveal; absent from the audit trail; record the list-view exposure per RNT-BR-003. | — | — |
 | UTL-E2E-006 | Isolation sweep | 1. Create one record in each module in TENANT_A.<br>2. Log in as ADMIN_B.<br>3. Attempt view/edit/delete on both ids and run a global search. | All attempts fail with 403/404; nothing disclosed. | — | — |
-| UTL-E2E-007 | Member removal | 1. Assign records in both modules to QA Child.<br>2. Delete QA Child.<br>3. Re-open both modules. | Both records survive with `holder_id = NULL` and render as Global; no crashes or broken rows. | — | — |
+| UTL-E2E-007 | User removal | 1. Assign records in both modules to QA Child.<br>2. Delete QA Child.<br>3. Re-open both modules. | Both records survive with `holder_id = NULL` and render as Global; no crashes or broken rows. | — | — |

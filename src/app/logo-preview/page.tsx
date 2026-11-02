@@ -37,7 +37,7 @@ const ICONS = [
   { src: '/icon-192.png', label: 'icon-192.png', note: 'PWA · maskable', px: 96 },
   { src: '/icon-512.png', label: 'icon-512.png', note: 'PWA · splash', px: 128 },
   { src: '/apple-touch-icon.png', label: 'apple-touch-icon.png', note: 'iOS home screen · 180', px: 90 },
-  { src: APP_MARK, label: 'brand/docsnx-mark.png', note: 'in-app · transparent · 256', px: 96 },
+  { src: APP_MARK, label: 'api/brand/logo', note: 'in-app · admin upload or built-in mark', px: 96 },
 ];
 
 function Surface({ dark, children, className = '' }: { dark?: boolean; children: React.ReactNode; className?: string }) {

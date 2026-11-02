@@ -16,7 +16,7 @@ import {
   CANNOT_ADD_MESSAGE, hasSeatIn, isPlatformOperator, matchExistingPerson,
 } from './attachExisting';
 
-export const ALREADY_MEMBER_MESSAGE = 'This person is already a member of this account.';
+export const ALREADY_MEMBER_MESSAGE = 'This person is already a user of this account.';
 
 export type AttachDecision =
   /** Nobody holds these contacts: create a brand-new member. */

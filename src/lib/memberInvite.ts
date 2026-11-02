@@ -139,7 +139,7 @@ export async function sendMemberInvite(input: {
         userId: actor.id,
         action: ACTIONS.user.invite_sent,
         details: auditSentence('invite_sent', {
-          kind: 'member',
+          kind: 'user',
           name: member.name,
           note: sentOn ? `sent on ${sentOn}` : 'no channel accepted it',
         }),

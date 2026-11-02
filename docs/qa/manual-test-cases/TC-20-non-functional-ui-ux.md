@@ -169,7 +169,7 @@ glassmorphism dark mode, `framer-motion`, PWA with service worker, `sonner` toas
 
 | TC ID | Type | Test Case / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| NFR-VOL-001 | Boundary | Create a tenant with the maximum members its plan allows, each with records in every module. | All screens remain performant; member dropdowns render fully. | — | — |
+| NFR-VOL-001 | Boundary | Create a tenant with the maximum users its plan allows, each with records in every module. | All screens remain performant; user dropdowns render fully. | — | — |
 | NFR-VOL-002 | Boundary | Add 100 custom fields to a single record. | Saves and renders; the print/share view remains usable. | — | — |
 | NFR-VOL-003 | Boundary | Store a 100 000-character note in a text field. | Saved and fully retrievable; the list view truncates the display gracefully. | — | — |
 | NFR-VOL-004 | Boundary | Create 500 notifications for one user. | The bell dropdown scrolls/paginates; the badge count is correct; no freeze. | — | — |

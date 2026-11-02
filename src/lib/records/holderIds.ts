@@ -32,7 +32,7 @@ export function normalizeHolderIds(raw: unknown): string[] | undefined {
     if (!UUID_RE.test(id)) throw new InvalidHolderError();
     if (!out.includes(id)) out.push(id);
   }
-  if (out.length > MAX_HOLDERS) throw new InvalidHolderError('Too many members');
+  if (out.length > MAX_HOLDERS) throw new InvalidHolderError('Too many users');
   return out;
 }
 

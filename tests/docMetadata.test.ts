@@ -236,7 +236,7 @@ describe('holderDisplayName — the Holder column', () => {
 
   it('says all members for a record filed against nobody', () => {
     // The same words the sub-category workspace renders for the same rows.
-    expect(holderDisplayName({ holder: null, isGlobal: true }, empty)).toBe('All members');
+    expect(holderDisplayName({ holder: null, isGlobal: true }, empty)).toBe('All users');
     expect(holderDisplayName({ holder: null, isGlobal: false }, empty)).toBeNull();
   });
 

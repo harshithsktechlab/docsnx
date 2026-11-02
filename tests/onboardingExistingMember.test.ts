@@ -251,7 +251,7 @@ describe('a match that cannot be used', () => {
     const res = await add();
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/already a member/i);
+    expect((await res.json()).error).toMatch(/already a user/i);
     expect(insertedUser()).toBeUndefined();
   });
 });

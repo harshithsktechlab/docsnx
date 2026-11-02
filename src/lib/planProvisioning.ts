@@ -374,9 +374,12 @@ export async function applyPlanToTenant(
   await lockTenantRow(tx, tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
-    columns: { accountType: true },
+    columns: { accountType: true, subscriptionPlanId: true, businessPlanId: true },
   });
-  const widened = widenAccountType(before?.accountType, axesWritten);
+  // The first plan a tenant ever takes decides its type outright; a signup is
+  // 'personal' only as a placeholder. See `widenAccountType`.
+  const neverSubscribed = !!before && !before.subscriptionPlanId && !before.businessPlanId;
+  const widened = widenAccountType(before?.accountType, axesWritten, { neverSubscribed });
   const accountTypeColumn = before?.accountType && widened !== before.accountType
     ? { accountType: widened }
     : {};

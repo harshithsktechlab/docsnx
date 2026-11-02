@@ -22,6 +22,13 @@ export const tenants = pgTable("tenants", {
   contactName: varchar("contact_name", { length: 255 }),
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
+  /**
+   * The personal side's own name on a combo (`account_type = 'both'`) tenant,
+   * added by 0089. `name` stays the account / business name. NULL = no separate
+   * personal name; readers fall back to `name` (`personalWorkspaceName()` in
+   * src/lib/workspaceName.ts).
+   */
+  personalWorkspaceName: varchar("personal_workspace_name", { length: 255 }),
   apiKey: text("api_key"), // encrypted at rest
   aiProvider: varchar("ai_provider", { length: 50 }).default("gemini").notNull(),
   // Keep in sync with DEFAULT_GEMINI_MODEL in src/lib/aiModels.ts — Drizzle
@@ -231,8 +238,10 @@ export const users = pgTable("users", {
   identityId: uuid("identity_id").references(() => identities.id),
   /**
    * 'pending' | 'active' | 'declined' | 'removed' (0081). 'pending' is an
-   * invitation the person has not accepted; only 'active' seats count toward
-   * member limits and may sign in to this tenant. Every pre-0081 row is 'active'.
+   * invitation the person has not accepted. A pending seat DOES count toward
+   * member limits (`seatPredicate` ignores this column; it frees a seat only when
+   * `deleted_at` is set), but only an 'active' one may sign in to this tenant.
+   * Every pre-0081 row is 'active'.
    */
   membershipStatus: varchar("membership_status", { length: 16 }).default('active').notNull(),
   /**
@@ -501,6 +510,24 @@ export const userAvatars = pgTable("user_avatars", {
   contentType: varchar("content_type", { length: 50 }).notNull(),
   /** Base64 of the image bytes. */
   data: text("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * The application's own logo (0091), uploaded by the super admin under
+ * Admin → Branding. One platform-wide row, no tenant. Its own table so the base64
+ * payload is never loaded by a `system_configs` read. NOT the invoice entity's
+ * logo (`system_configs.platform_logo`). No row means the built-in mark.
+ */
+export const appBranding = pgTable("app_branding", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** Sniffed from the bytes by the server, never taken from the client. */
+  logoContentType: varchar("logo_content_type", { length: 50 }).notNull(),
+  /** Base64 of the image bytes. */
+  logoData: text("logo_data").notNull(),
+  /** Doubles as the cache-busting version and the ETag. */
+  logoUpdatedAt: timestamp("logo_updated_at", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -1144,6 +1171,8 @@ export const systemConfigs = pgTable("system_configs", {
    */
   aiCostMultiplier: decimal("ai_cost_multiplier", { precision: 6, scale: 2 }).default("2.00").notNull(),
   maxUploadBytes: integer("max_upload_bytes"),
+  /** Super-admin-managed dropdown lists for the company profile form: `{ entityType: [{value,label}] }`. NULL = code defaults. */
+  profileFieldOptions: jsonb("profile_field_options"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

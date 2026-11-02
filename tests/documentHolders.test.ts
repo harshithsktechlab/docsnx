@@ -21,7 +21,7 @@ describe('resolveHolder with several members', () => {
     expect(resolveHolder({ holderIds: [A, B] })).toEqual({ holderId: A, isGlobal: false, holderIds: [A, B] });
   });
 
-  it('an empty set is All members', () => {
+  it('an empty set is All users', () => {
     expect(resolveHolder({ holderIds: [] })).toEqual({ holderId: null, isGlobal: true, holderIds: [] });
   });
 

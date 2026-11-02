@@ -15,7 +15,7 @@ import { issueOtpChallenge } from '@/lib/otpChallenge';
 import { canActivate } from '@/lib/memberActivation';
 import { serverError } from '@/lib/routeError';
 
-const GENERIC = 'If this number or email belongs to an invited member, a code is on its way.';
+const GENERIC = 'If this number or email belongs to an invited user, a code is on its way.';
 
 export async function POST(req: Request) {
   try {

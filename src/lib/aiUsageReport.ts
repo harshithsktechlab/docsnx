@@ -226,7 +226,7 @@ function groupedSql(dim: Dimension, where: SQL): SQL {
       return sql`
         SELECT u.tenant_id::text || ':' || COALESCE(u.company_id::text, 'household') AS key,
                u.tenant_id AS tenant_id, u.company_id AS company_id,
-               COALESCE(MAX(c.name), 'Household') AS label, MAX(t.name) AS tenant_name, ${MEASURES}
+               COALESCE(MAX(c.name), 'Personal') AS label, MAX(t.name) AS tenant_name, ${MEASURES}
         FROM tenant_ai_usages u
         LEFT JOIN companies c ON c.id = u.company_id
         LEFT JOIN tenants t ON t.id = u.tenant_id
@@ -358,7 +358,7 @@ export async function usageLog(f: AiUsageFilters, opts: PageOptions = {}) {
            u.cost_multiplier::float8 AS cost_multiplier,
            u.batch_id, u.file_count, u.page_count, u.module_key, u.document_key,
            u.tenant_id, t.name AS tenant_name, u.user_id, us.name AS member_name,
-           u.company_id, COALESCE(c.name, CASE WHEN u.company_id IS NULL THEN 'Household' END) AS workspace_name,
+           u.company_id, COALESCE(c.name, CASE WHEN u.company_id IS NULL THEN 'Personal' END) AS workspace_name,
            u.document_id, d.title AS document_title, dc.document_name AS category_name,
            COALESCE(td.task, ec.name) AS other_record,
            ${IS_NOT_SAVED} AS not_saved,

@@ -7,7 +7,7 @@
 
 | Aspect | Detail |
 |---|---|
-| Onboarding wizard | 4 steps — **Welcome → Storage → Members → Finish**; progress bar = `step / 4 × 100%` |
+| Onboarding wizard | 4 steps — **Welcome → Storage → Users → Finish**; progress bar = `step / 4 × 100%` |
 | Onboarding gate | `TENANT_ADMIN` with `tenants.has_completed_onboarding = false` is force-redirected to `/onboarding` from every route except `/login`, `/register`, `/billing`, `/verify-email` |
 | Shell redirect precedence | 1) no plan → `/billing` · 2) AMC locked → `/billing/amc-lock` · 3) subscription expired → `/billing` · 4) onboarding incomplete (TENANT_ADMIN) → `/onboarding` |
 | SUPER_ADMIN guard | Any tenant-specific path (all 19 module routes + `/dashboard/bulk-scan`) redirects to `/tenants` |
@@ -24,13 +24,13 @@
 
 | TC ID | Type | Test Case / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| SHL-UI-001 | Positive | Log in as a freshly registered TENANT_ADMIN. | Automatically redirected to `/onboarding`; progress bar at 25%; step labels Welcome / Storage / Members / Finish with "Welcome" highlighted. | — | — |
+| SHL-UI-001 | Positive | Log in as a freshly registered TENANT_ADMIN. | Automatically redirected to `/onboarding`; progress bar at 25%; step labels Welcome / Storage / Users / Finish with "Welcome" highlighted. | — | — |
 | SHL-UI-002 | Positive | Click through steps 1 → 2 → 3 → 4. | Progress bar advances to 50%, 75%, 100%; the corresponding step label turns primary-coloured; each step's card content changes. | — | — |
 | SHL-UI-003 | Boundary | On step 4, attempt to advance further. | Step index is clamped at 4 — no step 5, no error. | — | — |
 | SHL-UI-004 | Positive | On step 2 (Storage), inspect the Google Drive card. | "Connect Google Drive" CTA shown with an explanation of zero-knowledge storage. | — | — |
-| SHL-UI-005 | Positive | Return to `/onboarding` after Google Drive has been connected. | Drive shows as connected and the wizard fast-forwards to step 3 (Members). | — | — |
-| SHL-UI-006 | Positive | On step 3, add a member with all fields filled. | Success toast "Member added successfully!"; member appears in the list below; the three inputs reset to empty. | — | — |
-| SHL-UI-007 | Negative | On step 3, click "Add" with any of Name / Email / Password empty. | Toast "Please fill all fields for the member"; no member added. | — | — |
+| SHL-UI-005 | Positive | Return to `/onboarding` after Google Drive has been connected. | Drive shows as connected and the wizard fast-forwards to step 3 (Users). | — | — |
+| SHL-UI-006 | Positive | On step 3, add a user with all fields filled. | Success toast "User added successfully!"; user appears in the list below; the three inputs reset to empty. | — | — |
+| SHL-UI-007 | Negative | On step 3, click "Add" with any of Name / Email / Password empty. | Toast "Please fill all fields for the user"; no user added. | — | — |
 | SHL-UI-008 | Positive | Click "Add" and observe the button while the request is in flight. | Button disabled with a spinner; re-enables afterwards. | — | — |
 | SHL-UI-009 | Positive | Click Finish on step 4. | Spinner on the button; redirect to `/dashboard`; toast "Welcome to DocsNX!". | — | — |
 | SHL-UI-010 | Negative | Simulate a network failure while completing onboarding (offline mode). | Toast "Network error"; button re-enables; user stays on `/onboarding` (not stranded in a spinner). | — | — |
@@ -75,18 +75,18 @@
 
 ---
 
-## 2. Field Validation Test Cases (Onboarding — add member)
+## 2. Field Validation Test Cases (Onboarding — add user)
 
 | TC ID | Field | Type | Input / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|---|
-| SHL-FLD-001 | Name | Negative | Blank name, other fields valid. | Toast "Please fill all fields for the member". | — | — |
+| SHL-FLD-001 | Name | Negative | Blank name, other fields valid. | Toast "Please fill all fields for the user". | — | — |
 | SHL-FLD-002 | Email | Negative | `notanemail`. | Rejected with an invalid-email error; no user created. | — | — |
 | SHL-FLD-003 | Email | Negative | Email already used by another user (any tenant). | Rejected — "Email already in use" (or equivalent); no duplicate row. | — | — |
 | SHL-FLD-004 | Email | Edge | Mixed-case email. | Accepted and normalised to lowercase in `users.email`. | — | — |
 | SHL-FLD-005 | Password | Boundary | 1-character password. | Record actual. Expected: rejected for being below the 8-character policy. Inconsistency with registration ⇒ **S3**. | — | — |
-| SHL-FLD-006 | Password | Positive | 8+ char password. | Member created; the temporary password can be used to log in. | — | — |
-| SHL-FLD-007 | All | Boundary | Add members until the plan's member limit is reached, then add one more. | The over-limit attempt is rejected with a limit message naming the allowed count. | — | — |
-| SHL-FLD-008 | Name | Edge | Name containing `<img src=x onerror=alert(1)>`. | Stored and rendered as literal text — no script execution in the member list or elsewhere. | — | — |
+| SHL-FLD-006 | Password | Positive | 8+ char password. | User created; the temporary password can be used to log in. | — | — |
+| SHL-FLD-007 | All | Boundary | Add users until the plan's user limit is reached, then add one more. | The over-limit attempt is rejected with a limit message naming the allowed count. | — | — |
+| SHL-FLD-008 | Name | Edge | Name containing `<img src=x onerror=alert(1)>`. | Stored and rendered as literal text — no script execution in the user list or elsewhere. | — | — |
 | SHL-FLD-009 | All | Edge | Click "Add" twice quickly with the same details. | Exactly one user is created (button disables during the request). | — | — |
 
 ---
@@ -122,9 +122,9 @@
 
 | TC ID | Workflow | Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| SHL-E2E-001 | First-run onboarding | 1. Register + verify a new tenant.<br>2. Land on `/onboarding`.<br>3. Step through Welcome → Storage (skip Drive) → Members (add 1 member) → Finish.<br>4. Land on `/dashboard`. | `has_completed_onboarding` flips to `true`; the added member exists as a `STANDARD` user with default permissions; the user is never redirected back to `/onboarding`. | — | — |
+| SHL-E2E-001 | First-run onboarding | 1. Register + verify a new tenant.<br>2. Land on `/onboarding`.<br>3. Step through Welcome → Storage (skip Drive) → Users (add 1 user) → Finish.<br>4. Land on `/dashboard`. | `has_completed_onboarding` flips to `true`; the added user exists as a `STANDARD` user with default permissions; the user is never redirected back to `/onboarding`. | — | — |
 | SHL-E2E-002 | Onboarding with Drive | 1. On step 2 click "Connect Google Drive".<br>2. Complete the Google OAuth consent.<br>3. Return to the app. | Returns to `/onboarding` at step 3 with Drive marked connected; `tenants.google_drive_enabled = true` and tokens stored. | — | — |
-| SHL-E2E-003 | Abandon & resume onboarding | 1. Start onboarding, reach step 3, close the browser.<br>2. Log in again. | Redirected back to `/onboarding`; previously added members are still present. | — | — |
+| SHL-E2E-003 | Abandon & resume onboarding | 1. Start onboarding, reach step 3, close the browser.<br>2. Log in again. | Redirected back to `/onboarding`; previously added users are still present. | — | — |
 | SHL-E2E-004 | Navigation sweep | Visit all 19 module routes in one session via the sidebar. | Every route loads without a console error; the active nav highlight always matches the current page; page titles are correct. | — | — |
 | SHL-E2E-005 | Role-based navigation | Log in in turn as SUPER_ADMIN, TENANT_ADMIN, USER_A2 (view-only), USER_A3 (restricted). | Each sees only the nav items and actions their role/permissions allow; no cross-role element leaks. | — | — |
 | SHL-E2E-006 | Global search → record | 1. Create a document named "QA Passport".<br>2. Open spotlight, type "Passport".<br>3. Press Enter on the result. | Navigates to the Documents module with the record highlighted/visible. | — | — |
@@ -139,9 +139,9 @@
 |---|---|---|---|---|---|
 | SHL-DB-001 | New tenant starts with onboarding incomplete | `SELECT has_completed_onboarding FROM tenants WHERE id = ':tenant_a';` | `false` | — | — |
 | SHL-DB-002 | Finishing the wizard flips the flag | Run after clicking Finish: `SELECT has_completed_onboarding FROM tenants WHERE id = ':tenant_a';` | `true` | — | — |
-| SHL-DB-003 | Onboarding-added member is created in the right tenant with the right role | `SELECT name, email, role, tenant_id FROM users WHERE tenant_id = ':tenant_a' ORDER BY created_at DESC LIMIT 1;` | The member just added, `role = STANDARD`, `tenant_id = :tenant_a` | — | — |
-| SHL-DB-004 | Member gets a profile row | `SELECT count(*) FROM profiles WHERE user_id = ':member_id';` | `1` | — | — |
-| SHL-DB-005 | Member gets default permission rows | `SELECT count(*) FROM permissions WHERE user_id = ':member_id';` | Equal to the number of permission module keys (19 nav modules with keys + `audit_logs`) | — | — |
+| SHL-DB-003 | Onboarding-added user is created in the right tenant with the right role | `SELECT name, email, role, tenant_id FROM users WHERE tenant_id = ':tenant_a' ORDER BY created_at DESC LIMIT 1;` | The user just added, `role = STANDARD`, `tenant_id = :tenant_a` | — | — |
+| SHL-DB-004 | User gets a profile row | `SELECT count(*) FROM profiles WHERE user_id = ':member_id';` | `1` | — | — |
+| SHL-DB-005 | User gets default permission rows | `SELECT count(*) FROM permissions WHERE user_id = ':member_id';` | Equal to the number of permission module keys (19 nav modules with keys + `audit_logs`) | — | — |
 | SHL-DB-006 | Default permissions are view+add only | `SELECT DISTINCT can_view, can_add, can_edit, can_delete, can_share FROM permissions WHERE user_id = ':member_id';` | Single row: `t, t, f, f, f` | — | — |
 | SHL-DB-007 | Permission uniqueness per user+module | `SELECT user_id, module, count(*) FROM permissions GROUP BY user_id, module HAVING count(*) > 1;` | 0 rows | — | — |
 | SHL-DB-008 | Google Drive connection persisted | `SELECT google_drive_enabled, google_drive_tokens IS NOT NULL AS has_tokens FROM tenants WHERE id = ':tenant_a';` | `t`, `t` after connecting | — | — |

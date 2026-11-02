@@ -254,4 +254,25 @@ describe('widenAccountType', () => {
     expect(widenAccountType(null, ['personal'])).toBe('personal');
     expect(widenAccountType(undefined, ['business'])).toBe('both');
   });
+
+  describe('for a tenant that has never held a plan', () => {
+    // Signup stores 'personal' as a placeholder, so the first purchase decides.
+    const first = { neverSubscribed: true };
+
+    it('a Business plan makes a business account, not both', () => {
+      expect(widenAccountType('personal', ['business'], first)).toBe('business');
+    });
+
+    it('a Personal plan makes a personal account', () => {
+      expect(widenAccountType('personal', ['personal'], first)).toBe('personal');
+    });
+
+    it('a Combo plan makes both', () => {
+      expect(widenAccountType('personal', ['personal', 'business'], first)).toBe('both');
+    });
+
+    it('with nothing written it falls back to widening', () => {
+      expect(widenAccountType('personal', [], first)).toBe('personal');
+    });
+  });
 });

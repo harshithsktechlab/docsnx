@@ -77,13 +77,13 @@
 | TC ID | Type | Rule / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
 | PRF-BR-001 | Positive | Register a new tenant and immediately open `/profile`. | A profile row already exists (created during registration) with four empty JSON objects. | — | — |
-| PRF-BR-002 | Positive | Add a member, then log in as that member and open `/profile`. | Their own profile exists and is separate from the admin's. | — | — |
-| PRF-BR-003 | Business rule | A user edits their own profile. | Only their own `profiles` row changes — no other member's profile is touched. | — | — |
+| PRF-BR-002 | Positive | Add a user, then log in as that user and open `/profile`. | Their own profile exists and is separate from the admin's. | — | — |
+| PRF-BR-003 | Business rule | A user edits their own profile. | Only their own `profiles` row changes — no other user's profile is touched. | — | — |
 | PRF-BR-004 | Negative | As USER_A1, attempt to view/edit ADMIN_A's profile (via a manipulated id if the UI exposes one). | Refused; only the session user's profile is editable. | — | — |
 | PRF-BR-005 | Business rule | Upload a Document with metadata containing a document number (e.g. PAN) for a given holder. | `autoUpdateProfile` writes the value into that holder's `legal_details`, encrypted. | — | — |
 | PRF-BR-006 | Business rule | Upload a second document with an **empty** metadata value for a field already populated in the profile. | The existing profile value is preserved (empty values never overwrite). | — | — |
 | PRF-BR-007 | Business rule | Upload a document whose metadata contains a **different** value for an already-populated profile field. | The profile value is updated to the new value; confirm this matches product intent and record actual. | — | — |
-| PRF-BR-008 | Business rule | Auto-enrichment for a document assigned to another member (holder). | The **holder's** profile is enriched, not the uploader's. | — | — |
+| PRF-BR-008 | Business rule | Auto-enrichment for a document assigned to another user (holder). | The **holder's** profile is enriched, not the uploader's. | — | — |
 | PRF-BR-009 | Security | Save PAN/Aadhaar/Passport, then inspect the DB row directly. | All three values are ciphertext in `legal_details`, never plaintext. | — | — |
 | PRF-BR-010 | Security | Save PAN, then trigger any AI feature that includes profile context. | The AI payload contains masked/stripped identifiers (never the raw PAN/Aadhaar) per the AI Privacy Shield. | — | — |
 | PRF-BR-011 | Positive | Save the profile and check `updated_at`. | Advances on each successful save. | — | — |
@@ -99,7 +99,7 @@
 |---|---|---|---|---|---|
 | PRF-E2E-001 | Complete a profile | 1. Open `/profile`.<br>2. Fill all four tabs completely.<br>3. Save.<br>4. Log out, log back in, reopen `/profile`. | Every value persisted and re-displayed identically; legal IDs decrypt correctly. | — | — |
 | PRF-E2E-002 | Auto-enrichment from a document | 1. Note that Legal / ID is empty.<br>2. Upload a Passport document with AI auto-fill or manual metadata including the passport number, holder = self.<br>3. Reopen `/profile` → Legal / ID. | Passport Number is now populated automatically and stored encrypted. | — | — |
-| PRF-E2E-003 | Enrichment for a member | 1. Upload an Aadhaar document with holder = QA Child.<br>2. Log in as QA Child.<br>3. Open `/profile` → Legal / ID. | QA Child's Aadhaar is populated; the admin's own profile is unchanged. | — | — |
+| PRF-E2E-003 | Enrichment for a user | 1. Upload an Aadhaar document with holder = QA Child.<br>2. Log in as QA Child.<br>3. Open `/profile` → Legal / ID. | QA Child's Aadhaar is populated; the admin's own profile is unchanged. | — | — |
 | PRF-E2E-004 | Profile in backup export | 1. Complete a profile.<br>2. Run the Backup export from `/backup`. | The export contains the profile nested under the user. Verify the treatment of encrypted legal IDs in the export and record whether they are ciphertext or plaintext (plaintext export of Aadhaar/PAN without an explicit warning ⇒ **S2**). | — | — |
 | PRF-E2E-005 | Clear a profile | 1. Populate all fields, save.<br>2. Clear every field, save.<br>3. Reload. | All fields are empty; no stale ciphertext remains in `legal_details`. | — | — |
 

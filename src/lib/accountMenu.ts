@@ -157,7 +157,7 @@ export function accountMenuItems(
   return [
     // A real company route rather than `?company=`: unlike the four account
     // pages, a company has a roster of its own (see `utilityNavPath`).
-    { key: 'members', name: 'Members', path: utilityNavPath('/users', companyId) },
+    { key: 'members', name: 'Users', path: utilityNavPath('/users', companyId) },
     billing,
     { key: 'credits', name: 'AI Credits', path: here('/billing/credits') },
     settings,

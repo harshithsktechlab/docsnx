@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useSearchParams } from 'next/navigation';
 import { Label } from '@/components/ui/label';
+import { DateField, isIsoDate, todayIso } from '@/components/ui/date-field';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';  // kept for admin info Alert
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -415,6 +416,12 @@ export default function MembersScreen({ companyId = null }) {
       toast.error('Please fill in the name.');
       return;
     }
+    // The date fields pass unfinished text up as typed; only a real date (or
+    // nothing) may be saved, never a half-typed one.
+    if ((addDob && !isIsoDate(addDob)) || (addAnniversary && !isIsoDate(addAnniversary))) {
+      toast.error('Enter dates as DD/MM/YYYY, or leave them blank.');
+      return;
+    }
     // Only step 2 creates. A submit from step 1 (Enter in a field, or any
     // stray submit) means "next", never "create with default access".
     if (addStep !== 2) {
@@ -476,7 +483,7 @@ export default function MembersScreen({ companyId = null }) {
       // block above, and calling that a network error sent people to check
       // a connection that was working.
       console.error('[users] handler threw', err);
-      toast.error('Something went wrong adding member. Please try again.');
+      toast.error('Something went wrong adding user. Please try again.');
     } finally {
       setAdding(false);
     }
@@ -534,6 +541,10 @@ export default function MembersScreen({ companyId = null }) {
     // PUT /api/users/[id].
     if (!editName) {
       toast.error('Name is required.');
+      return;
+    }
+    if ((editDob && !isIsoDate(editDob)) || (editAnniversary && !isIsoDate(editAnniversary))) {
+      toast.error('Enter dates as DD/MM/YYYY, or leave them blank.');
       return;
     }
     if (editRole !== 'STANDARD' && isBlankPhone(editPhone)) {
@@ -632,7 +643,7 @@ export default function MembersScreen({ companyId = null }) {
       if (json.success) {
         setRemoveRecords(json);
       } else {
-        toast.error(json.error || 'Could not load this member\u2019s records');
+        toast.error(json.error || 'Could not load this user\u2019s records');
       }
     } catch (err) {
       // Transport failures are values now, not throws — `apiCall` and
@@ -754,7 +765,7 @@ export default function MembersScreen({ companyId = null }) {
         setSelectedUser(null);
         await fetchUsers();
       } else {
-        toast.error(json.error || 'Failed to remove member');
+        toast.error(json.error || 'Failed to remove user');
       }
     } catch (err) {
       // Transport failures are values now, not throws — `apiCall` and
@@ -762,7 +773,7 @@ export default function MembersScreen({ companyId = null }) {
       // block above, and calling that a network error sent people to check
       // a connection that was working.
       console.error('[users] handler threw', err);
-      toast.error('Something went wrong removing member. Please try again.');
+      toast.error('Something went wrong removing user. Please try again.');
     } finally {
       setRemoving(false);
     }
@@ -805,12 +816,12 @@ export default function MembersScreen({ companyId = null }) {
       <div className="flex items-center justify-between gap-4 animate-fade-in">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
-            Members &amp; Permissions
+            Users &amp; Permissions
           </h1>
           <p className="text-muted-foreground text-sm">
             {companyId
               ? `${workspaceName || 'This company'} — who works on this company and what they can reach`
-              : 'The household\u2019s members, and what each of them can reach'}
+              : 'The personal account\u2019s users, and what each of them can reach'}
           </p>
         </div>
         <Button
@@ -821,11 +832,11 @@ export default function MembersScreen({ companyId = null }) {
           // A full workspace would only be refused by POST /api/users after the
           // form was filled in; say so up front instead.
           disabled={seats?.remaining === 0}
-          title={seats?.remaining === 0 ? 'No seats left in this workspace' : undefined}
+          title={seats?.remaining === 0 ? 'No users left to add in this workspace' : undefined}
           className="flex items-center gap-2 h-10 px-4"
         >
           <UserPlus size={16} />
-          <span>Add Member</span>
+          <span>Add User</span>
         </Button>
       </div>
 
@@ -1095,7 +1106,7 @@ export default function MembersScreen({ companyId = null }) {
                     variant="destructive"
                     className="flex items-center gap-1.5 text-xs h-9"
                   >
-                    <Trash2 size={12} /> Remove Member
+                    <Trash2 size={12} /> Remove User
                   </Button>
                 )}
                 
@@ -1149,7 +1160,7 @@ export default function MembersScreen({ companyId = null }) {
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       Which of this account&rsquo;s companies {selectedUser.name} can open.
-                      Most members work on one; tick another only if they genuinely do.
+                      Most users work on one; tick another only if they genuinely do.
                     </p>
 
                     <div className="flex flex-col gap-1 mt-1">
@@ -1180,10 +1191,10 @@ export default function MembersScreen({ companyId = null }) {
 
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       Taking them off {workspaceName || 'this company'} is{' '}
-                      <strong className="font-semibold text-foreground">Remove Member</strong>,
-                      not a tick — a member who works on nothing appears in no list and
+                      <strong className="font-semibold text-foreground">Remove User</strong>,
+                      not a tick — a user who works on nothing appears in no list and
                       could never be reached again. Untick another company from that
-                      company&rsquo;s own Members page.
+                      company&rsquo;s own Users page.
                     </p>
                   </div>
                 )}
@@ -1220,7 +1231,7 @@ export default function MembersScreen({ companyId = null }) {
           <DialogHeader className="shrink-0">
             <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
               <UserPlus className="text-primary" size={20} />
-              <span>Add Member</span>
+              <span>Add User</span>
             </DialogTitle>
           </DialogHeader>
 
@@ -1233,7 +1244,7 @@ export default function MembersScreen({ companyId = null }) {
                   ? inviteSentence(addResult.name, addResult.invite)
                   : addResult.inviteBlocked
                     ? `${addResult.name} has access but no email, and no mobile number WhatsApp can reach — so they cannot sign in yet. Use Edit Details to add one, then Give Access.`
-                    : `Added as a member without sign-in — nothing was sent. Records can still be filed under ${addResult.name}. Give them access any time to invite them.`}
+                    : `Added as a user without sign-in — nothing was sent. Records can still be filed under ${addResult.name}. Give them access any time to invite them.`}
               </p>
               {addResult.invite && (
                 <p className="text-xs text-muted-foreground max-w-sm">
@@ -1243,7 +1254,7 @@ export default function MembersScreen({ companyId = null }) {
               )}
               {closeOnDone && (
                 <p className="text-xs text-muted-foreground max-w-sm">
-                  This tab will close. Back on the record you were filling in, this member is now
+                  This tab will close. Back on the record you were filling in, this user is now
                   selectable under “Belongs to”.
                 </p>
               )}
@@ -1316,24 +1327,12 @@ export default function MembersScreen({ companyId = null }) {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="addDob">Date of Birth</Label>
-                      <Input 
-                        id="addDob"
-                        type="date" 
-                        value={addDob}
-                        onChange={(e) => setAddDob(e.target.value)}
-                        disabled={adding}
-                      />
+                      <Label htmlFor="addDob">Date of Birth <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+                      <DateField id="addDob" value={addDob} onChange={setAddDob} max={todayIso()} disabled={adding} />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="addAnniversary">Anniversary Date</Label>
-                      <Input 
-                        id="addAnniversary"
-                        type="date" 
-                        value={addAnniversary}
-                        onChange={(e) => setAddAnniversary(e.target.value)}
-                        disabled={adding}
-                      />
+                      <Label htmlFor="addAnniversary">Anniversary Date <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+                      <DateField id="addAnniversary" value={addAnniversary} onChange={setAddAnniversary} max={todayIso()} disabled={adding} />
                     </div>
                   </div>
 
@@ -1345,7 +1344,7 @@ export default function MembersScreen({ companyId = null }) {
                       in a date of birth. */}
                   <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Lock size={12} />
-                    Added as a <strong className="text-foreground">standard member</strong>. Their
+                    Added as a <strong className="text-foreground">standard user</strong>. Their
                     access is whatever you grant on the next step.
                   </p>
                 </div>
@@ -1362,7 +1361,7 @@ export default function MembersScreen({ companyId = null }) {
                   <div className="flex flex-col gap-1">
                     <h4 className="text-sm font-bold text-foreground">Access</h4>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      What this member can see and do. Everything here can be changed later from
+                      What this user can see and do. Everything here can be changed later from
                       their profile.
                     </p>
                   </div>
@@ -1390,8 +1389,8 @@ export default function MembersScreen({ companyId = null }) {
                         {companyId ? (workspaceName || 'this company') : 'the personal account'}
                       </span>
                       {companyId
-                        ? ' — they will see this company\u2019s records and no household ones.'
-                        : ' — they will see household records and no company ones.'}
+                        ? ' — they will see this company\u2019s records and no personal ones.'
+                        : ' — they will see personal records and no company ones.'}
                     </span>
                   </div>
 
@@ -1443,7 +1442,7 @@ export default function MembersScreen({ companyId = null }) {
                   </Button>
                 ) : (
                   <Button key="add-create" form="addForm" type="submit" disabled={adding}>
-                    {adding ? <Loader2 size={16} className="animate-spin" /> : 'Create Member'}
+                    {adding ? <Loader2 size={16} className="animate-spin" /> : 'Create User'}
                   </Button>
                 )}
               </div>
@@ -1527,26 +1526,14 @@ export default function MembersScreen({ companyId = null }) {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="editDob">Date of Birth</Label>
-                <Input 
-                  id="editDob"
-                  type="date" 
-                  value={editDob}
-                  onChange={(e) => setEditDob(e.target.value)}
-                  disabled={updating}
-                />
+                <Label htmlFor="editDob">Date of Birth <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+                <DateField id="editDob" value={editDob} onChange={setEditDob} max={todayIso()} disabled={updating} />
               </div>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="editAnniversary">Anniversary Date</Label>
-              <Input 
-                id="editAnniversary"
-                type="date" 
-                value={editAnniversary}
-                onChange={(e) => setEditAnniversary(e.target.value)}
-                disabled={updating}
-              />
+              <Label htmlFor="editAnniversary">Anniversary Date <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+              <DateField id="editAnniversary" value={editAnniversary} onChange={setEditAnniversary} max={todayIso()} disabled={updating} />
             </div>
 
             <DialogFooter className="mt-4 gap-2">
@@ -1619,7 +1606,7 @@ export default function MembersScreen({ companyId = null }) {
                 onClick={() => setRemoveMode('retain')}
                 className={`text-left rounded-lg border p-3 transition ${removeMode === 'retain' ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-border'}`}
               >
-                <div className="font-semibold text-sm text-foreground">Remove member, keep records</div>
+                <div className="font-semibold text-sm text-foreground">Remove user, keep records</div>
                 <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
                   {removeTarget?.name} is removed from the workspace and can no longer sign in.{' '}
                   {removeLoading || !removeRecords
@@ -1638,7 +1625,7 @@ export default function MembersScreen({ companyId = null }) {
                   onClick={() => setRemoveMode('delete')}
                   className={`text-left rounded-lg border p-3 transition ${removeMode === 'delete' ? 'border-destructive bg-destructive/5' : 'border-border/60 hover:border-border'}`}
                 >
-                  <div className="font-semibold text-sm text-foreground">Remove member and delete records</div>
+                  <div className="font-semibold text-sm text-foreground">Remove user and delete records</div>
                   <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     Pick which of their records and password entries to delete permanently.
                     Anything you leave unticked stays in the vault.
@@ -1650,7 +1637,7 @@ export default function MembersScreen({ companyId = null }) {
               {removeMode !== 'signin_off' && (
                 <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/50 pt-3">
                   Removal is permanent. If this person is added again later they start as a
-                  new member, and records kept here will not be reassigned to them
+                  new user, and records kept here will not be reassigned to them
                   automatically.
                 </p>
               )}
@@ -1720,7 +1707,7 @@ export default function MembersScreen({ companyId = null }) {
                 {pickedCount === 0 ? (
                   <span className="text-muted-foreground">
                     Tick the records to delete. Nothing is selected, so nothing will be deleted —
-                    go back and choose &ldquo;Remove member, keep records&rdquo; if that is what you want.
+                    go back and choose &ldquo;Remove user, keep records&rdquo; if that is what you want.
                   </span>
                 ) : (
                   <span className="text-destructive font-medium">
@@ -1754,7 +1741,7 @@ export default function MembersScreen({ companyId = null }) {
                 {removing || togglingSignIn ? <Loader2 size={16} className="animate-spin" /> : (
                   removeStep === 'pick'
                     ? `Remove and delete ${pickedCount}`
-                    : removeMode === 'signin_off' ? 'Turn off sign-in' : 'Remove member'
+                    : removeMode === 'signin_off' ? 'Turn off sign-in' : 'Remove user'
                 )}
               </Button>
             )}

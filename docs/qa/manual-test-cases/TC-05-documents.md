@@ -7,7 +7,7 @@
 
 | Aspect | Detail |
 |---|---|
-| Core fields | Document Name*, Category*, File*, Assigned Member (`userId`) |
+| Core fields | Document Name*, Category*, File*, Assigned User (`userId`) |
 | Metadata (jsonb) | `documentNumber`, `idHolderName`, `dob`, `fatherName`, `expiryDate`, `customFields[]` |
 | Built-in categories | `legal` (Legal / ID), `education`, `business`, `other` — plus **custom categories** typed by the user |
 | Auto-grouping | Documents are grouped by keywords in the **name**: Aadhaar Cards, PAN Cards, Passports, Voter ID Cards, Driving Licenses, Educational Certificates, Insurance Documents, Bills & Receipts, Tax & GST Records, Financial & Banking, General / Miscellaneous |
@@ -33,7 +33,7 @@
 | DOC-UI-008 | Positive | Upload documents named "Aadhaar - Ravi", "PAN Card - Ravi", "Passport - Ravi". | They are grouped under **Aadhaar Cards**, **PAN Cards** and **Passports** respectively. | — | — |
 | DOC-UI-009 | Edge | Upload a document named "Random Notes". | Grouped under **General / Miscellaneous Documents**. | — | — |
 | DOC-UI-010 | Edge | Upload a document named "aadhaar card" (all lowercase). | Still grouped under Aadhaar Cards (grouping is case-insensitive). | — | — |
-| DOC-UI-011 | Positive | Open the upload dialog. | Fields: Document Name, Category (select + custom option), Assigned Member, Document Number, ID Holder Name, DOB, Father/Spouse, Expiry Date, Custom Fields, file picker, AI Auto-fill button. | — | — |
+| DOC-UI-011 | Positive | Open the upload dialog. | Fields: Document Name, Category (select + custom option), Assigned User, Document Number, ID Holder Name, DOB, Father/Spouse, Expiry Date, Custom Fields, file picker, AI Auto-fill button. | — | — |
 | DOC-UI-012 | Positive | Choose "Custom" in the Category select. | A free-text "Enter custom category" input appears. | — | — |
 | DOC-UI-013 | Positive | Click "+ Add Custom Field" repeatedly. | A new Label/Value pair is appended each time; each pair has a remove control that removes only that row. | — | — |
 | DOC-UI-014 | Positive | Select a file and observe the picker. | Selected file name and size are displayed; the picker can be cleared/replaced. | — | — |
@@ -94,8 +94,8 @@
 | DOC-FLD-032 | Custom Fields | Edge | Add a pair with a label but no value (and vice versa). | Saved or skipped consistently; no `undefined`/`null` text rendered in the UI. | — | — |
 | DOC-FLD-033 | Custom Fields | Boundary | Add 50 custom fields. | All persist; the form and print view remain usable (scroll, no overflow). | — | — |
 | DOC-FLD-034 | Custom Fields | Edge | Two pairs with the same label. | Both retained (no silent de-duplication that loses data). | — | — |
-| DOC-FLD-035 | Assigned Member | Positive | Assign to another member. | Saved; the list shows that member as the holder. | — | — |
-| DOC-FLD-036 | Assigned Member | Negative | Assign to a user id belonging to another tenant (manipulated). | Rejected — "Invalid user ID"; no record created. | — | — |
+| DOC-FLD-035 | Assigned User | Positive | Assign to another user. | Saved; the list shows that user as the holder. | — | — |
+| DOC-FLD-036 | Assigned User | Negative | Assign to a user id belonging to another tenant (manipulated). | Rejected — "Invalid user ID"; no record created. | — | — |
 | DOC-FLD-037 | All | Edge | Double-click Upload. | Exactly one document row is created and one file stored. | — | — |
 
 ---
@@ -104,7 +104,7 @@
 
 | TC ID | Type | Rule / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| DOC-BR-001 | Positive | Upload a document as TENANT_ADMIN. | Row created with `tenant_id` = session tenant and `user_id` = the assigned member (defaults to the uploader). | — | — |
+| DOC-BR-001 | Positive | Upload a document as TENANT_ADMIN. | Row created with `tenant_id` = session tenant and `user_id` = the assigned user (defaults to the uploader). | — | — |
 | DOC-BR-002 | Negative | As a user with only `canView` on documents, attempt to upload. | Blocked with Forbidden; controls hidden in the UI. | — | — |
 | DOC-BR-003 | Negative | As a user with `canAdd` but not `canEdit`, attempt a **replace** (re-upload over an existing document). | Blocked — replace requires the `edit` permission. | — | — |
 | DOC-BR-004 | Positive | As a user with `canEdit`, replace an existing document. | The record is updated in place (same id), the new file is stored and the **old file is removed from disk**. | — | — |
@@ -130,8 +130,8 @@
 | DOC-BR-021c | Positive | Repeat and choose **Keep both**. | Two records: the original, and a new one named exactly as the prompt said it would be (`<name> (2)`). Both open. Audit says the copy was kept alongside the existing record, as a create — so it works with **add** permission alone. | — | — |
 | DOC-BR-021d | Business rule | Upload a record whose **document number** matches one already on file, under a different title. | The prompt shows both documents but offers only two answers — **Keep both** is absent, with a line saying both records would claim the same number. | — | — |
 | DOC-BR-021e | Edge | Trigger the prompt where one side is a `.docx`/`.xlsx`, or where the record on file has no attachment. | That pane shows a card naming the file instead of a viewer — no stuck spinner, no console error. | — | — |
-| DOC-BR-021f | Security | As a member with **add** but not **view** on that sub-category, trigger the prompt. | The record is named, but the "Already on file" pane shows no preview — the file is withheld from someone who may not read that category. | — | — |
-| DOC-BR-022 | Positive | Assign a document to another member, then delete that member. | The document is not orphaned into another tenant; `holder_id` behaviour matches the schema's `set null` rule. | — | — |
+| DOC-BR-021f | Security | As a user with **add** but not **view** on that sub-category, trigger the prompt. | The record is named, but the "Already on file" pane shows no preview — the file is withheld from someone who may not read that category. | — | — |
+| DOC-BR-022 | Positive | Assign a document to another user, then delete that user. | The document is not orphaned into another tenant; `holder_id` behaviour matches the schema's `set null` rule. | — | — |
 
 ---
 
@@ -173,7 +173,7 @@
 | DOC-DB-015 | Audit log for delete | `SELECT action, details FROM audit_logs WHERE tenant_id = ':tenant_a' ORDER BY created_at DESC LIMIT 1;` immediately after deleting | Top row is the delete action for that document | — | — |
 | DOC-DB-016 | Storage accounting matches uploads | `SELECT count(*) AS n, sum(file_size) AS bytes FROM documents WHERE tenant_id = ':tenant_a' AND deleted_at IS NULL;` | `n` and `bytes` match what the storage widget reports | — | — |
 | DOC-DB-017 | Quota rejection leaves no row | After a quota-blocked upload: `SELECT count(*) FROM documents WHERE tenant_id = ':tenant_a' AND name = 'QuotaBuster';` | `0` | — | — |
-| DOC-DB-018 | Assigned member belongs to the same tenant | `SELECT count(*) FROM documents d JOIN users u ON u.id = d.user_id WHERE d.tenant_id = ':tenant_a' AND u.tenant_id <> ':tenant_a';` | `0` | — | — |
+| DOC-DB-018 | Assigned user belongs to the same tenant | `SELECT count(*) FROM documents d JOIN users u ON u.id = d.user_id WHERE d.tenant_id = ':tenant_a' AND u.tenant_id <> ':tenant_a';` | `0` | — | — |
 | DOC-DB-019 | Holder reference is same-tenant | `SELECT count(*) FROM documents d JOIN users u ON u.id = d.holder_id WHERE d.tenant_id <> u.tenant_id;` | `0` | — | — |
 | DOC-DB-020 | Cross-tenant isolation (P7) | `SELECT count(*) FROM documents WHERE id = ':record_id' AND tenant_id = ':tenant_b';` | `0` | — | — |
 | DOC-DB-021 | No document row is missing a tenant | `SELECT count(*) FROM documents WHERE tenant_id IS NULL;` | `0` | — | — |

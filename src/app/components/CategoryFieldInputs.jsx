@@ -27,9 +27,8 @@
  *   · `registerRef`, so the caller can scroll to and focus the first error. A
  *     message under a field below the fold changes nothing the user can see.
  */
-import { useEffect, useRef, useState } from 'react';
 import {
-  CalendarDays, CreditCard, Lock, Plus, Sparkles, Trash2,
+  CreditCard, Lock, Plus, Sparkles, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,7 +41,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { displayToIso, isoToDisplay } from '@/lib/dateHelper';
+import { DateField } from '@/components/ui/date-field';
 import {
   CUSTOM_FIELDS_KEY, FORM_HIDDEN_KEYS, formFields, parseMultiValue,
 } from '@/lib/records/fieldValidation';
@@ -91,7 +90,7 @@ export function normaliseNumeric(value) {
  */
 const HTML_INPUT_TYPE = {
   // No `date`: a native date input draws in the BROWSER's locale, so an en-US
-  // browser showed every date MM/DD/YYYY. Dates get <DateInput> below.
+  // browser showed every date MM/DD/YYYY. Dates get <DateField>.
   time: 'time',
   // `type="email"` / `type="url"` would add a SECOND validator — the browser's —
   // with its own message, in its own wording, that `fieldValidation` cannot see
@@ -255,98 +254,6 @@ function ChoiceInput({ spec, value, disabled, invalid, onChange, onBlur, registe
 }
 
 /**
- * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   A DATE, TYPED AND SHOWN DD/MM/YYYY WHATEVER THE BROWSER'S LOCALE       ║
- * ╚══════════════════════════════════════════════════════════════════════════╝
- *
- * The value the caller holds stays `YYYY-MM-DD` — validation, reminders, the
- * routes and the derived dates all read ISO — and only what is drawn changes.
- *
- * While the typing is incomplete or not a real day, the raw text is passed up
- * instead of a blank: the validator then calls it "not a valid date" on blur,
- * where a blank would silently drop what was typed. The calendar button opens a
- * hidden native picker, which answers in ISO.
- */
-function DateInput({ common, fieldKey, value, disabled, onChange }) {
-  const iso = String(value ?? '');
-  const [draft, setDraft] = useState(() => isoToDisplay(iso));
-  // What this input last passed up, so a change from OUTSIDE — an autofill, a
-  // derived renewal date, a reset — can be told apart from our own echo.
-  const emitted = useRef(iso);
-  const picker = useRef(null);
-
-  useEffect(() => {
-    if (iso === emitted.current) return;
-    emitted.current = iso;
-    setDraft(isoToDisplay(iso));
-  }, [iso]);
-
-  const emit = (next) => {
-    emitted.current = next;
-    onChange(fieldKey, next);
-  };
-
-  const type = (raw) => {
-    // Slashes inserted as the digits arrive: "16102026" → "16/10/2026".
-    let text = raw;
-    if (/^\d+$/.test(raw) && raw.length <= 8) {
-      text = [raw.slice(0, 2), raw.slice(2, 4), raw.slice(4)].filter(Boolean).join('/');
-    }
-    setDraft(text);
-    emit(text.trim() === '' ? '' : (displayToIso(text) ?? text));
-  };
-
-  const openPicker = () => {
-    const el = picker.current;
-    if (!el) return;
-    try {
-      el.showPicker();
-    } catch {
-      el.focus();
-      el.click();
-    }
-  };
-
-  return (
-    <div className="relative">
-      <Input
-        {...common}
-        value={draft}
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        placeholder="DD/MM/YYYY"
-        maxLength={10}
-        className={cn(common.className, 'pr-10')}
-        onChange={(e) => type(e.target.value)}
-      />
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={openPicker}
-        aria-label="Pick a date from the calendar"
-        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-50"
-      >
-        <CalendarDays size={16} />
-      </button>
-      <input
-        ref={picker}
-        type="date"
-        tabIndex={-1}
-        aria-hidden
-        disabled={disabled}
-        value={/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : ''}
-        onChange={(e) => {
-          setDraft(isoToDisplay(e.target.value));
-          emit(e.target.value);
-        }}
-        className="pointer-events-none absolute bottom-0 right-0 h-0 w-0 opacity-0"
-      />
-    </div>
-  );
-}
-
-/**
  * One field of the spec.
  *
  * @param spec        the field's entry in the category's spec
@@ -422,12 +329,9 @@ function FieldInput({
           registerRef={registerRef}
         />
       ) : dataType === 'date' ? (
-        <DateInput
-          common={common}
-          fieldKey={fieldKey}
-          value={value}
-          disabled={disabled}
-          onChange={onChange}
+        <DateField
+          {...common}
+          onChange={(next) => onChange(fieldKey, next)}
         />
       ) : dataType === 'longtext' ? (
         <Textarea

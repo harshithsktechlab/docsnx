@@ -34,6 +34,7 @@ import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog'
 import { BLOOD_GROUPS, normaliseBloodGroup, parseBirthPlace } from '@/lib/profileValues';
 import PlanQuotaMeters from '@/app/components/PlanQuotaMeters';
 import { getInitials } from '@/lib/accountMenu';
+import { registrationFieldFor, registrationHint } from '@/lib/profileRegistration';
 
 /** The member form's three sections. At module scope so `openTabFrom` below can
  *  validate a deep link against the very list the strip renders. */
@@ -842,6 +843,7 @@ function CompanyProfileSection({ companyId, canEdit }) {
   const [identity, setIdentity] = useState({
     legalName: '', entityType: '', registrationNumber: '', incorporatedOn: '',
   });
+  const [entityTypeOptions, setEntityTypeOptions] = useState([]);
   const [tax, setTax] = useState({ gstNumber: '', panNumber: '', tanNumber: '' });
   const [address, setAddress] = useState({ registeredAddress: '', operatingAddress: '' });
   const [contact, setContact] = useState({ email: '', phone: '', website: '' });
@@ -860,6 +862,7 @@ function CompanyProfileSection({ companyId, canEdit }) {
         if (cancelled) return;
         if (json.success && json.profile) {
           const p = json.profile;
+          setEntityTypeOptions(Array.isArray(json.entityTypeOptions) ? json.entityTypeOptions : []);
           fill(setIdentity, p.identityDetails, ['legalName', 'entityType', 'registrationNumber', 'incorporatedOn']);
           fill(setTax, p.taxDetails, ['gstNumber', 'panNumber', 'tanNumber']);
           fill(setAddress, p.addressDetails, ['registeredAddress', 'operatingAddress']);
@@ -919,6 +922,13 @@ function CompanyProfileSection({ companyId, canEdit }) {
 
   const sections = COMPANY_SECTIONS;
 
+  // The number asked for after Entity Type depends on the entity — a CIN for a
+  // company, an LLPIN for an LLP — and comes from the super admin's list. The
+  // format check is a hint only; it never blocks the save.
+  const selectedEntity = entityTypeOptions.find((o) => o.value === identity.entityType);
+  const registration = registrationFieldFor(selectedEntity);
+  const registrationWarning = registrationHint(selectedEntity, identity.registrationNumber);
+
   const field = (id, label, value, onChange, props = {}) => (
     <div className="flex flex-col gap-1.5" key={id}>
       <Label htmlFor={id}>{label}</Label>
@@ -963,12 +973,53 @@ function CompanyProfileSection({ companyId, canEdit }) {
                   {field('legalName', 'Registered Legal Name', identity.legalName,
                     (v) => setIdentity({ ...identity, legalName: v }),
                     { placeholder: 'e.g. Acme Traders Private Limited' })}
-                  {field('entityType', 'Entity Type', identity.entityType,
-                    (v) => setIdentity({ ...identity, entityType: v }),
-                    { placeholder: 'e.g. Private Limited, LLP, Sole Proprietorship' })}
-                  {field('registrationNumber', 'CIN / LLPIN / Registration No.', identity.registrationNumber,
-                    (v) => setIdentity({ ...identity, registrationNumber: v.toUpperCase() }),
-                    { placeholder: 'U74999MH2015PTC123456', className: 'font-mono uppercase' })}
+                  {entityTypeOptions.length === 0
+                    ? field('entityType', 'Entity Type', identity.entityType,
+                      (v) => setIdentity({ ...identity, entityType: v }),
+                      { placeholder: 'e.g. Private Limited, LLP, Sole Proprietorship' })
+                    : (
+                      <div className="flex flex-col gap-1.5" key="entityType">
+                        <Label htmlFor="entityType">Entity Type</Label>
+                        <Select
+                          value={identity.entityType || undefined}
+                          onValueChange={(v) => setIdentity({ ...identity, entityType: v })}
+                          disabled={saving || !canEdit}
+                        >
+                          <SelectTrigger id="entityType">
+                            <SelectValue placeholder="Select entity type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {entityTypeOptions.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label || o.value}</SelectItem>
+                            ))}
+                            {/* A value saved earlier (free text, or a choice since removed)
+                                stays visible and selected rather than silently vanishing. */}
+                            {identity.entityType && !entityTypeOptions.some((o) => o.value === identity.entityType) && (
+                              <SelectItem value={identity.entityType}>
+                                {identity.entityType} (no longer offered)
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  {(identity.entityType || identity.registrationNumber) ? (
+                    <div className="flex flex-col gap-1.5" key="registrationNumber">
+                      {field('registrationNumber', registration.label, identity.registrationNumber,
+                        (v) => setIdentity({ ...identity, registrationNumber: v.toUpperCase() }),
+                        { placeholder: registration.placeholder, className: 'font-mono uppercase' })}
+                      {registrationWarning && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">{registrationWarning}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5" key="registrationNumber">
+                      <Label>Registration No.</Label>
+                      <p className="text-xs text-muted-foreground pt-2">
+                        Select an entity type to enter its registration number.
+                      </p>
+                    </div>
+                  )}
                   {field('incorporatedOn', 'Date of Incorporation', identity.incorporatedOn,
                     (v) => setIdentity({ ...identity, incorporatedOn: v }), { type: 'date' })}
                 </div>

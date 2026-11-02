@@ -104,7 +104,7 @@ export function contactEditProblem(input: {
     return check.errors.phoneNumber || check.errors.email || 'Invalid contact details';
   }
   if (input.role === 'STANDARD' && !input.signInDisabled && isBlankPhone(input.phoneNumber) && !input.email) {
-    return 'A member who can sign in needs a mobile number or an email to sign in with.';
+    return 'A user who can sign in needs a mobile number or an email to sign in with.';
   }
   return null;
 }

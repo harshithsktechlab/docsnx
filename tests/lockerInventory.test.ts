@@ -42,14 +42,14 @@ describe('member references', () => {
   it('refuses a malformed id and an over-long name, and nothing else', () => {
     expect(memberRefError('Gifted By', encodeMemberRef(MEMBER))).toBeNull();
     expect(memberRefError('Gifted By', 'Aunt Meena')).toBeNull();
-    expect(memberRefError('Gifted By', 'member:123')).toMatch(/not a valid member/);
+    expect(memberRefError('Gifted By', 'member:123')).toMatch(/not a valid user/);
     expect(memberRefError('Gifted By', 'x'.repeat(121))).toMatch(/longer than/);
   });
 
   it('prints a name, never an id', () => {
     const lookups = { membersById: new Map([[MEMBER, 'Asha']]) };
     expect(formatFieldValue({ dataType: 'member' }, encodeMemberRef(MEMBER), lookups)).toBe('Asha');
-    expect(formatFieldValue({ dataType: 'member' }, encodeMemberRef(MEMBER))).toBe('Former member');
+    expect(formatFieldValue({ dataType: 'member' }, encodeMemberRef(MEMBER))).toBe('Former user');
     expect(formatFieldValue({ dataType: 'member' }, 'Aunt Meena')).toBe('Aunt Meena');
   });
 });
@@ -76,7 +76,7 @@ describe('the shared validator and the AI coercion', () => {
     expect(validateField(spec(ITEMS, 'locker_ref'), LOCKER)).toBeNull();
     expect(validateField(spec(ITEMS, 'locker_ref'), 'nope')).toMatch(/valid selection/);
     expect(validateField(spec(ITEMS, 'gifted_by'), encodeMemberRef(MEMBER))).toBeNull();
-    expect(validateField(spec(ITEMS, 'gifted_by'), 'member:x')).toMatch(/valid member/);
+    expect(validateField(spec(ITEMS, 'gifted_by'), 'member:x')).toMatch(/valid user/);
   });
 
   it('never lets a model fill a pointer', () => {
@@ -109,7 +109,7 @@ describe('the locker field dictionary', () => {
     expect(spec(ITEMS, 'locker_movement').options?.map((o) => o.value)).toEqual(['deposited', 'withdrawn']);
     expect(spec(ITEMS, 'locker_movement').isPii).toBe(false);
     expect(validateField(spec(ITEMS, 'movement_by'), encodeMemberRef(MEMBER))).toBeNull();
-    expect(validateField(spec(ITEMS, 'movement_by'), 'member:x')).toMatch(/valid member/);
+    expect(validateField(spec(ITEMS, 'movement_by'), 'member:x')).toMatch(/valid user/);
     expect(validateField(spec(ITEMS, 'movement_date'), '2999-01-01')).toMatch(/future/);
   });
 

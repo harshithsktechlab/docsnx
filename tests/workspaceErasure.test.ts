@@ -293,10 +293,10 @@ describe('erasing a half clears that half\'s plan, and only that half\'s', () =>
 });
 
 describe('the erasure entry points are guarded', () => {
-  it('requires the typed workspace name on /api/account/erase', () => {
+  it('requires the typed mobile number on /api/account/erase', () => {
     const src = read('src/app/api/account/erase/route.ts');
     expect(src).toMatch(/role !== 'TENANT_ADMIN'/);
-    expect(src).toContain('confirm.trim() !== tenant.name.trim()');
+    expect(src).toContain('erasureConfirmMatches(confirm, user, tenant.name)');
     // The tenant is the session's, never the body's (AGENTS.md §6).
     expect(src).toContain('const tenantId = user.tenantId;');
     expect(src).not.toMatch(/body\.tenantId|parsed\.data\.tenantId/);

@@ -29,7 +29,7 @@ const paths = (
 describe('accountMenuItems', () => {
   it('gives a tenant admin Members and the four account rows, in display order', () => {
     expect(accountMenuItems({ role: 'TENANT_ADMIN' })).toEqual([
-      { key: 'members', name: 'Members', path: '/users' },
+      { key: 'members', name: 'Users', path: '/users' },
       { key: 'billing', name: 'Billing', path: '/billing' },
       { key: 'credits', name: 'AI Credits', path: '/billing/credits' },
       { key: 'settings', name: 'Settings', path: '/settings' },
@@ -106,7 +106,7 @@ describe('accountMenuItems', () => {
     it('hangs the company off all four rows, and opens the company roster', () => {
       expect(accountMenuItems(admin, false, 'acme')).toEqual([
         // The company's own roster route, not `?company=` — a company has one.
-        { key: 'members', name: 'Members', path: '/business/acme/users' },
+        { key: 'members', name: 'Users', path: '/business/acme/users' },
         // `axis=business` is the param /billing itself reads to open the right
         // half of the bill; `company` is there for the shell.
         { key: 'billing', name: 'Billing', path: '/billing?axis=business&company=acme' },

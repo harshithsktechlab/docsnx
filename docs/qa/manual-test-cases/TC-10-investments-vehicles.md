@@ -12,7 +12,7 @@
 | Aspect | Detail |
 |---|---|
 | Required fields | Category*, Title*, Purchase Date*, Purchase Value*, Current Value* — otherwise "Missing required investment fields" |
-| Optional | Quantity, Details (jsonb), Custom Fields[], Assigned Member; property-specific: Property Tax Due Date, Property Tax Receipt Uploaded, 7/12 Extract, Namuna D, Map |
+| Optional | Quantity, Details (jsonb), Custom Fields[], Assigned User; property-specific: Property Tax Due Date, Property Tax Receipt Uploaded, 7/12 Extract, Namuna D, Map |
 | Categories | `property` (Property), `shares` (Shares), `mutual_funds` (Mutual Funds), `gold_silver` (Gold / Silver) |
 | Numeric precision | `purchase_value` / `current_value` decimal(15,2); `quantity` decimal(15,4) |
 | Derived display | Gain/loss = `current_value − purchase_value`; percentage = gain / purchase_value × 100 |
@@ -31,7 +31,7 @@
 | INV-UI-005 | Edge | Inspect a record with purchase value 0 and current value > 0. | Percentage calculation does not divide by zero (shows `—`, `N/A` or `∞` deliberately, never `NaN`). | — | — |
 | INV-UI-006 | Positive | Use the category filter tabs (All Assets / Property / Shares / Mutual Funds / Gold / Silver). | Filters correctly; active tab highlighted. | — | — |
 | INV-UI-007 | Positive | Search "by asset name". | Live filtering by title. | — | — |
-| INV-UI-008 | Positive | Open the Add dialog. | Category select ("Select Asset Category"), Title, Purchase Date, Purchase Value, Current Value, Quantity, Details, Custom Fields, Assigned Member. | — | — |
+| INV-UI-008 | Positive | Open the Add dialog. | Category select ("Select Asset Category"), Title, Purchase Date, Purchase Value, Current Value, Quantity, Details, Custom Fields, Assigned User. | — | — |
 | INV-UI-009 | Positive | Choose category = Property. | Property-specific fields appear: address, Property Tax Due Date, Property Tax Receipt, 7/12 Extract, Namuna D, Map toggles. | — | — |
 | INV-UI-010 | Positive | Choose category = Shares, then Mutual Funds. | The form adapts (ticker vs. fund name placeholders); property-only fields are hidden. | — | — |
 | INV-UI-011 | Positive | Save a valid investment. | Spinner; success toast; list refreshes; an AI analysis section appears on the record. | — | — |
@@ -71,7 +71,7 @@
 | INV-FLD-023 | Property flags | Edge | Set the property flags on a non-property category. | Either hidden by the UI or stored harmlessly — they must not corrupt the record. Record actual. | — | — |
 | INV-FLD-024 | Details | Positive | Fill category-specific details (address / ticker / fund name). | Stored in the `details` JSON and re-displayed. | — | — |
 | INV-FLD-025 | Custom Fields | Positive | Add "Folio Number" label/value pairs. | Saved and displayed. | — | — |
-| INV-FLD-026 | Assigned Member | Negative | Assign to another tenant's user id. | Rejected. | — | — |
+| INV-FLD-026 | Assigned User | Negative | Assign to another tenant's user id. | Rejected. | — | — |
 | INV-FLD-027 | All | Edge | `<script>alert(1)</script>` in Title. | Rendered as literal text. | — | — |
 | INV-FLD-028 | All | Edge | Double-click Save. | Exactly one record created; only one AI analysis charged. | — | — |
 
@@ -79,7 +79,7 @@
 
 | TC ID | Type | Rule / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| INV-BR-001 | Positive | Create an investment. | `tenant_id` from the session; `user_id` = the assigned member (default: creator). | — | — |
+| INV-BR-001 | Positive | Create an investment. | `tenant_id` from the session; `user_id` = the assigned user (default: creator). | — | — |
 | INV-BR-002 | Positive | Verify the gain/loss shown against the stored values. | `current_value − purchase_value` exactly; percentage matches to 2 decimals. | — | — |
 | INV-BR-003 | Positive | Verify the portfolio total. | Equals the SUM of all non-deleted investments for the tenant. | — | — |
 | INV-BR-004 | Business rule | Create an investment and inspect `ai_analysis`. | Populated; the record still saves if AI is unavailable (graceful degradation, not a 500). | — | — |
@@ -127,7 +127,7 @@
 | Aspect | Detail |
 |---|---|
 | Required fields | Vehicle Name*, Vehicle Number*, Owner Name*, Registration Date*, Insurance Expiry*, PUC Expiry*, Fitness Expiry* — otherwise "Missing required vehicle fields" |
-| Optional | Last Service Date, Next Service Date, Service Notes, File, Custom Fields[], Assigned Member |
+| Optional | Last Service Date, Next Service Date, Service Notes, File, Custom Fields[], Assigned User |
 | Column limits | `vehicle_name` 255 · `vehicle_number` 100 · `owner_name` 255 |
 | Follow-up generation | `POST /vehicles/[id]/generate-followups` creates a To-Do for **each** of Insurance / PUC / Fitness expiring **within 30 days or already overdue**; requires the **edit** permission; assignee = the vehicle's owner |
 | Follow-up page threshold | The `/follow-up` screen alerts on items within **15 days** (note: different from the 30-day generation window) |
@@ -178,7 +178,7 @@
 | VEH-FLD-019 | File | Boundary | Attach a file that breaches the storage quota. | Rejected with the quota message; no row created. | — | — |
 | VEH-FLD-020 | File | Edge | Save with no file. | Accepted (`file_path` nullable, `file_size = 0`). | — | — |
 | VEH-FLD-021 | Custom Fields | Positive | Add "Engine Number" label/value pairs. | Saved and displayed. | — | — |
-| VEH-FLD-022 | Assigned Member | Negative | Assign to another tenant's user id. | Rejected. | — | — |
+| VEH-FLD-022 | Assigned User | Negative | Assign to another tenant's user id. | Rejected. | — | — |
 | VEH-FLD-023 | All | Edge | `<script>alert(1)</script>` in Vehicle Name and Service Notes. | Rendered as literal text. | — | — |
 | VEH-FLD-024 | All | Edge | Double-click Save. | Exactly one vehicle created. | — | — |
 
@@ -186,7 +186,7 @@
 
 | TC ID | Type | Rule / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| VEH-BR-001 | Positive | Create a vehicle. | `tenant_id` from the session; `user_id` = the assigned member. | — | — |
+| VEH-BR-001 | Positive | Create a vehicle. | `tenant_id` from the session; `user_id` = the assigned user. | — | — |
 | VEH-BR-002 | Business rule | Generate Follow-ups on a vehicle with Insurance in 10 days, PUC in 20 days, Fitness in 200 days. | Exactly **two** To-Dos are created (Insurance, PUC); Fitness is skipped. | — | — |
 | VEH-BR-003 | Business rule | Generate Follow-ups on a vehicle with an overdue insurance expiry. | A To-Do is still created (overdue items match the ≤30-day window). | — | — |
 | VEH-BR-004 | Business rule | Verify a generated To-Do's contents. | Task text names the vehicle and its number; `due_date` = the expiry date; `assignee_id` = the vehicle's owner; `status = PENDING`; same tenant. | — | — |

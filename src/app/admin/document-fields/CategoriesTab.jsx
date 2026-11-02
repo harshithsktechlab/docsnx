@@ -475,7 +475,7 @@ function AddCategoryDialog({ module: mod, saving, error, onCancel, onCreate }) {
               onChange={(e) => setName(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              What a member sees in the sidebar and the upload picker. Editable later.
+              What a user sees in the sidebar and the upload picker. Editable later.
             </p>
           </div>
 

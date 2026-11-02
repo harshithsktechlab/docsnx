@@ -55,6 +55,8 @@ async function main() {
       id: tenants.id,
       name: tenants.name,
       accountType: tenants.accountType,
+      subscriptionPlanId: tenants.subscriptionPlanId,
+      businessPlanId: tenants.businessPlanId,
       subscriptionExpiry: tenants.subscriptionExpiry,
       businessPlanExpiry: tenants.businessPlanExpiry,
       planNoticeStage: tenants.planNoticeStage,
@@ -90,6 +92,7 @@ async function main() {
           const { stageForDaysLeft, stageAlreadySent } = await import('../src/lib/planNotifications');
           const { daysUntil } = await import('../src/lib/planGate');
           const status = axisStatus(tenant, axis);
+          if (!status.hasPlan) continue;
           const due = stageForDaysLeft(daysUntil(status.expiresAt));
           const alreadySent = axis === 'business'
             ? tenant.businessPlanNoticeStage

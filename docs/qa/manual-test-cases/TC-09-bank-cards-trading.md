@@ -16,7 +16,7 @@
 | Aspect | Detail |
 |---|---|
 | Required fields | Bank Name*, Account Number*, IFSC Code* (client message: "Bank Name, Account Number, and IFSC Code are required") |
-| Optional | Account Type, Branch, Customer ID, Net Banking Username, Cards[], Custom Fields[], Assigned Member |
+| Optional | Account Type, Branch, Customer ID, Net Banking Username, Cards[], Custom Fields[], Assigned User |
 | Server validation | `bankName` 1–255 · `accountNumber` 1–100 · `ifscCode` 1–50 · `accountType` ≤100 · `branch` ≤255 · `customerId` ≤100 · `netBankingUsername` ≤255 · `userId` must be a UUID |
 | Account types | `savings`, `current`, `nre`, `nro`, `other` |
 | Encrypted at rest | `account_number`, `customer_id`, `net_banking_username`, `cards` (whole JSON blob) |
@@ -33,7 +33,7 @@
 | BNK-UI-003 | Positive | Inspect the Customer ID and Net Banking Username in the list. | Customer ID masked to the last 4; username masked as first-2-then-dots (`us••••`). | — | — |
 | BNK-UI-004 | Positive | Open a record's detail/edit view. | Full account number, customer ID and net-banking username are revealed. | — | — |
 | BNK-UI-005 | Positive | Inspect a linked card in the list. | Card number shows as `•••• •••• •••• 1234`; CVV renders as fixed dots and is never a real value. | — | — |
-| BNK-UI-006 | Positive | Open the Add dialog. | Bank Name, Account Number, Account Type select, IFSC, Branch, Customer ID, Net Banking Username, Cards sub-form, Custom Fields, Assigned Member. | — | — |
+| BNK-UI-006 | Positive | Open the Add dialog. | Bank Name, Account Number, Account Type select, IFSC, Branch, Customer ID, Net Banking Username, Cards sub-form, Custom Fields, Assigned User. | — | — |
 | BNK-UI-007 | Positive | Add a card in the sub-form (Card Number, Cardholder Name, Expiry MM/YY, CVV). | The card is appended to the record's card list; the form clears for the next card. | — | — |
 | BNK-UI-008 | Negative | Click "Add Card" with any card field empty. | Toast "Please fill in all card details first."; no card appended. | — | — |
 | BNK-UI-009 | Positive | Remove a card from the sub-form. | Only that card is removed; the others are untouched. | — | — |
@@ -75,7 +75,7 @@
 | BNK-FLD-025 | CVV | Negative | `12` (2 digits) or non-numeric. | Rejected. | — | — |
 | BNK-FLD-026 | Cards | Boundary | Add 10 cards to one bank record. | All stored inside the encrypted `cards` blob; all render masked. | — | — |
 | BNK-FLD-027 | Custom Fields | Positive | Add "UPI ID" label/value pairs. | Saved and displayed. | — | — |
-| BNK-FLD-028 | Assigned Member | Negative | Assign to a user id from another tenant (manipulated). | Rejected as invalid; no record created. | — | — |
+| BNK-FLD-028 | Assigned User | Negative | Assign to a user id from another tenant (manipulated). | Rejected as invalid; no record created. | — | — |
 | BNK-FLD-029 | All | Edge | `<script>alert(1)</script>` in Bank Name and Branch. | Rendered as literal text. | — | — |
 | BNK-FLD-030 | All | Edge | Double-click Save. | Exactly one record created. | — | — |
 
@@ -134,7 +134,7 @@
 |---|---|
 | Table / permission key | `credit_cards` · gated by the **`bank_info`** permission key |
 | Required fields | Card Name*, Card Number* — otherwise "Missing cardName or cardNumber" |
-| Optional | Card Network (Visa/Mastercard/RuPay), Card Type (Credit/Forex), Cardholder, Expiry, CVV (entered but not stored), Custom Fields[], Assigned Member |
+| Optional | Card Network (Visa/Mastercard/RuPay), Card Type (Credit/Forex), Cardholder, Expiry, CVV (entered but not stored), Custom Fields[], Assigned User |
 | Encryption | `card_details_encrypted` holds an encrypted JSON of `{cardHolder, cardNumber, cardExpiry}` — **CVV is deliberately excluded** |
 | Derived column | `last_four` = last 4 digits of the card number |
 | List masking | `•••• •••• •••• 1234` from `last_four`; CVV always renders as `•••`; `card_details_encrypted` is stripped from the response |
@@ -191,7 +191,7 @@
 |---|---|
 | Route / table / key | `/trading` · `trading_demats` · `trading` |
 | Required fields | Broker Name*, Client ID* — otherwise "Missing brokerName or clientId" |
-| Optional | Demat Account Number, Login Username, Nominee Name, Details, Custom Fields[], Assigned Member |
+| Optional | Demat Account Number, Login Username, Nominee Name, Details, Custom Fields[], Assigned User |
 | Encrypted at rest | `client_id`, `demat_account_number`, `login_username` |
 | Blind indexes | `client_id_hash`, `demat_account_number_hash` |
 | List masking | Client ID → `maskTail`; `client_id_hash` stripped from the response |
@@ -202,7 +202,7 @@
 |---|---|---|---|---|---|---|
 | TRD-UI-001 | UI | Positive | Open `/trading` empty and populated. | Empty state with CTA; populated view shows broker, masked client ID, nominee and details. | — | — |
 | TRD-UI-002 | UI | Positive | Inspect the client ID in the list. | Masked (`••••1234`); the full value only appears in the detail/edit view. | — | — |
-| TRD-UI-003 | UI | Positive | Open the Add dialog. | Broker Name, Client ID, Demat Account Number, Login Username, Nominee Name, Details, Custom Fields, Assigned Member. | — | — |
+| TRD-UI-003 | UI | Positive | Open the Add dialog. | Broker Name, Client ID, Demat Account Number, Login Username, Nominee Name, Details, Custom Fields, Assigned User. | — | — |
 | TRD-UI-004 | UI | Positive | Search "by Broker or Client ID". | Broker name matches by substring; the **full** client ID matches exactly via the blind index. | — | — |
 | TRD-UI-005 | UI | Edge | Search a partial client ID. | No match expected (encrypted column). Record actual. | — | — |
 | TRD-UI-006 | UI | Positive | Edit / Delete a record. | Edit pre-fills revealed plaintext; Delete confirms first. | — | — |

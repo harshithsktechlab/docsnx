@@ -294,7 +294,7 @@ export default function TenantRow({
                   </span>
                 </span>
                 <span>Records {counts.records || 0} · Files {counts.files || 0} · Creds {counts.credentials || 0}</span>
-                <span>Seats {counts.members || 0} / {tenant.maxMembers || 1}</span>
+                <span>Users {counts.members || 0} / {tenant.maxMembers || 1}</span>
                 <span>
                   AI {Number(ai.promptTokens || 0).toLocaleString()} in / {Number(ai.completionTokens || 0).toLocaleString()} out
                   {' · '}${Number(ai.cost || 0).toFixed(4)} (₹{Number(ai.costInr || 0).toFixed(2)})
@@ -304,7 +304,7 @@ export default function TenantRow({
             </PanelBlock>
 
             {showsPersonal(tenant) && (
-              <PanelBlock title={`Personal members (${members.personal.length})`}>
+              <PanelBlock title={`Personal users (${members.personal.length})`}>
                 {members.personal.length === 0 ? (
                   <span className="text-xs text-muted-foreground">None</span>
                 ) : (
@@ -317,7 +317,7 @@ export default function TenantRow({
 
             {showsBusiness(tenant) && (
               <div className="md:col-span-2 xl:col-span-2">
-                <PanelBlock title="Business members">
+                <PanelBlock title="Business users">
                   {members.business.length === 0 ? (
                     <span className="text-xs text-muted-foreground">None</span>
                   ) : (

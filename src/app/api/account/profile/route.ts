@@ -135,7 +135,7 @@ export async function PATCH(req: Request) {
         userId: user.id,
         action: ACTIONS.user.update,
         details: auditSentence('update', {
-          kind: 'member',
+          kind: 'user',
           name: row.name,
           note: `changed their own ${fields}`,
         }),

@@ -282,6 +282,8 @@ export async function notifyPlanExpiry(
 export interface NoticeTenant {
   id: string;
   accountType?: string | null;
+  subscriptionPlanId?: string | null;
+  businessPlanId?: string | null;
   subscriptionExpiry?: Date | string | null;
   businessPlanExpiry?: Date | string | null;
   planNoticeStage?: string | null;
@@ -299,8 +301,12 @@ export async function runPlanExpiryCheck(
   tenant: NoticeTenant,
   axis: AccountAxis = 'personal',
 ): Promise<NotifyResult | null> {
-  const expiry = axisRow(tenant, axis).subscriptionExpiry;
-  const due = stageForDaysLeft(daysUntil(expiry));
+  const row = axisRow(tenant, axis);
+  // A new account is created with no plan and an expiry of "now". It has
+  // nothing to expire, and without this it was told its plan had expired the
+  // day it signed up.
+  if (!row.subscriptionPlanId) return null;
+  const due = stageForDaysLeft(daysUntil(row.subscriptionExpiry));
   if (!due) return null;
   if (stageAlreadySent(stageSentFor(tenant, axis), due)) return null;
   return await notifyPlanExpiry(tenant.id, axis, due);

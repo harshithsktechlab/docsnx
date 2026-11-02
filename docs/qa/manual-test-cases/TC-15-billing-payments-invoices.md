@@ -32,8 +32,8 @@
 
 | TC ID | Type | Test Case / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| BIL-UI-001 | Positive | Open `/billing` as TENANT_ADMIN. | Current plan, expiry date, credit balance, storage usage, member allowance, plan cards and add-on cards all render. | — | — |
-| BIL-UI-002 | Positive | Inspect the plan cards. | Only `is_active` plans are shown, each with name, price, badge colour, AI credits, member limit and storage limit. | — | — |
+| BIL-UI-001 | Positive | Open `/billing` as TENANT_ADMIN. | Current plan, expiry date, credit balance, storage usage, user allowance, plan cards and add-on cards all render. | — | — |
+| BIL-UI-002 | Positive | Inspect the plan cards. | Only `is_active` plans are shown, each with name, price, badge colour, AI credits, user limit and storage limit. | — | — |
 | BIL-UI-003 | Positive | Toggle the billing cycle (Monthly / Yearly / One-time). | Displayed prices switch to `price` / `price_yearly` / `price_one_time`; a cycle with no configured price is hidden or disabled rather than showing blank/`NaN`. | — | — |
 | BIL-UI-004 | Positive | Toggle the currency to USD (if offered). | Prices switch to the `*_usd` columns; the symbol changes; no mixed ₹/$ display. | — | — |
 | BIL-UI-005 | Positive | Select an add-on. | It is added to the order summary with the correct price for the chosen duration; the total updates. | — | — |
@@ -68,10 +68,10 @@
 | BIL-BR-012 | Positive | Purchase a **lifetime** plan (`is_lifetime = true`). | `subscription_expiry` = **NULL**; `amc_last_paid_at` = now; `amc_next_due_date` = now + 1 year. | — | — |
 | BIL-BR-013 | Positive | Purchase a plan with `ai_credits = 500` on a tenant holding 120 credits. | Balance becomes **620** (added, not replaced). | — | — |
 | BIL-BR-014 | Positive | Purchase an add-on with `ai_credits = 200`. | Balance increases by 200; a `tenant_addons` row is created and marked active. | — | — |
-| BIL-BR-015 | Positive | Purchase an add-on with `extra_members = 2`. | The member allowance rises by 2; the previously blocked member creation now succeeds. | — | — |
+| BIL-BR-015 | Positive | Purchase an add-on with `extra_members = 2`. | The user allowance rises by 2; the previously blocked user creation now succeeds. | — | — |
 | BIL-BR-016 | Positive | Purchase an add-on with `storage_limit_gb = 5`. | The storage limit shown on the dashboard rises by 5 GB; a previously quota-blocked upload succeeds. | — | — |
 | BIL-BR-017 | Positive | Upgrade from a cheaper plan to a more expensive one. | The new plan replaces the old; limits and expiry update; credits accumulate. Record whether any proration is applied. | — | — |
-| BIL-BR-018 | Edge | Downgrade to a plan with fewer allowed members while the tenant already exceeds that limit. | Existing members are not deleted; new additions are blocked. Record actual and confirm this matches intent. | — | — |
+| BIL-BR-018 | Edge | Downgrade to a plan with fewer allowed users while the tenant already exceeds that limit. | Existing users are not deleted; new additions are blocked. Record actual and confirm this matches intent. | — | — |
 | BIL-BR-019 | Positive | Purchase while the subscription is already expired. | The purchase completes and restores access immediately. | — | — |
 | BIL-BR-020 | **Security** | Tamper with the amount in the checkout request (e.g. via devtools) and complete payment. | Rejected — the server recomputes the price from the plan/add-on records. Any acceptance of a client-supplied amount ⇒ **S1**. | — | — |
 | BIL-BR-021 | **Security** | Complete a payment, then replay the verify step with a **modified signature**. | "Invalid payment signature."; nothing is activated; no credits granted. | — | — |
@@ -90,7 +90,7 @@
 | BIL-DB-005 | Lifetime plan sets a null expiry and AMC dates | `SELECT subscription_expiry, amc_last_paid_at, amc_next_due_date FROM tenants WHERE id = ':tenant_a';` | `NULL`; `amc_last_paid_at` ≈ now; `amc_next_due_date` ≈ now + 1 year | — | — |
 | BIL-DB-006 | Credits added, not replaced | Capture the balance, purchase a plan with known `ai_credits`, re-query: `SELECT ai_credits_balance FROM tenants WHERE id = ':tenant_a';` | Old balance + plan credits (+ add-on credits) | — | — |
 | BIL-DB-007 | Add-on activation row | `SELECT ta.tenant_id, a.name, ta.is_active, ta.purchased_at, ta.expires_at FROM tenant_addons ta JOIN addons a ON a.id = ta.addon_id WHERE ta.tenant_id = ':tenant_a';` | One active row per purchased add-on | — | — |
-| BIL-DB-008 | Member allowance reflects add-ons | `SELECT p.max_members + COALESCE(sum(a.extra_members),0) AS allowed FROM tenants t JOIN subscription_plans p ON p.id = t.subscription_plan_id LEFT JOIN tenant_addons ta ON ta.tenant_id = t.id AND ta.is_active LEFT JOIN addons a ON a.id = ta.addon_id WHERE t.id = ':tenant_a' GROUP BY p.max_members;` | Matches the allowance shown in the UI and enforced by member creation | — | — |
+| BIL-DB-008 | User allowance reflects add-ons | `SELECT p.max_members + COALESCE(sum(a.extra_members),0) AS allowed FROM tenants t JOIN subscription_plans p ON p.id = t.subscription_plan_id LEFT JOIN tenant_addons ta ON ta.tenant_id = t.id AND ta.is_active LEFT JOIN addons a ON a.id = ta.addon_id WHERE t.id = ':tenant_a' GROUP BY p.max_members;` | Matches the allowance shown in the UI and enforced by user creation | — | — |
 | BIL-DB-009 | Zero-amount purchase captured directly | `SELECT status, razorpay_order_id FROM payments WHERE id = ':free_payment_id';` | `captured`, `NULL` | — | — |
 | BIL-DB-010 | Amount never negative | `SELECT count(*) FROM payments WHERE amount < 0;` | `0` | — | — |
 | BIL-DB-011 | Payment plan reference is valid | `SELECT count(*) FROM payments p LEFT JOIN subscription_plans s ON s.id = p.plan_id WHERE p.plan_id IS NOT NULL AND s.id IS NULL;` | `0` | — | — |
@@ -230,7 +230,7 @@
 | BIL-E2E-001 | Register → pay → use | 1. Register on a paid plan.<br>2. Verify OTP → redirected to billing checkout.<br>3. Complete the Razorpay payment.<br>4. Land on the dashboard and create a record. | Plan activated; expiry set per cycle; credits granted; invoice generated; modules fully usable. | — | — |
 | BIL-E2E-002 | Discounted purchase | 1. Create a 25% code limited to 1 use per tenant.<br>2. Apply it at checkout and observe the total.<br>3. Complete payment.<br>4. Attempt to reuse the code. | Total reduced by exactly 25%; `discount_usages` row written; the reuse attempt is blocked with the per-tenant limit message. | — | — |
 | BIL-E2E-003 | Free-plan path | 1. Configure a ₹0 plan.<br>2. Select it and check out. | No Razorpay modal; a captured payment row; the plan activates; an invoice is generated for ₹0. | — | — |
-| BIL-E2E-004 | Add-on stacking | 1. Buy an add-on granting +2 members, +5 GB and +200 credits.<br>2. Check the member allowance, storage limit and credit balance.<br>3. Add members up to the new cap and upload past the old storage limit. | All three limits increase; the previously blocked actions now succeed. | — | — |
+| BIL-E2E-004 | Add-on stacking | 1. Buy an add-on granting +2 users, +5 GB and +200 credits.<br>2. Check the user allowance, storage limit and credit balance.<br>3. Add users up to the new cap and upload past the old storage limit. | All three limits increase; the previously blocked actions now succeed. | — | — |
 | BIL-E2E-005 | Expiry → renewal | 1. Expire the subscription.<br>2. Confirm every module is blocked and the user is routed to billing.<br>3. Purchase a renewal.<br>4. Re-check module access. | Access blocked in step 2 and fully restored in step 4 with a new expiry date. | — | — |
 | BIL-E2E-006 | Lifetime + AMC cycle | 1. Buy a lifetime plan.<br>2. Confirm `subscription_expiry` is NULL and AMC dates are set.<br>3. Force the AMC due date into the past and generate the AMC invoice.<br>4. Log in → AMC-locked.<br>5. Pay the AMC. | Steps 4 and 5 behave exactly as documented; the due date advances a year; access is restored. | — | — |
 | BIL-E2E-007 | Payment failure paths | 1. Start checkout and cancel the Razorpay modal.<br>2. Start checkout and submit a failing test card.<br>3. Start checkout and tamper with the signature at verify. | No plan activation, no credits and no invoice in any of the three cases; each failure surfaces a clear message. | — | — |

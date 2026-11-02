@@ -92,7 +92,7 @@ export default function NewOwnAccountPage() {
         <CardContent className="p-6">
           <h1 className="text-2xl font-black tracking-tight">Open your own account</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            You&apos;re a member of someone else&apos;s workspace. This opens an account that belongs to you,
+            You&apos;re a user of someone else&apos;s workspace. This opens an account that belongs to you,
             with the same sign-in — no new password.
           </p>
 

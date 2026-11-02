@@ -43,6 +43,7 @@ import {
 } from '@/lib/records/jsonFieldCrypto';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { loadEntityTypeOptions } from '@/lib/profileFieldOptions';
 
 export const dynamic = 'force-dynamic';
 
@@ -160,7 +161,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return created;
     });
 
-    return NextResponse.json({ success: true, profile: forClient(profile) });
+    // The choices for the Entity Type dropdown — a platform setting, not part of
+    // the profile. PUT deliberately does not validate against them: a choice
+    // removed later must not make an existing profile unsaveable.
+    const entityTypeOptions = await loadEntityTypeOptions();
+
+    return NextResponse.json({ success: true, profile: forClient(profile), entityTypeOptions });
   } catch (error) {
     return serverError(error, 'loading the company profile');
   }

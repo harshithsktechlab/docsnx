@@ -7,7 +7,7 @@
 
 | Aspect | Detail |
 |---|---|
-| Fields | Title*, Category, URL, Username*, Password*, Notes, Custom Fields[], Assigned Member |
+| Fields | Title*, Category, URL, Username*, Password*, Notes, Custom Fields[], Assigned User |
 | Categories | `personal` (Personal), `social` (Social Media), `bank` (Bank / Finance), `business` (Work / Business), `other` |
 | Server validation | `title` 1–255 required · `username` 1–255 required · `password` min 1 required · `category` ≤100 · `url` ≤1000 · `customFields` array · `userId` must be a UUID |
 | Client validation | "Title, Username, and Password are required" (edit) / "Please fill in required fields (Title, Username, and Password)" (add) |
@@ -31,7 +31,7 @@
 | PWD-UI-008 | Positive | Click "Copy" next to the username. | Username is copied to the clipboard; the icon briefly changes to a check mark. | — | — |
 | PWD-UI-009 | Positive | Click "Copy" next to the password. | Password is copied; the check-mark confirmation shows and then reverts. | — | — |
 | PWD-UI-010 | Edge | Click Copy in a browser context where the Clipboard API is unavailable (e.g. insecure origin). | A graceful fallback or an error toast — no unhandled exception. | — | — |
-| PWD-UI-011 | Positive | Open the Add Credential dialog. | Fields: Title, Category (select), URL, Username, Password (with show/hide), Notes, Custom Fields, Assigned Member. | — | — |
+| PWD-UI-011 | Positive | Open the Add Credential dialog. | Fields: Title, Category (select), URL, Username, Password (with show/hide), Notes, Custom Fields, Assigned User. | — | — |
 | PWD-UI-012 | Positive | Toggle show/hide inside the password input while typing. | Value toggles between masked and visible; typed value is preserved. | — | — |
 | PWD-UI-013 | Positive | Add and remove custom Label/Value pairs. | Each "+" appends a row; each remove deletes only its own row. | — | — |
 | PWD-UI-014 | Positive | Submit the add form. | Button disables with a spinner; on success the dialog closes, a toast appears and the list refreshes. | — | — |
@@ -84,8 +84,8 @@
 | PWD-FLD-029 | Custom Fields | Positive | Add 3 label/value pairs (e.g. "Pin Number"). | Saved and displayed on the record. | — | — |
 | PWD-FLD-030 | Custom Fields | Edge | Add a pair with an empty label. | Handled consistently; no `undefined` label rendered. | — | — |
 | PWD-FLD-031 | Custom Fields | Boundary | Add 50 pairs. | All persist; the form stays usable. | — | — |
-| PWD-FLD-032 | Assigned Member | Positive | Assign the credential to another member. | Saved; the list shows that member as the owner. | — | — |
-| PWD-FLD-033 | Assigned Member | Negative | Supply a non-UUID / another tenant's user id (manipulated). | Rejected as invalid; no record created. | — | — |
+| PWD-FLD-032 | Assigned User | Positive | Assign the credential to another user. | Saved; the list shows that user as the owner. | — | — |
+| PWD-FLD-033 | Assigned User | Negative | Supply a non-UUID / another tenant's user id (manipulated). | Rejected as invalid; no record created. | — | — |
 | PWD-FLD-034 | All | Edge | Create two credentials with the identical title, username and password. | Both are created (duplicates are allowed) and both reveal correctly and independently. | — | — |
 | PWD-FLD-035 | All | Edge | Double-click Save. | Exactly one record created. | — | — |
 

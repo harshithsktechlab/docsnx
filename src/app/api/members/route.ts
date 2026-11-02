@@ -64,6 +64,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ success: true, members, canAddMembers });
   } catch (error) {
-    return serverError(error, 'loading members');
+    return serverError(error, 'loading users');
   }
 }

@@ -58,13 +58,11 @@ describe('memberDestinations — which halves an account actually has', () => {
     expect(list.map((d) => d.scope)).toEqual(['personal', 'business', 'business']);
   });
 
-  it('qualifies the household ROW once companies sit beside it', () => {
-    // `workspaceName` is the ACCOUNT's name on a combo tenant, so an unqualified
-    // row listed it directly above "Acme Trading Pvt Ltd" as though the admin
-    // were choosing between two companies. 'Personal' is the word the workspace
-    // switcher already uses for this half.
+  it('shows the personal row as the bare name, beside the company rows', () => {
+    // `workspaceName` is the ACCOUNT's name on a combo tenant. The row carries no
+    // "Personal —" prefix: the wizard's sub-label under it says `Personal`.
     const list = memberDestinations('both', 'Sharma Group', [ACME]);
-    expect(list[0].rowLabel).toBe('Personal — Sharma Group');
+    expect(list[0].rowLabel).toBe('Sharma Group');
     expect(list[1].rowLabel).toBe(ACME.name);
   });
 
@@ -76,7 +74,7 @@ describe('memberDestinations — which halves an account actually has', () => {
     expect(membersStepBlurb(list[0], list)).toContain('Adding to Sharma Group.');
   });
 
-  it('does not qualify a row that has nothing to be told apart from', () => {
+  it('shows a lone row as the bare name too', () => {
     // One destination means no selector is drawn at all; a prefix would be
     // telling the admin apart from a company they do not have.
     expect(memberDestinations('personal', 'Sharma Household', [])[0].rowLabel)
@@ -98,12 +96,12 @@ describe('memberDestinations — which halves an account actually has', () => {
     expect(list[0].scope).toBe('personal');
   });
 
-  it('names the household generically until the tenant name has loaded', () => {
+  it('names the personal account generically until the tenant name has loaded', () => {
     // It sits inside a sentence, so the placeholder must not read as a name the
     // account was actually given.
-    expect(memberDestinations('personal', '', [])[0].label).toBe('your household');
-    expect(memberDestinations('personal', null, [])[0].label).toBe('your household');
-    expect(memberDestinations('personal', '   ', [])[0].label).toBe('your household');
+    expect(memberDestinations('personal', '', [])[0].label).toBe('your personal account');
+    expect(memberDestinations('personal', null, [])[0].label).toBe('your personal account');
+    expect(memberDestinations('personal', '   ', [])[0].label).toBe('your personal account');
   });
 
   it('skips a company with no id rather than offering an unpostable row', () => {
@@ -193,7 +191,7 @@ describe('membersStepBlurb — the step says where it is posting', () => {
     const list = memberDestinations('both', 'Sharma Household', [ACME]);
     const business = membersStepBlurb(list[1], list);
     expect(business).toContain(ACME.name);
-    expect(business).toMatch(/not your household/i);
+    expect(business).toMatch(/not your personal account/i);
 
     const personal = membersStepBlurb(list[0], list);
     expect(personal).toContain('Sharma Household');

@@ -117,6 +117,31 @@ export function seatPredicate(
 }
 
 /**
+ * The seats in `seatPredicate` whose person has not joined yet: an invitation
+ * they have not accepted ('pending', someone who already has an account), or a
+ * new member with sign-in on who has not chosen a password on /activate.
+ *
+ * A SUBSET of `seatPredicate`, never a second population — every pending member
+ * already holds a seat, so "n of limit used · k pending" can only be read as k of
+ * the n. A member kept as a record (sign-in off, nothing sent) is not waiting on
+ * anyone, and the admin is never pending: they have no invite to accept.
+ */
+export function pendingSeatPredicate(
+  tenantId: string,
+  axis: AccountAxis,
+  companyId?: string | null,
+): SQL {
+  return and(
+    seatPredicate(tenantId, axis, companyId),
+    ne(users.role, 'TENANT_ADMIN'),
+    or(
+      eq(users.membershipStatus, 'pending'),
+      and(isNull(users.activatedAt), isNull(users.signInDisabledAt)),
+    ),
+  ) as SQL;
+}
+
+/**
  * How many members this tenant's business plan allows IN EACH COMPANY.
  *
  * One helper rather than the same three reads in `/api/users` and
@@ -181,18 +206,22 @@ export async function seatUsage(
   tenantId: string,
   axis: AccountAxis,
   companyId?: string | null,
-): Promise<{ used: number; limit: number; remaining: number }> {
-  const [limit, used] = await Promise.all([
+): Promise<{ used: number; limit: number; remaining: number; pending: number }> {
+  const [limit, { used, pending }] = await Promise.all([
     seatAllowance(tenantId, axis),
     withTenant(tenantId, async (tx) => {
-      const [row] = await tx
+      const [usedRow] = await tx
         .select({ n: count() })
         .from(users)
         .where(seatPredicate(tenantId, axis, companyId));
-      return Number(row?.n ?? 0);
+      const [pendingRow] = await tx
+        .select({ n: count() })
+        .from(users)
+        .where(pendingSeatPredicate(tenantId, axis, companyId));
+      return { used: Number(usedRow?.n ?? 0), pending: Number(pendingRow?.n ?? 0) };
     }),
   ]);
-  return { used, limit, remaining: Math.max(0, limit - used) };
+  return { used, limit, remaining: Math.max(0, limit - used), pending };
 }
 
 /**

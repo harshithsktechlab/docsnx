@@ -52,7 +52,7 @@ export const LEVELS: ReadonlyArray<{
   {
     key: 'none',
     label: 'No access',
-    description: 'Hidden from this member entirely',
+    description: 'Hidden from this user entirely',
     flags: { canView: false, canAdd: false, canEdit: false, canDelete: false, canShare: false },
   },
   {

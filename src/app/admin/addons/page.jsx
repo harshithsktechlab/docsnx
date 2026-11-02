@@ -248,7 +248,7 @@ export default function AddonsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Name *</Label>
-                  <Input className="h-11 rounded-xl" placeholder="e.g. Extra 5 Members" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} required disabled={saving} />
+                  <Input className="h-11 rounded-xl" placeholder="e.g. Extra 5 Users" value={formData.name} onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))} required disabled={saving} />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Code *</Label>
@@ -297,7 +297,7 @@ export default function AddonsPage() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Extra Members (personal)
+                    Extra Users (personal)
                   </Label>
                   <Input className="h-11 rounded-xl" type="number" min="0" step="1" placeholder="0" value={formData.extraMembers} onChange={e => setFormData(prev => ({ ...prev, extraMembers: e.target.value }))} disabled={saving} />
                 </div>
@@ -309,15 +309,15 @@ export default function AddonsPage() {
 
               {/*
                 ── THE BUSINESS ENTITLEMENTS ──────────────────────────────────
-                "Members in each company" raises the PER-COMPANY allowance, not
+                "Users in each company" raises the PER-COMPANY allowance, not
                 a tenant-wide total — a business plan sells "N companies, M
-                members in each", and this add-on raises M. Selling it as a pool
+                users in each", and this add-on raises M. Selling it as a pool
                 would be a different product with the same number in it.
               */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Extra Members in EACH company
+                    Extra Users in EACH company
                   </Label>
                   <Input className="h-11 rounded-xl" type="number" min="0" step="1" placeholder="0" value={formData.extraMembersPerCompany} onChange={e => setFormData(prev => ({ ...prev, extraMembersPerCompany: e.target.value }))} disabled={saving} />
                 </div>
@@ -479,7 +479,7 @@ export default function AddonsPage() {
                     )}
                     {addon.extraMembers > 0 && (
                        <span className="text-xs font-semibold text-muted-foreground bg-amber-500/10 text-amber-500 px-2 py-1 rounded-md border border-amber-500/20 inline-block w-fit">
-                         +{addon.extraMembers} Members
+                         +{addon.extraMembers} Users
                        </span>
                     )}
                     {addon.storageLimitGB > 0 && (

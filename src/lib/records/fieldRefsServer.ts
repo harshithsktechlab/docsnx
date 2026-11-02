@@ -100,7 +100,7 @@ export async function assertFieldReferences(
       const ok = await isWorkspaceMember(ctx.tenantId, ref.memberId, ctx.companyId)
         || (ctx.isEdit && await tenantUserExists(ctx.tenantId, ref.memberId));
       if (!ok) {
-        throw new InvalidReferenceError(spec.fieldKey, `${spec.fieldLabel} is not a member of this workspace`);
+        throw new InvalidReferenceError(spec.fieldKey, `${spec.fieldLabel} is not a user of this workspace`);
       }
       continue;
     }

@@ -153,7 +153,7 @@ export async function POST(req: Request) {
         details: auditSentence('personal_account_created', {
           kind: 'account',
           name: workspaceName,
-          note: 'opened by an existing member of another account; it signs in with their existing password',
+          note: 'opened by an existing user of another account; it signs in with their existing password',
         }),
         req,
         entityType: 'tenants',

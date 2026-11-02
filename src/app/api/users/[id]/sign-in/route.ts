@@ -72,7 +72,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // Only a STANDARD member. Another admin is the tenant's billing and
     // recovery contact, and the platform role is not the tenant's to manage.
     if (targetUser.role !== 'STANDARD') {
-      return NextResponse.json({ error: 'Only a member’s sign-in can be turned off.' }, { status: 403 });
+      return NextResponse.json({ error: 'Only a user’s sign-in can be turned off.' }, { status: 403 });
     }
 
     // Already in the asked-for state: answer success without a second audit row.
@@ -90,12 +90,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (enabled && neverVerified && !targetUser.email) {
       if (!toDialString(targetUser.phoneNumber)) {
         return NextResponse.json({
-          error: 'This member has no mobile number or email, so they cannot sign in or receive a verification code. Use Edit Details to add one, then give access.',
+          error: 'This user has no mobile number or email, so they cannot sign in or receive a verification code. Use Edit Details to add one, then give access.',
         }, { status: 400 });
       }
       if (!(await isWhatsAppEnabled())) {
         return NextResponse.json({
-          error: 'WhatsApp is not connected and this member has no email, so their verification code cannot be sent. Connect WhatsApp under Admin → WhatsApp, or add an email for this member, then give access.',
+          error: 'WhatsApp is not connected and this user has no email, so their verification code cannot be sent. Connect WhatsApp under Admin → WhatsApp, or add an email for this member, then give access.',
         }, { status: 400 });
       }
     }
@@ -115,7 +115,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         userId: currentUser.id,
         action: enabled ? ACTIONS.user.sign_in_enable : ACTIONS.user.sign_in_disable,
         details: auditSentence(enabled ? 'sign_in_enable' : 'sign_in_disable', {
-          kind: 'member',
+          kind: 'user',
           name: targetUser.name,
           note: enabled
             ? (neverVerified ? 'access given; they verify with a code at first sign-in' : undefined)
@@ -143,6 +143,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     return NextResponse.json({ success: true, signInDisabled: !enabled, invite });
   } catch (error) {
-    return serverError(error, 'changing member sign-in');
+    return serverError(error, 'changing user sign-in');
   }
 }

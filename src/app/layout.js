@@ -7,7 +7,7 @@ import { FontSizeProvider } from "@/components/FontSizeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import ShareGate from "@/components/ShareGate";
 import CreditBorrowDialog from "@/app/components/CreditBorrowDialog";
-import { APP_NAME, APP_TAGLINE, APP_OG_IMAGE } from "@/lib/brand";
+import { APP_NAME, APP_TAGLINE, APP_OG_IMAGE, APP_MARK } from "@/lib/brand";
 import { getAppBaseUrl } from "@/lib/appUrl";
 
 const inter = Inter({
@@ -31,15 +31,12 @@ export const metadata = {
   description: APP_TAGLINE,
   manifest: "/manifest.json",
   icons: {
-    // The brand mark reads the same on both themes, so there is no longer a
-    // light/dark PNG pair keyed on `prefers-color-scheme`.
-    icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/icon-192.png', type: 'image/png', sizes: '192x192' }
-    ],
-    apple: [
-      { url: '/apple-touch-icon.png', sizes: '180x180' }
-    ]
+    // The app logo — the super admin's upload, or the built-in mark. The URL is
+    // constant (no DB read here, so pages stay statically renderable); the
+    // browser revalidates it by ETag. Browsers cache favicons aggressively, so a
+    // new logo can take a while to show in the tab.
+    icon: [{ url: APP_MARK }],
+    apple: [{ url: APP_MARK }]
   },
   openGraph: {
     type: "website",

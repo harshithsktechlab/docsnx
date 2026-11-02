@@ -26,6 +26,11 @@ export interface AxisLockState {
   exists?: boolean;
   /** Expired, or never bought — the same screen either way. */
   lapsed?: boolean;
+  /**
+   * A plan has EVER been taken on this half. False means never subscribed — a
+   * new account, whose `expiresAt` is just its sign-up moment, not a lapse.
+   */
+  hasPlan?: boolean;
   expiresAt?: string | null;
 }
 

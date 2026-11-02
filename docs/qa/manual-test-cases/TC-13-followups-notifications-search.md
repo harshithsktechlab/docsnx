@@ -16,8 +16,8 @@ The alert threshold is **15 days** (`daysLeft <= 15`, which also matches all ove
 | Category | Source | Rule |
 |---|---|---|
 | **Renewals** | `vehicles` (insurance / PUC / fitness expiry), `lic_mediclaims` (premium due), `warranty_amcs` (expiry), `contract_agreements` (end date) | Item appears when `daysLeft <= 15` (including negative = overdue). Title switches between "… Expiring" and "… Overdue"; message reads "due in N days" or "overdue by N days" |
-| **Insurance Gaps** | `users` × `lic_mediclaims` | For each member: if no policy with `policyType = lic` is linked (by `holderId` **or** by `insuredPerson` containing the member's name, case-insensitive) → "Missing Life Insurance". Same rule for `mediclaim` → "Missing Health Insurance" |
-| **Documents Pending** | `users` × `documents` | For each member, checks their documents (matched by `holderId` **or** `userId`) for a **name or file name containing** `pan` / `aadhaar`\|`adhar` / `passport`. Any missing type produces a pending entry |
+| **Insurance Gaps** | `users` × `lic_mediclaims` | For each user: if no policy with `policyType = lic` is linked (by `holderId` **or** by `insuredPerson` containing the user's name, case-insensitive) → "Missing Life Insurance". Same rule for `mediclaim` → "Missing Health Insurance" |
+| **Documents Pending** | `users` × `documents` | For each user, checks their documents (matched by `holderId` **or** `userId`) for a **name or file name containing** `pan` / `aadhaar`\|`adhar` / `passport`. Any missing type produces a pending entry |
 | **To-Dos Pending** | `todos` | All todos in the tenant with `status = PENDING` |
 
 Renewals are sorted ascending by `daysLeft` (most urgent first).
@@ -54,13 +54,13 @@ The shell polls `/follow-up/count` every 60 seconds for the badge total.
 | FUP-BR-006 | Positive | Set an LIC premium due date inside the window. | Appears as a policy renewal with the company/policy name. | — | — |
 | FUP-BR-007 | Positive | Set a warranty expiry inside the window. | Appears with the appliance name. | — | — |
 | FUP-BR-008 | Positive | Set a rental end date inside the window. | Appears with the contract name and provider. | — | — |
-| FUP-BR-009 | Business rule | Create a member with **no** LIC policy. | An insurance gap "Missing Life Insurance" appears naming that member. | — | — |
-| FUP-BR-010 | Business rule | Add an LIC policy with `holderId` = that member. | The Life Insurance gap disappears for them. | — | — |
-| FUP-BR-011 | Business rule | Add an LIC policy with a **blank holder** but `insuredPerson` containing the member's name. | The gap also disappears (name-matching path). | — | — |
-| FUP-BR-012 | Edge | Add an LIC policy whose `insuredPerson` is the member's name in a **different case** (`ravi sharma` vs `Ravi Sharma`). | The gap still disappears (matching is case-insensitive). | — | — |
-| FUP-BR-013 | **Edge** | Add an LIC policy whose `insuredPerson` is a *substring supersets* case — e.g. member "Ravi" and a policy insuring "Ravikant". | **The substring match will incorrectly clear Ravi's gap.** Record actual; a false-negative gap detection is a **S3** correctness defect. | — | — |
-| FUP-BR-014 | Business rule | Add a Mediclaim policy for a member. | The Health Insurance gap disappears for them only — other members still show theirs. | — | — |
-| FUP-BR-015 | Business rule | Verify gap detection against every member in the tenant. | Each member produces up to 2 gap entries; the total equals `(members × 2) − (covered combinations)`. | — | — |
+| FUP-BR-009 | Business rule | Create a user with **no** LIC policy. | An insurance gap "Missing Life Insurance" appears naming that user. | — | — |
+| FUP-BR-010 | Business rule | Add an LIC policy with `holderId` = that user. | The Life Insurance gap disappears for them. | — | — |
+| FUP-BR-011 | Business rule | Add an LIC policy with a **blank holder** but `insuredPerson` containing the user's name. | The gap also disappears (name-matching path). | — | — |
+| FUP-BR-012 | Edge | Add an LIC policy whose `insuredPerson` is the user's name in a **different case** (`ravi sharma` vs `Ravi Sharma`). | The gap still disappears (matching is case-insensitive). | — | — |
+| FUP-BR-013 | **Edge** | Add an LIC policy whose `insuredPerson` is a *substring supersets* case — e.g. user "Ravi" and a policy insuring "Ravikant". | **The substring match will incorrectly clear Ravi's gap.** Record actual; a false-negative gap detection is a **S3** correctness defect. | — | — |
+| FUP-BR-014 | Business rule | Add a Mediclaim policy for a user. | The Health Insurance gap disappears for them only — other users still show theirs. | — | — |
+| FUP-BR-015 | Business rule | Verify gap detection against every user in the tenant. | Each user produces up to 2 gap entries; the total equals `(members × 2) − (covered combinations)`. | — | — |
 | FUP-BR-016 | Business rule | Upload a document named "PAN Card - Ravi" with holder = Ravi. | Ravi's "Missing PAN Card" entry disappears. | — | — |
 | FUP-BR-017 | Business rule | Upload a document named "Untitled" whose **file name** is `pan_scan.pdf`, holder = Ravi. | The gap also clears (the check inspects the file name as well as the display name). | — | — |
 | FUP-BR-018 | Edge | Upload a document named "Company Panel Layout" for Ravi. | **The substring `pan` will match and wrongly clear the PAN gap.** Record actual — this is a **S3** false-negative. | — | — |
@@ -70,7 +70,7 @@ The shell polls `/follow-up/count` every 60 seconds for the badge total.
 | FUP-BR-022 | Business rule | Mark that To-Do COMPLETED. | It disappears from To-Dos Pending. | — | — |
 | FUP-BR-023 | Edge | Create a PENDING To-Do with **no due date**. | Record actual — the pending-todos section lists all PENDING todos regardless of due date, so it should still appear. | — | — |
 | FUP-BR-024 | Business rule | **Soft-delete** a vehicle whose insurance is due in 5 days, then reload `/follow-up`. | The renewal must disappear. Record actual — the follow-up aggregation does not filter on `deleted_at`, so a deleted record still raising an alert is a **S2** defect. | — | — |
-| FUP-BR-025 | Business rule | Soft-delete an LIC policy that was covering a member's gap. | The insurance gap should re-appear. Record actual against the same `deleted_at` concern. | — | — |
+| FUP-BR-025 | Business rule | Soft-delete an LIC policy that was covering a user's gap. | The insurance gap should re-appear. Record actual against the same `deleted_at` concern. | — | — |
 | FUP-BR-026 | Security | Create records in TENANT_B with imminent expiries, then open TENANT_A's `/follow-up`. | None of TENANT_B's items appear; the badge count excludes them. | — | — |
 | FUP-BR-027 | Positive | Log in as a `STANDARD` user with limited permissions and open `/follow-up`. | Record actual — confirm whether items from modules the user cannot view are filtered out. Leaking a module the user has no `canView` on is **S3**. | — | — |
 | FUP-BR-028 | Positive | Compare the badge count with the on-page item total. | They match exactly. | — | — |
@@ -84,10 +84,10 @@ The shell polls `/follow-up/count` every 60 seconds for the badge total.
 | FUP-DB-003 | Warranty renewals match the DB | `SELECT count(*) FROM warranty_amcs WHERE tenant_id = ':tenant_a' AND expiry_date <= now() + interval '15 days';` | Equals the number of warranty entries shown | — | — |
 | FUP-DB-004 | Contract renewals match the DB | `SELECT count(*) FROM contract_agreements WHERE tenant_id = ':tenant_a' AND end_date <= now() + interval '15 days';` | Equals the number of contract entries shown | — | — |
 | FUP-DB-005 | Pending to-dos match the DB | `SELECT count(*) FROM todos WHERE tenant_id = ':tenant_a' AND status = 'PENDING';` | Equals the To-Dos Pending count | — | — |
-| FUP-DB-006 | Insurance gaps — member count basis | `SELECT count(*) FROM users WHERE tenant_id = ':tenant_a' AND deleted_at IS NULL;` | Confirms the denominator for the gap calculation; note whether soft-deleted users are still counted | — | — |
-| FUP-DB-007 | LIC coverage per member | `SELECT u.name, EXISTS (SELECT 1 FROM lic_mediclaims p WHERE p.tenant_id = u.tenant_id AND p.policy_type = 'lic' AND (p.holder_id = u.id OR lower(p.insured_person) LIKE '%' \|\| lower(u.name) \|\| '%')) AS has_lic FROM users u WHERE u.tenant_id = ':tenant_a';` | `has_lic = f` for exactly the members shown with a Life Insurance gap | — | — |
-| FUP-DB-008 | Mediclaim coverage per member | Same query with `policy_type = 'mediclaim'` | `has_mediclaim = f` for exactly the members shown with a Health Insurance gap | — | — |
-| FUP-DB-009 | Document coverage per member | `SELECT u.name, EXISTS (SELECT 1 FROM documents d WHERE d.tenant_id = u.tenant_id AND (d.holder_id = u.id OR d.user_id = u.id) AND (lower(d.name) LIKE '%pan%' OR lower(d.file_name) LIKE '%pan%')) AS has_pan FROM users u WHERE u.tenant_id = ':tenant_a';` | `has_pan = f` for exactly the members shown with a Missing PAN entry | — | — |
+| FUP-DB-006 | Insurance gaps — user count basis | `SELECT count(*) FROM users WHERE tenant_id = ':tenant_a' AND deleted_at IS NULL;` | Confirms the denominator for the gap calculation; note whether soft-deleted users are still counted | — | — |
+| FUP-DB-007 | LIC coverage per user | `SELECT u.name, EXISTS (SELECT 1 FROM lic_mediclaims p WHERE p.tenant_id = u.tenant_id AND p.policy_type = 'lic' AND (p.holder_id = u.id OR lower(p.insured_person) LIKE '%' \|\| lower(u.name) \|\| '%')) AS has_lic FROM users u WHERE u.tenant_id = ':tenant_a';` | `has_lic = f` for exactly the users shown with a Life Insurance gap | — | — |
+| FUP-DB-008 | Mediclaim coverage per user | Same query with `policy_type = 'mediclaim'` | `has_mediclaim = f` for exactly the users shown with a Health Insurance gap | — | — |
+| FUP-DB-009 | Document coverage per user | `SELECT u.name, EXISTS (SELECT 1 FROM documents d WHERE d.tenant_id = u.tenant_id AND (d.holder_id = u.id OR d.user_id = u.id) AND (lower(d.name) LIKE '%pan%' OR lower(d.file_name) LIKE '%pan%')) AS has_pan FROM users u WHERE u.tenant_id = ':tenant_a';` | `has_pan = f` for exactly the users shown with a Missing PAN entry | — | — |
 | FUP-DB-010 | **Soft-deleted records still counted** | Soft-delete a vehicle due in 5 days, then re-run FUP-DB-001 with and without `AND deleted_at IS NULL`. | The two counts differ; whichever the UI matches tells you whether FUP-BR-024 is a defect | — | — |
 | FUP-DB-011 | Cross-tenant exclusion | `SELECT count(*) FROM vehicles WHERE tenant_id = ':tenant_b' AND insurance_expiry <= now() + interval '15 days';` | Whatever this returns, **none** of it appears on TENANT_A's `/follow-up` | — | — |
 | FUP-DB-012 | Badge total matches the aggregate | Sum FUP-DB-001 … FUP-DB-005 plus the gap and document counts. | Equals the sidebar badge number | — | — |
@@ -118,7 +118,7 @@ The shell polls `/follow-up/count` every 60 seconds for the badge total.
 | NTF-UI-007 | UI | Edge | A notification with a very long title/message. | Truncated with an ellipsis in the dropdown; full text available on the target page. | — | — |
 | NTF-UI-008 | UI | Edge | A notification whose title contains `<script>alert(1)</script>`. | Rendered as literal text. | — | — |
 | NTF-UI-009 | UI | Positive | Open the bell at 375px width. | The dropdown fits the viewport; items remain tappable; no horizontal page scroll. | — | — |
-| NTF-BR-001 | Business | Positive | Trigger an event that notifies a specific user (e.g. To-Do assignment). | Only that user sees it — other members of the same tenant do not. | — | — |
+| NTF-BR-001 | Business | Positive | Trigger an event that notifies a specific user (e.g. To-Do assignment). | Only that user sees it — other users of the same tenant do not. | — | — |
 | NTF-BR-002 | Business | Security | Create a notification in TENANT_B, then check TENANT_A's bell. | Not visible. | — | — |
 | NTF-BR-003 | Business | Negative | Attempt to mark another user's notification read (manipulated id). | 403/404; the other user's notification stays unread. | — | — |
 | NTF-BR-004 | Business | Positive | Read a notification, then reload the page. | It stays read (persisted, not just client state). | — | — |
@@ -196,7 +196,7 @@ The shell polls `/follow-up/count` every 60 seconds for the badge total.
 | TC ID | Workflow | Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
 | FNS-E2E-001 | Full follow-up lifecycle | 1. Create a vehicle (insurance 7 days), a policy (premium 12 days), a warranty (expiry 3 days) and a PENDING To-Do.<br>2. Open `/follow-up`.<br>3. Note the badge count.<br>4. Resolve each item (renew dates, complete the To-Do).<br>5. Re-open `/follow-up`. | All four appear correctly ordered by urgency; the badge matches; after resolution all four disappear and the badge drops to the remaining gap/document entries. | — | — |
-| FNS-E2E-002 | Gap closure | 1. Add 3 members with no policies or documents.<br>2. Open `/follow-up` and count gaps and pending documents.<br>3. Add an LIC policy, a Mediclaim policy, a PAN, an Aadhaar and a Passport for one member.<br>4. Re-open `/follow-up`. | Initially 6 insurance gaps and 9 pending documents (3 members × 2 and × 3); after step 3 that member's 5 entries clear and the others remain. | — | — |
+| FNS-E2E-002 | Gap closure | 1. Add 3 users with no policies or documents.<br>2. Open `/follow-up` and count gaps and pending documents.<br>3. Add an LIC policy, a Mediclaim policy, a PAN, an Aadhaar and a Passport for one user.<br>4. Re-open `/follow-up`. | Initially 6 insurance gaps and 9 pending documents (3 users × 2 and × 3); after step 3 that user's 5 entries clear and the others remain. | — | — |
 | FNS-E2E-003 | Notification → record | 1. Assign a To-Do to yourself with push enabled.<br>2. Observe the bell within one poll cycle.<br>3. Click the notification.<br>4. Complete the task. | Badge increments; clicking navigates to `/todos` and marks the notification read; completing removes it from follow-ups. | — | — |
 | FNS-E2E-004 | Search across a populated tenant | 1. Populate all 8 searchable modules with records sharing a token.<br>2. Search the token.<br>3. Search a full encrypted identifier.<br>4. Search a partial encrypted identifier. | Step 2 returns grouped hits from all 8; step 3 returns the exact record masked; step 4 returns nothing. | — | — |
 | FNS-E2E-005 | Isolation sweep | 1. Populate TENANT_B with imminent expiries, notifications and searchable records.<br>2. Log in to TENANT_A.<br>3. Check `/follow-up`, the bell and spotlight search. | TENANT_A sees none of TENANT_B's data in any of the three surfaces. | — | — |

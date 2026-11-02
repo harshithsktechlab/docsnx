@@ -2309,7 +2309,7 @@ export default function DocumentsPage() {
   // Members, plus the unassigned bucket. `holderId` is nullable, so
   // "Global (All Members)" needs its own sentinel — the API maps it to IS NULL.
   const holderFilterOptions = [
-    { value: 'none', label: 'Global (All Members)' },
+    { value: 'none', label: 'Global (All Users)' },
     ...holderOptions.map((h) => ({ value: h.id, label: h.name })),
   ];
 
@@ -2774,8 +2774,8 @@ export default function DocumentsPage() {
             },
             {
               key: 'holderId',
-              label: 'Members',
-              allLabel: 'All members',
+              label: 'Users',
+              allLabel: 'All users',
               multiple: true,
               options: holderFilterOptions
             }

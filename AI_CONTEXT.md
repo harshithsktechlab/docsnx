@@ -12,7 +12,7 @@
 > regenerate and re-curate.
 
 ## 1. Project Information
-- **Name / version**: docsnx `0.1.0` (multi-tenant member-management SaaS vault).
+- **Name / version**: docsnx `0.1.0` (multi-tenant user-management SaaS vault).
 - **Framework**: Next.js `15.1` (App Router, no `pages/`), React `19`, TypeScript `~6`.
 - **Database ORM**: **Drizzle ORM `^0.45`** over PostgreSQL (`pg ^8`); migrations
   via **`drizzle-kit`** (`drizzle.config.ts`, generated SQL in `drizzle/`).

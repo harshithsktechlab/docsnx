@@ -18,6 +18,7 @@ let sessionUser: any;
 const updates: any[] = [];
 const audits: any[] = [];
 let tenantScope: string | undefined;
+let accountType = 'personal';
 
 vi.mock('@/lib/db', () => ({
   db: {},
@@ -27,6 +28,11 @@ vi.mock('@/lib/db', () => ({
     // wrapper exists to prevent.
     tenantScope = tenantId;
     return cb({
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: async () => [{ accountType }] }),
+        }),
+      }),
       update: () => ({
         set: (values: any) => ({
           where: async (predicate: any) => {
@@ -63,6 +69,7 @@ beforeEach(() => {
   updates.length = 0;
   audits.length = 0;
   tenantScope = undefined;
+  accountType = 'personal';
   sessionUser = {
     id: 'user-1',
     tenantId: TENANT,
@@ -144,5 +151,37 @@ describe('the tenant it writes to', () => {
     expect(tenantScope).toBe(TENANT);
     expect(Object.keys(updates[0].values).sort()).toEqual(['name', 'updatedAt']);
     expect(audits[0].tenantId).toBe(TENANT);
+  });
+});
+
+describe('a combo account names both sides', () => {
+  beforeEach(() => { accountType = 'both'; });
+
+  it('saves the business account name and the personal workspace name together', async () => {
+    const res = await POST(post({ name: 'Menon Group', personalName: 'Menon Household' }));
+    expect(res.status).toBe(200);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].values.name).toBe('Menon Group');
+    expect(updates[0].values.personalWorkspaceName).toBe('Menon Household');
+    expect(audits).toHaveLength(2);
+  });
+
+  it('requires the personal name', async () => {
+    const res = await POST(post({ name: 'Menon Group' }));
+    expect(res.status).toBe(400);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('refuses two names that read the same', async () => {
+    const res = await POST(post({ name: 'Menon Group', personalName: '  menon group ' }));
+    expect(res.status).toBe(400);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('does not write a personal name for an account that has no personal side to name', async () => {
+    accountType = 'business';
+    const res = await POST(post({ name: 'Menon Group', personalName: 'Menon Household' }));
+    expect(res.status).toBe(200);
+    expect(updates[0].values.personalWorkspaceName).toBeUndefined();
   });
 });

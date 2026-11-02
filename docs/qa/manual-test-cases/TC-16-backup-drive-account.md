@@ -48,7 +48,7 @@
 | BKP-BR-007 | Business rule | Export, then delete a record, then restore the export. | The deleted record returns. Confirm restore semantics (merge vs. replace) are documented and match the UI copy. | — | — |
 | BKP-BR-008 | Edge | Restore the same file twice. | No duplicate rows (idempotent restore), or a clear warning. Silent duplication ⇒ **S3**. | — | — |
 | BKP-BR-009 | Edge | Export a tenant with ~5 000 records across modules. | The export completes without timeout; the file is complete and valid JSON. | — | — |
-| BKP-BR-010 | Negative | Export as a `STANDARD` user. | Record actual — confirm whether a standard member can export the all members vault. If so, verify it is intended; unrestricted export by a low-privilege member ⇒ **S2**. | — | — |
+| BKP-BR-010 | Negative | Export as a `STANDARD` user. | Record actual — confirm whether a standard user can export the all users vault. If so, verify it is intended; unrestricted export by a low-privilege user ⇒ **S2**. | — | — |
 | BKP-BR-011 | Positive | Export and check `/audit-logs`. | An audit entry records the export (who and when) — a data-export event should always be auditable. Missing entry ⇒ **S2**. | — | — |
 | BKP-BR-012 | Negative | Subscription expired → attempt an export. | Record actual — confirm the intended behaviour (users should generally retain the ability to take their data out). | — | — |
 
@@ -144,14 +144,14 @@
 | Data export | A DPDPA "right to access" export of the account's data |
 | **Account deletion** | `TENANT_ADMIN` only, from **Settings → Account → Danger zone**. Requires the workspace name to be typed back exactly; the API rejects a mismatch with 400. Performs a **hard delete of the tenant row**, which cascades to users, profiles, permissions and every tenant-scoped table (DPDPA Right to Erasure). Non-admins are refused with *"Only Tenant Admins can delete the account."* |
 | **Beyond Postgres** | The `/DocsNX_Data` folder in the tenant's Google Drive is deleted **permanently** (not trashed), legacy root `DocsNX_Data_*.enc.json` files are deleted, legacy `/uploads` files are unlinked and the Drive OAuth grant is revoked. Failures here are logged with an `[erasure]` prefix and do **not** abort the deletion. |
-| **Retention** | One `deleted_accounts` row per member — name (encrypted), phone number (encrypted), email (cleartext), tenant id/name, `erased_at`. Nothing else survives. No backup of documents is taken or kept. |
+| **Retention** | One `deleted_accounts` row per user — name (encrypted), phone number (encrypted), email (cleartext), tenant id/name, `erased_at`. Nothing else survives. No backup of documents is taken or kept. |
 | Irreversibility | There is no soft-delete, no recovery window and no backup — the data is permanently erased, including Drive's 30-day bin |
 
 ## C1. Test Cases
 
 | TC ID | Category | Type | Test Case / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|---|
-| ACC-UI-001 | UI | Positive | Open the account danger zone. | Deletion is visually separated (danger styling) with an unambiguous warning that the erasure is permanent and covers all members data. | — | — |
+| ACC-UI-001 | UI | Positive | Open the account danger zone. | Deletion is visually separated (danger styling) with an unambiguous warning that the erasure is permanent and covers all users data. | — | — |
 | ACC-UI-002 | UI | Positive | Click Delete Account. | A dialog opens; the confirm button stays **disabled** until the workspace name is typed back exactly. Not a single click. | — | — |
 | ACC-UI-002b | UI | Negative | Type a near-miss of the workspace name (wrong case / trailing word) and confirm. | The button stays disabled. If the request is forced via the API, it is refused with 400 *"The workspace name does not match…"* and nothing is deleted. | — | — |
 | ACC-UI-002c | UI | Positive | Read the danger-zone copy before confirming. | It states plainly that Drive files are deleted permanently, that **no backup is kept**, and that only name, phone number and email are retained. | — | — |
@@ -161,7 +161,7 @@
 | ACC-UI-006 | UI | Positive | Trigger the account data export. | A complete data file downloads; the export is offered **before** deletion in the UI flow. | — | — |
 | ACC-UI-007 | UI | Positive | View the danger zone at 375px. | Warning text is fully legible; the confirm control is reachable. | — | — |
 | ACC-BR-001 | Business | Positive | Delete the account, then attempt to log in with the admin credentials. | Login fails — the user row is gone. | — | — |
-| ACC-BR-002 | Business | Positive | Delete the account, then attempt to log in as a member of that tenant. | Login fails — all users cascaded. | — | — |
+| ACC-BR-002 | Business | Positive | Delete the account, then attempt to log in as a user of that tenant. | Login fails — all users cascaded. | — | — |
 | ACC-BR-003 | Business | **Security** | As ADMIN_A, delete the account and immediately verify TENANT_B. | TENANT_B is completely unaffected — every row intact and login working. Any collateral deletion ⇒ **S1**. | — | — |
 | ACC-BR-004 | Business | Business rule | Delete an account holding records across all 19 modules. | Every row for that tenant is gone; no orphan rows remain in any table. | — | — |
 | ACC-BR-005 | Business | **Security** | Delete an account with uploaded files. | The `/DocsNX_Data` folder is gone from the Google account **and absent from its bin** (permanent delete); legacy `/uploads` files are unlinked from disk. Files left behind and still fetchable ⇒ **S1**. | — | — |
@@ -171,8 +171,8 @@
 | ACC-BR-006 | Business | Business rule | Delete an account with an active paid subscription. | Deletion proceeds; confirm the intended handling of the outstanding subscription/invoices and that the user is warned. | — | — |
 | ACC-BR-007 | Business | Business rule | Delete an account, then re-register with the same email. | Blocked or allowed per the trial rule — the email remains in `trial_used_emails`, so no fresh trial is granted. | — | — |
 | ACC-BR-008 | Business | Edge | Delete the account while a second admin is logged in on another browser. | The second session becomes invalid on its next request; no partial access to deleted data. | — | — |
-| ACC-BR-009 | Business | Positive | Check the audit trail after deletion. | `audit_logs` cascades with the tenant, so the tenant's own log is gone by design. The platform-level record is the `deleted_accounts` rows — one per member. None at all ⇒ **S2** (unauditable erasure). | — | — |
-| ACC-BR-010 | Business | **Privacy** | Inspect a `deleted_accounts` row. | Exactly one row per member holding tenant id/name, name, phone, email, role, `erased_at`. `name` and `phone_number` are ciphertext (`iv:salt:tag:ct`), never plaintext. No document, record or password data anywhere in the table ⇒ any ⇒ **S1**. | — | — |
+| ACC-BR-009 | Business | Positive | Check the audit trail after deletion. | `audit_logs` cascades with the tenant, so the tenant's own log is gone by design. The platform-level record is the `deleted_accounts` rows — one per user. None at all ⇒ **S2** (unauditable erasure). | — | — |
+| ACC-BR-010 | Business | **Privacy** | Inspect a `deleted_accounts` row. | Exactly one row per user holding tenant id/name, name, phone, email, role, `erased_at`. `name` and `phone_number` are ciphertext (`iv:salt:tag:ct`), never plaintext. No document, record or password data anywhere in the table ⇒ any ⇒ **S1**. | — | — |
 | ACC-DB-001 | DB | Tenant row removed | `SELECT count(*) FROM tenants WHERE id = ':tenant_a';` | `0` | — | — |
 | ACC-DB-002 | DB | Users cascaded | `SELECT count(*) FROM users WHERE tenant_id = ':tenant_a';` | `0` | — | — |
 | ACC-DB-003 | DB | Profiles cascaded | `SELECT count(*) FROM profiles p LEFT JOIN users u ON u.id = p.user_id WHERE u.id IS NULL;` | `0` — no orphan profiles | — | — |
@@ -184,7 +184,7 @@
 | ACC-DB-009 | DB | No orphan rows platform-wide | `SELECT count(*) FROM documents d LEFT JOIN tenants t ON t.id = d.tenant_id WHERE t.id IS NULL;` (repeat for other tenant tables) | `0` for every table | — | — |
 | ACC-DB-010 | DB | Trial email retained | `SELECT count(*) FROM trial_used_emails WHERE email = ':email_a';` | `1` — the trial record intentionally survives tenant deletion | — | — |
 | ACC-DB-011 | DB | Deletion is a hard delete, not a soft delete | `SELECT count(*) FROM tenants WHERE id = ':tenant_a' AND deleted_at IS NOT NULL;` | `0` — the row does not exist at all | — | — |
-| ACC-DB-012 | DB | Retention row written | `SELECT count(*) FROM deleted_accounts WHERE tenant_id = ':tenant_a';` | Equals the number of members the workspace had | — | — |
+| ACC-DB-012 | DB | Retention row written | `SELECT count(*) FROM deleted_accounts WHERE tenant_id = ':tenant_a';` | Equals the number of users the workspace had | — | — |
 | ACC-DB-013 | DB | Retention row survives the cascade | Run ACC-DB-012 **after** confirming ACC-DB-001 returns `0`. | Still non-zero — the table has no FK to `tenants` on purpose | — | — |
 | ACC-DB-014 | DB | Retained PII is encrypted | `SELECT name, phone_number, email FROM deleted_accounts WHERE tenant_id = ':tenant_a';` | `name`/`phone_number` are ciphertext; `email` is cleartext by design (matches `trial_used_emails`) | — | — |
 | ACC-DB-015 | DB | Re-registration is not blocked | Delete the account, then register again with the same email. | Succeeds — but on **no** plan with `subscription_expiry = now()`, because `trial_used_emails` survived (ACC-DB-010) | — | — |

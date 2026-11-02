@@ -59,7 +59,7 @@ describe('<PermissionMatrix> — the Access step', () => {
         showPresets: true,
       }),
     );
-    expect(screen.getByText('This member gets')).toBeInTheDocument();
+    expect(screen.getByText('This user gets')).toBeInTheDocument();
     expect(
       screen.getByText(`${PERMISSION_MODULE_KEYS.length} Full access`),
     ).toBeInTheDocument();

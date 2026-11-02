@@ -164,9 +164,13 @@ export async function POST(req: Request) {
          * who just bought a combo is a Personal + Business account from this
          * update on — the tab, the switcher and company creation all key off
          * `account_type`, and leaving it would hide the half they paid for.
-         * Only ever widens; only written when it changes.
+         * Only ever widens; only written when it changes — except the very
+         * first purchase, which decides the type outright (a signup is stored
+         * as 'personal' only as a placeholder, so Business must not become
+         * 'both').
          */
-        const widened = widenAccountType(currentTenant.accountType, axesWritten);
+        const neverSubscribed = !currentTenant.subscriptionPlanId && !currentTenant.businessPlanId;
+        const widened = widenAccountType(currentTenant.accountType, axesWritten, { neverSubscribed });
         if (widened !== currentTenant.accountType) axisColumns.accountType = widened;
 
         // Credits are added in-database (not currentBalance + n) so a concurrent

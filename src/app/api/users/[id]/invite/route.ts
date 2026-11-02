@@ -38,17 +38,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if ('error' in workspace) return workspace.error;
 
     if (member.role !== 'STANDARD') {
-      return NextResponse.json({ error: 'Only a member can be sent an invite.' }, { status: 403 });
+      return NextResponse.json({ error: 'Only a user can be sent an invite.' }, { status: 403 });
     }
     if (member.activatedAt) {
-      return NextResponse.json({ error: 'This member has already set up their account.' }, { status: 400 });
+      return NextResponse.json({ error: 'This user has already set up their account.' }, { status: 400 });
     }
     if (member.signInDisabledAt) {
-      return NextResponse.json({ error: 'Turn on sign-in for this member first.' }, { status: 400 });
+      return NextResponse.json({ error: 'Turn on sign-in for this user first.' }, { status: 400 });
     }
     if (!canReceiveInvite(member, await isWhatsAppEnabled())) {
       return NextResponse.json({
-        error: 'This member has no email, and no mobile number WhatsApp can reach. Use Edit Details to add one.',
+        error: 'This user has no email, and no mobile number WhatsApp can reach. Use Edit Details to add one.',
       }, { status: 400 });
     }
     if (member.invitedAt && Date.now() - new Date(member.invitedAt).getTime() < INVITE_COOLDOWN_MS) {
@@ -72,6 +72,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       invite: member.membershipStatus === 'pending' ? { delivered: invite.delivered } : invite,
     });
   } catch (error) {
-    return serverError(error, 'sending a member invite');
+    return serverError(error, 'sending a user invite');
   }
 }

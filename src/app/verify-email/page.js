@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { clientVerifyOtp, clientResendOtp } from '@/lib/clientAuth';
 import {
@@ -9,7 +9,7 @@ import {
   verifyHeading, afterVerifyDestination,
 } from '@/lib/otpForm';
 import { maskIdentifier } from '@/lib/dataMasking';
-import { ShieldCheck, Mail, MessageCircle, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Mail, MessageCircle, ArrowRight, Loader2, RefreshCw, X, Eraser } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import OtpInput from '@/app/components/OtpInput';
@@ -48,10 +48,30 @@ function VerifyEmailContent() {
   const [view, setView] = useState(() => readChallengeView((k) => searchParams.get(k)));
   const [codes, setCodes] = useState({ single: '', email: '', phone: '' });
   const [loading, setLoading] = useState(false);
+  // A rejected code is kept on the page until it is dismissed or the person
+  // edits a box. A toast was the only place it was said, and it left before it
+  // could be read.
+  const [error, setError] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
   const [countdown, setCountdown] = useState(() => initialResendCountdown(view));
 
   const boxes = codeBoxes(view);
+  const formRef = useRef(null);
+
+  // Empties every box — and the rejection that was about what they held.
+  const clearCodes = () => {
+    setCodes({ single: '', email: '', phone: '' });
+    setError('');
+  };
+
+  // Each box has its own Clear: a wrong WhatsApp code shouldn't cost the person
+  // a correct email one. OtpInput only focuses on mount, so the cursor is put
+  // back in the cleared box by reaching in for it.
+  const handleClearBox = (box) => {
+    setCodes((prev) => ({ ...prev, [box]: '' }));
+    setError('');
+    formRef.current?.querySelector(`[data-box="${box}"] input`)?.focus();
+  };
 
   useEffect(() => {
     let timer;
@@ -75,6 +95,7 @@ function VerifyEmailContent() {
       return;
     }
 
+    setError('');
     setLoading(true);
     const res = await clientVerifyOtp(identifier, verifyPayload(view, codes));
     setLoading(false);
@@ -126,14 +147,18 @@ function VerifyEmailContent() {
         email: next.needsEmailCode ? prev.email : '',
         phone: next.needsPhoneCode ? prev.phone : '',
       }));
-      // Stays here, where the boxes are — and shares `verify-code` with the
-      // incomplete-form message above, since both are about this one attempt.
-      toast.error(res.error || 'Invalid verification code', { id: 'verify-code' });
+      // Stays here, where the boxes are. Shown in the page rather than as a
+      // toast so it can be read and closed at the person's own pace; any
+      // incomplete-form toast from an earlier attempt is retired with it.
+      toast.dismiss('verify-code');
+      setError(res.error || 'Invalid verification code');
     }
   };
 
   const handleResend = async () => {
     if (countdown > 0 || resendLoading) return;
+    // A resend issues new code(s); whatever was typed belongs to the old ones.
+    clearCodes();
     setResendLoading(true);
     const res = await clientResendOtp(identifier);
     setResendLoading(false);
@@ -196,9 +221,26 @@ function VerifyEmailContent() {
               )}
             </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+            {error && (
+              <div
+                role="alert"
+                className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              >
+                <span className="flex-1 text-left break-words">{error}</span>
+                <button
+                  type="button"
+                  onClick={() => setError('')}
+                  aria-label="Dismiss error"
+                  className="shrink-0 rounded p-0.5 hover:bg-destructive/10 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col gap-6">
               {boxes.map((box) => (
-                <div key={box} className="flex flex-col gap-2">
+                <div key={box} data-box={box} className="flex flex-col gap-2">
                   {box !== 'single' && (
                     <span className="flex items-center justify-center gap-2 text-xs font-semibold text-muted-foreground">
                       {box === 'email'
@@ -209,10 +251,27 @@ function VerifyEmailContent() {
                   )}
                   <OtpInput
                     value={codes[box]}
-                    onChange={(next) => setCodes((prev) => ({ ...prev, [box]: next }))}
+                    onChange={(next) => {
+                      setError('');
+                      setCodes((prev) => ({ ...prev, [box]: next }));
+                    }}
                     autoFocus={box === boxes[0]}
                     ariaLabel={boxLabel(box, view)}
                   />
+                  {codes[box] && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleClearBox(box)}
+                      disabled={loading}
+                      aria-label={box === 'single' ? 'Clear entered code' : `Clear ${box === 'email' ? 'email' : 'WhatsApp'} code`}
+                      className="self-center text-muted-foreground"
+                    >
+                      <Eraser className="w-3.5 h-3.5 mr-1.5" />
+                      Clear
+                    </Button>
+                  )}
                 </div>
               ))}
 

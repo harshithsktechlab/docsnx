@@ -397,15 +397,15 @@ export async function POST(req: Request) {
             error: totalAllowed === 0
               // Zero means no business plan at all. "allows 0 members" reads as
               // a bug, and the fix is a plan rather than an add-on.
-              ? 'Your plan does not include a business account. Upgrade to add employees.'
-              : `${name} is full. Your plan allows ${totalAllowed} member(s) per company. `
+              ? 'Your plan does not include a business account. Upgrade to add users.'
+              : `${name} is full. Your plan allows ${totalAllowed} user(s) per company. `
                 + 'Upgrade or buy an add-on to add more.',
           }, { status: 403 });
         }
       }
     } else if (await seatsIn(null) >= totalAllowed) {
       return NextResponse.json({
-        error: `User limit reached. Your plan allows ${totalAllowed} member(s). `
+        error: `User limit reached. Your plan allows ${totalAllowed} user(s). `
           + 'Please purchase an add-on to add more.',
       }, { status: 403 });
     }
@@ -581,7 +581,7 @@ export async function POST(req: Request) {
         userId: currentUser.id,
         action: attachTo ? ACTIONS.auth.membership_invited : ACTIONS.user.create,
         details: auditSentence(attachTo ? 'membership_invited' : 'create', {
-          kind: 'member',
+          kind: 'user',
           name,
           note: attachTo ? 'invited to join; they accept when they sign in' : `as a ${role || 'STANDARD'} user`,
         }),

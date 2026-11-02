@@ -74,6 +74,7 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion } from 'framer-motion';
 import PageContainer from '@/app/components/PageContainer';
 import AdminDashboard from '@/app/components/AdminDashboard';
+import InlineRename from '@/app/components/InlineRename';
 import { useWorkspaceApi } from '@/lib/net/useWorkspaceApi';
 import { setupChecklist } from '@/lib/setupChecklist';
 
@@ -323,7 +324,17 @@ export default function WorkspaceDashboard() {
         <Card className="border-border/50 bg-gradient-to-r from-primary/10 to-accent/5 backdrop-blur-xl shadow-glass p-6 border-l-4 border-l-primary relative overflow-hidden">
           <div className="relative z-10">
             <span className="text-xs uppercase font-bold text-primary tracking-widest leading-none">
-              {workspaceName}
+              {data?.canRename ? (
+                // An admin renames the workspace right where its name is shown.
+                // Which name this edits (company / personal side / account) is
+                // decided by the payload — see `renameKind` in /api/dashboard.
+                <InlineRename
+                  value={workspaceName}
+                  kind={data.renameKind || 'account'}
+                  companyId={companyId}
+                  onSaved={(name) => setData((prev) => (prev ? { ...prev, workspaceName: name } : prev))}
+                />
+              ) : workspaceName}
             </span>
             <h2 className="text-2xl font-black text-foreground mt-1.5 leading-none drop-shadow-sm">
               {getGreeting()}, <span className="text-foreground font-black">{userName}</span>!

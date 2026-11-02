@@ -33,6 +33,7 @@ import PageContainer from '@/app/components/PageContainer';
 import FieldsTab from './FieldsTab';
 import CategoriesTab from './CategoriesTab';
 import FileSizeTab from './FileSizeTab';
+import ProfileOptionsTab from './ProfileOptionsTab';
 
 const TABS = [
   {
@@ -58,6 +59,11 @@ const TABS = [
     id: 'filesize',
     label: 'File Size',
     blurb: 'Set the maximum file size for document uploads across the platform.',
+  },
+  {
+    id: 'profile-options',
+    label: 'Company Profile',
+    blurb: 'Manage the dropdown choices on the Business Profile form, such as Entity Type.',
   },
 ];
 
@@ -166,6 +172,9 @@ export default function DocumentTaxonomyPage() {
       </div>
       <div className={tab === 'filesize' ? '' : 'hidden'}>
         <FileSizeTab />
+      </div>
+      <div className={tab === 'profile-options' ? '' : 'hidden'}>
+        <ProfileOptionsTab />
       </div>
     </PageContainer>
   );

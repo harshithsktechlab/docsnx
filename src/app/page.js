@@ -38,7 +38,7 @@ const FEATURES = [
     id: 'security',
     icon: ShieldCheck,
     title: 'Zero-Knowledge Vault',
-    desc: 'End-to-end encryption ensures only you and your designated members can access your critical data.',
+    desc: 'End-to-end encryption ensures only you and your designated users can access your critical data.',
     image: '/assets/landing/cards/vault.webp',
   },
   {
@@ -191,7 +191,7 @@ export default async function LandingPage() {
           <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="text-3xl lg:text-5xl font-black mb-6">Simple, transparent pricing</h2>
             <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
-              Whether you&apos;re managing records for a single household or running a complex multi-tenant organization, we have a plan tailored for your needs.
+              Whether you&apos;re managing records for a single personal account or running a complex multi-tenant organization, we have a plan tailored for your needs.
             </p>
           </div>
           
@@ -231,7 +231,7 @@ export default async function LandingPage() {
                     <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 mt-0.5 shrink-0">
                       <CheckCircle size={12} />
                     </div>
-                    <span className="font-medium text-sm text-foreground">Up to {plan.maxMembers} Members</span>
+                    <span className="font-medium text-sm text-foreground">Up to {plan.maxMembers} Users</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 mt-0.5 shrink-0">

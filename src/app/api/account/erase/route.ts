@@ -36,12 +36,13 @@ import {
   erasePersonalWorkspace,
 } from '@/lib/account/workspaceErasure';
 import { serverError } from '@/lib/routeError';
+import { adminDial, erasureConfirmMatches } from '@/lib/account/erasureConfirm';
 
 export const dynamic = 'force-dynamic';
 
 const bodySchema = z.object({
   target: z.enum(['personal', 'business']),
-  /** The workspace name, typed by hand. See the note above. */
+  /** The admin's mobile number (workspace name if none on file), typed by hand. */
   confirm: z.string().min(1).max(255),
 });
 
@@ -87,9 +88,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
-    if (confirm.trim() !== tenant.name.trim()) {
+    if (!erasureConfirmMatches(confirm, user, tenant.name)) {
       return NextResponse.json(
-        { error: 'The workspace name does not match. Type it exactly to confirm.' },
+        {
+          error: adminDial(user)
+            ? 'The mobile number does not match. Type your registered mobile number to confirm.'
+            : 'The workspace name does not match. Type it exactly to confirm.',
+        },
         { status: 400 },
       );
     }

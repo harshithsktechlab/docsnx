@@ -39,11 +39,11 @@
 |---|---|---|---|---|---|
 | SAD-UI-010 | Positive | Open `/tenants` (or `/admin/tenants`). | Table lists every tenant with name, plan, expiry, active flag, user count, AI credits and created date. | — | — |
 | SAD-UI-011 | Positive | Search/filter the tenant list. | Filters by name/email; clearing restores the full list. | — | — |
-| SAD-UI-012 | Positive | Open a tenant's detail view. | Shows the plan, add-ons, member count, storage usage and payment history for that tenant only. | — | — |
+| SAD-UI-012 | Positive | Open a tenant's detail view. | Shows the plan, add-ons, user count, storage usage and payment history for that tenant only. | — | — |
 | SAD-UI-013 | Positive | Open the Create Tenant dialog. | Fields for workspace name, admin name, admin email, password and plan. | — | — |
 | SAD-UI-014 | Positive | Toggle a tenant's active flag. | Confirmation prompt; the badge updates; the change persists after reload. | — | — |
 | SAD-UI-015 | Positive | Open the manual-upgrade dialog. | Plan select **and a mandatory reason field**; the Save action is blocked until both are supplied. | — | — |
-| SAD-UI-016 | Positive | Open the grant-add-on dialog for a tenant. | Add-on select with the effect (credits / members / storage) described. | — | — |
+| SAD-UI-016 | Positive | Open the grant-add-on dialog for a tenant. | Add-on select with the effect (credits / users / storage) described. | — | — |
 | SAD-UI-017 | **Security** | On any tenant detail screen, look for the tenant's records. | No document, password, bank or other vault content is displayed anywhere — only counts and billing metadata. | — | — |
 | SAD-UI-018 | Positive | Delete a tenant from the console. | A confirmation naming the tenant and warning that all data is erased permanently. | — | — |
 
@@ -51,10 +51,10 @@
 
 | TC ID | Type | Test Case / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| SAD-UI-020 | Positive | Open `/admin/plans`. | Lists all plans including inactive ones, with prices (INR/USD, all three cycles), AI credits, member limit, storage limit, badge colour, duration and the default/lifetime flags. | — | — |
+| SAD-UI-020 | Positive | Open `/admin/plans`. | Lists all plans including inactive ones, with prices (INR/USD, all three cycles), AI credits, user limit, storage limit, badge colour, duration and the default/lifetime flags. | — | — |
 | SAD-UI-021 | Positive | Create a plan. | Success toast; the plan appears in the list and, if active, on the tenant `/billing` page. | — | — |
 | SAD-UI-022 | Positive | Deactivate a plan. | It disappears from tenant-facing plan cards but remains visible in the admin list. | — | — |
-| SAD-UI-023 | Positive | Open `/admin/addons`. | Lists add-ons with prices, billing cycle, AI credits, extra members and storage GB. | — | — |
+| SAD-UI-023 | Positive | Open `/admin/addons`. | Lists add-ons with prices, billing cycle, AI credits, extra users and storage GB. | — | — |
 | SAD-UI-024 | Positive | Open `/admin/discounts`. | Lists codes with type, value, max uses, per-tenant limit, expiry, plan/add-on scope and active flag; shows redemption counts. | — | — |
 | SAD-UI-025 | Positive | Create a discount code. | Success toast; the code becomes usable at tenant checkout immediately. | — | — |
 | SAD-UI-026 | Positive | Edit / deactivate a discount code. | Changes take effect for new checkouts; existing `discount_usages` rows are untouched. | — | — |
@@ -141,8 +141,8 @@
 | SAD-BR-023 | Positive | Manually upgrade a tenant to a 30-day plan. | `subscription_plan_id` updates; `subscription_expiry` = base date + 30 days; an audit entry `tenant.manual_upgrade` records the reason and the old/new plan. | — | — |
 | SAD-BR-024 | Positive | Manually upgrade to a lifetime/no-duration plan. | `subscription_expiry` becomes NULL (no expiry). | — | — |
 | SAD-BR-025 | Edge | Manually upgrade a tenant whose subscription is **already expired**. | The new expiry is computed from *now*, not from the stale past expiry — the tenant regains a full term. Record actual. | — | — |
-| SAD-BR-026 | Positive | Grant an add-on to a tenant. | A `tenant_addons` row is created and active; the tenant's member/storage/credit allowances rise immediately. | — | — |
-| SAD-BR-027 | Positive | Revoke a granted add-on. | The allowance drops; existing members/records are not deleted. | — | — |
+| SAD-BR-026 | Positive | Grant an add-on to a tenant. | A `tenant_addons` row is created and active; the tenant's user/storage/credit allowances rise immediately. | — | — |
+| SAD-BR-027 | Positive | Revoke a granted add-on. | The allowance drops; existing users/records are not deleted. | — | — |
 | SAD-BR-028 | Positive | Record a manual payment for a tenant. | Payment captured directly with `status = captured` and no Razorpay ids; the plan activates and credits are granted. | — | — |
 | SAD-BR-029 | Negative | Attempt a manual payment as a TENANT_ADMIN. | *"Only Super Admins can manually record payments."* | — | — |
 | SAD-BR-030 | **Security** | Delete a tenant from the console. | That tenant's data cascades away entirely; **every other tenant is untouched**. | — | — |
@@ -156,7 +156,7 @@
 | SAD-BR-041 | Positive | Deactivate a plan that tenants are currently on. | Existing subscribers keep their plan and access; the plan disappears from new-purchase options. | — | — |
 | SAD-BR-042 | Business rule | Set a plan as `isDefault`, then register a brand-new tenant. | The new tenant is assigned that plan with the matching trial length. | — | — |
 | SAD-BR-043 | **Business rule** | Deactivate/remove every default plan, then attempt a registration. | Blocked — *"Registration disabled: No default subscription plan configured in the system."* Confirm the console warns before allowing this state. | — | — |
-| SAD-BR-044 | Positive | Change a plan's `maxMembers`, then check an existing tenant on that plan. | The member allowance updates immediately for that tenant. | — | — |
+| SAD-BR-044 | Positive | Change a plan's `maxMembers`, then check an existing tenant on that plan. | The user allowance updates immediately for that tenant. | — | — |
 | SAD-BR-045 | Positive | Change a plan's `storageLimitGB`. | The tenant's storage widget and quota enforcement reflect the new limit. | — | — |
 | SAD-BR-046 | Positive | Change a plan's `aiCredits`. | Only **future** purchases grant the new amount; already-granted balances are unchanged. | — | — |
 | SAD-BR-047 | Positive | Create a discount code, redeem it as a tenant, then view the admin discount list. | The redemption count increments and the tenant is attributable via `discount_usages`. | — | — |
@@ -212,7 +212,7 @@
 
 | TC ID | Workflow | Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| SAD-E2E-001 | Provision a customer end-to-end | 1. Create a plan (₹999/30 days, 5 members, 10 GB, 500 credits).<br>2. Create a tenant on that plan from the console.<br>3. Log in as the new tenant admin.<br>4. Verify the member cap, storage limit and credit balance. | All three entitlements match the plan exactly; the admin can use every module. | — | — |
+| SAD-E2E-001 | Provision a customer end-to-end | 1. Create a plan (₹999/30 days, 5 users, 10 GB, 500 credits).<br>2. Create a tenant on that plan from the console.<br>3. Log in as the new tenant admin.<br>4. Verify the user cap, storage limit and credit balance. | All three entitlements match the plan exactly; the admin can use every module. | — | — |
 | SAD-E2E-002 | Manual upgrade with justification | 1. Note a tenant's current plan and expiry.<br>2. Manually upgrade with a reason.<br>3. Verify the new plan, expiry and audit entry.<br>4. Log in as that tenant. | Plan and expiry update per the plan's duration; the reason is captured in `audit_logs`; the tenant sees the new entitlements. | — | — |
 | SAD-E2E-003 | Suspend → restore | 1. Suspend a tenant.<br>2. Attempt to log in as their admin → blocked.<br>3. Confirm another tenant still logs in.<br>4. Re-activate and log in again. | Suspension is isolated to the target tenant and fully reversible with no data loss. | — | — |
 | SAD-E2E-004 | Discount campaign | 1. Create a 30% code, 10 global uses, 1 per tenant, expiring in 7 days.<br>2. Redeem it in TENANT_A and TENANT_B.<br>3. Attempt a second redemption in TENANT_A.<br>4. Review the admin usage counts. | Both first redemptions succeed with 30% off; the repeat is blocked; the admin list shows 2 of 10 used. | — | — |

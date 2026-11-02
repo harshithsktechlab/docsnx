@@ -492,7 +492,7 @@ export default function RentalsPage() {
       { label: 'Renewal/Expiry', value: formatDate(rec.endDate) },
       { label: 'Start Date', value: rec.startDate ? formatDate(rec.startDate) : 'N/A' },
       { label: 'Amount', value: rec.amount ? `${rec.amount} / ${rec.billingCycle}` : 'N/A' },
-      { label: 'Holder', value: rec.holder?.name || 'All Members' }
+      { label: 'Holder', value: rec.holder?.name || 'All Users' }
     ];
     const res = await shareRecord(`Contract/Rental: ${rec.name}`, fields, rec.notes, rec.filePath,
       { fileName: rec.fileName, mimeType: rec.mimeType, pageCount: rec.pageCount });
@@ -508,7 +508,7 @@ export default function RentalsPage() {
       { label: 'Renewal/Expiry', value: formatDate(rec.endDate) },
       { label: 'Start Date', value: rec.startDate ? formatDate(rec.startDate) : 'N/A' },
       { label: 'Amount', value: rec.amount ? `${rec.amount} / ${rec.billingCycle}` : 'N/A' },
-      { label: 'Holder', value: rec.holder?.name || 'All Members' }
+      { label: 'Holder', value: rec.holder?.name || 'All Users' }
     ];
     printRecord(`Contract/Rental details`, fields, rec.notes, rec.filePath);
   };

@@ -23,9 +23,9 @@ import { cn } from '@/lib/utils';
 export default function MemberSeatStats({ seats, workspaceName }) {
   if (!seats) return null;
 
-  const { scope, used, limit, remaining } = seats;
+  const { scope, used, limit, remaining, pending = 0 } = seats;
   const business = scope === 'business';
-  const where = business ? (workspaceName || 'this company') : 'the household';
+  const where = business ? (workspaceName || 'this company') : 'the personal account';
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 100;
 
   const tone = remaining === 0
@@ -35,16 +35,23 @@ export default function MemberSeatStats({ seats, workspaceName }) {
       : { text: 'text-foreground', bar: 'bg-primary', color: '#10b981' };
 
   const tiles = [
-    { name: 'Members', value: used, sub: `in ${where}`, icon: Users, color: '#8b5cf6' },
     {
-      name: 'Seat limit',
+      name: 'Users',
+      value: used,
+      // Pending are already inside `used`: they hold a seat from the moment they are added.
+      sub: pending > 0 ? `in ${where} · ${pending} pending` : `in ${where}`,
+      icon: Users,
+      color: '#8b5cf6',
+    },
+    {
+      name: 'User limit',
       value: limit,
       sub: business ? 'per company on your Business plan' : 'on your Personal plan',
       icon: UserCheck,
       color: '#3b82f6',
     },
     {
-      name: 'Seats remaining',
+      name: 'Users remaining',
       value: remaining,
       sub: remaining === 0 ? 'workspace is full' : 'can still be added',
       icon: UserPlus,
@@ -81,7 +88,8 @@ export default function MemberSeatStats({ seats, workspaceName }) {
       <div className="flex flex-col gap-1.5">
         <div className="flex justify-between items-center gap-2 text-xs">
           <span className="font-bold text-muted-foreground">
-            {used} of {limit} seat{limit === 1 ? '' : 's'} used
+            {used} of {limit} user{limit === 1 ? '' : 's'} used
+            {pending > 0 && ` · ${pending} pending`}
           </span>
           {remaining === 0 && (
             <Link href="/billing" className="font-bold text-primary hover:underline">

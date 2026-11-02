@@ -444,7 +444,7 @@ export async function erasePersonalWorkspace(
     details: auditSentence('erase_personal', {
       kind: 'account',
       name: 'Personal',
-      note: 'every household record, and every member added to the personal account',
+      note: 'every personal record, and every user added to the personal account',
     }),
     req,
     entityType: 'tenants',

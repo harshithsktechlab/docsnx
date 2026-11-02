@@ -42,26 +42,26 @@ const MEASURE_COLUMNS = [
 
 const CSV_COLUMNS: Record<Dimension | 'log', { key: string; label: string }[]> = {
   task: [{ key: 'label', label: 'Task' }, ...MEASURE_COLUMNS],
-  tenant: [{ key: 'label', label: 'Tenant' }, { key: 'memberCount', label: 'Members using AI' }, { key: 'documentCount', label: 'Documents' }, ...MEASURE_COLUMNS],
-  member: [{ key: 'label', label: 'Member' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'tenantName', label: 'Tenant' }, { key: 'documentCount', label: 'Documents' }, ...MEASURE_COLUMNS],
+  tenant: [{ key: 'label', label: 'Tenant' }, { key: 'memberCount', label: 'Users using AI' }, { key: 'documentCount', label: 'Documents' }, ...MEASURE_COLUMNS],
+  member: [{ key: 'label', label: 'User' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'tenantName', label: 'Tenant' }, { key: 'documentCount', label: 'Documents' }, ...MEASURE_COLUMNS],
   workspace: [{ key: 'label', label: 'Workspace' }, { key: 'tenantName', label: 'Tenant' }, ...MEASURE_COLUMNS],
   category: [{ key: 'moduleName', label: 'Module' }, { key: 'label', label: 'Sub-category' }, { key: 'documentCount', label: 'Documents' }, ...MEASURE_COLUMNS],
   document: [
-    { key: 'label', label: 'Document' }, { key: 'documentName', label: 'Category' }, { key: 'memberName', label: 'Member' },
+    { key: 'label', label: 'Document' }, { key: 'documentName', label: 'Category' }, { key: 'memberName', label: 'User' },
     { key: 'tenantName', label: 'Tenant' }, { key: 'pageCount', label: 'Pages' },
     ...MEASURE_COLUMNS,
     { key: 'shareFinalCostInr', label: 'Power Scan share (final INR)' },
     { key: 'totalFinalCostInr', label: 'Total final cost (INR)' },
   ],
   batch: [
-    { key: 'startedAt', label: 'Scanned at' }, { key: 'label', label: 'Member' }, { key: 'tenantName', label: 'Tenant' },
+    { key: 'startedAt', label: 'Scanned at' }, { key: 'label', label: 'User' }, { key: 'tenantName', label: 'Tenant' },
     { key: 'fileCount', label: 'Files' }, { key: 'pageCount', label: 'Pages' }, { key: 'recordsRead', label: 'Records read' },
     { key: 'recordsSaved', label: 'Records saved' }, ...MEASURE_COLUMNS,
   ],
   model: [{ key: 'label', label: 'Model' }, { key: 'keySource', label: 'Key' }, ...MEASURE_COLUMNS],
   log: [
     { key: 'createdAt', label: 'Time (UTC)' }, { key: 'action', label: 'Task' }, { key: 'tenantName', label: 'Tenant' },
-    { key: 'memberName', label: 'Member' }, { key: 'workspaceName', label: 'Workspace' }, { key: 'categoryName', label: 'Category' },
+    { key: 'memberName', label: 'User' }, { key: 'workspaceName', label: 'Workspace' }, { key: 'categoryName', label: 'Category' },
     { key: 'documentTitle', label: 'Document' }, { key: 'notSaved', label: 'Not saved' }, { key: 'batchId', label: 'Power Scan batch' },
     { key: 'fileCount', label: 'Files' }, { key: 'pageCount', label: 'Pages' }, { key: 'modelName', label: 'Model' },
     { key: 'keySource', label: 'Key' }, { key: 'inputTokens', label: 'Input tokens' }, { key: 'outputTokens', label: 'Output tokens' },

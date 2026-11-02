@@ -13,7 +13,7 @@
 | Aspect | Detail |
 |---|---|
 | Route / table / key | `/medical` · `medical_records` · `medical` |
-| Fields | Patient Name*, Record Type*, Date*, Doctor Name, Hospital Name, Details, File, Custom Fields[], Assigned Member/Holder |
+| Fields | Patient Name*, Record Type*, Date*, Doctor Name, Hospital Name, Details, File, Custom Fields[], Assigned User/Holder |
 | Record types | `prescription` (Prescriptions), `lab_report` (Lab Reports), `bill` (Bills), `other` |
 | Client validation | "Patient Name and Date are required" |
 | AI | AI Auto-fill from an uploaded report/prescription |
@@ -213,7 +213,7 @@
 | Route / table / key | `/important-contacts` · `emergency_contacts` · `emergency_contacts` |
 | Required fields (server) | Name*, Role*, Phone Number* — otherwise "Missing required fields: name, role, or phoneNumber" |
 | Optional | Email, Address, Notes |
-| Scope | Tenant-wide (no `user_id`/`holder_id`, no `is_global` flag) — visible to the all members |
+| Scope | Tenant-wide (no `user_id`/`holder_id`, no `is_global` flag) — visible to the all users |
 | Soft delete | **No** `deleted_at` column — deletion is a hard delete |
 
 ## C1. UI Validation
@@ -286,7 +286,7 @@
 
 | TC ID | Workflow | Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| CS-E2E-001 | Member health file | 1. Add QA Child as a member.<br>2. Create a Medical Record for QA Child (lab report + PDF).<br>3. Create a Mediclaim policy insuring QA Child.<br>4. Add the treating doctor as an Emergency Contact.<br>5. Open `/dashboard`. | All three modules show the new records; dashboard counters increment for medical, LIC and important contacts. | — | — |
+| CS-E2E-001 | User health file | 1. Add QA Child as a user.<br>2. Create a Medical Record for QA Child (lab report + PDF).<br>3. Create a Mediclaim policy insuring QA Child.<br>4. Add the treating doctor as an Emergency Contact.<br>5. Open `/dashboard`. | All three modules show the new records; dashboard counters increment for medical, LIC and important contacts. | — | — |
 | CS-E2E-002 | Renewal alert chain | 1. Create a policy with a premium due in 7 days.<br>2. Open `/follow-up`.<br>3. Pay/extend the premium date to 90 days out.<br>4. Re-open `/follow-up`. | The policy appears in step 2 with "due in 7 days" and disappears after step 3. | — | — |
 | CS-E2E-003 | Care record + AI | 1. Upload a lab report PDF with AI Auto-fill.<br>2. Verify the extracted fields.<br>3. Save.<br>4. Check `/ai-costs`. | Fields populate; the record saves; credits deducted once; usage visible in AI Costs. | — | — |
 | CS-E2E-004 | Emergency readiness | 1. Populate 5 important contacts.<br>2. Log in as a view-only STANDARD user.<br>3. Open the module on a phone-sized viewport. | All contacts are readable and dial-able; no edit controls exposed. | — | — |

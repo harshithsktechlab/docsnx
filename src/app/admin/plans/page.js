@@ -476,7 +476,7 @@ export default function PlansPage() {
                 {formData.appliesTo !== 'business' && (
                   <div className="flex flex-col gap-2">
                     <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Members (personal, incl. admin)
+                      Users (personal, incl. admin)
                     </Label>
                     <Input className="h-11 rounded-xl" type="number" min="1" step="1" placeholder="1" value={formData.maxMembers} onChange={e => setFormData(prev => ({ ...prev, maxMembers: e.target.value }))} disabled={saving} />
                   </div>
@@ -492,7 +492,7 @@ export default function PlansPage() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Members in EACH company
+                      Users in EACH company
                     </Label>
                     <Input className="h-11 rounded-xl" type="number" min="0" step="1" placeholder="5" value={formData.maxMembersPerCompany} onChange={e => setFormData(prev => ({ ...prev, maxMembersPerCompany: e.target.value }))} disabled={saving} />
                     <span className="text-2xs text-muted-foreground">Per company, not a total across the account.</span>
@@ -719,7 +719,7 @@ export default function PlansPage() {
                 <div className="flex flex-col gap-4 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border/50">
-                      Members: {plan.maxMembers || 1}
+                      Users: {plan.maxMembers || 1}
                     </span>
                     <span className="text-xs font-semibold text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border/50">
                       Storage: {plan.storageLimitGB || 5} GB

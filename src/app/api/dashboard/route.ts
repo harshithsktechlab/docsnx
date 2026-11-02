@@ -43,6 +43,7 @@ import { keysForWorkspace } from '@/lib/documentCategories';
 import { mirrorsOf } from '@/lib/categoryMirrors';
 import { scopeForCategory } from '@/lib/records/registry';
 import { serverError } from '@/lib/routeError';
+import { personalWorkspaceName } from '@/lib/workspaceName';
 import { todoVisibilityCondition } from '@/lib/todoNotify';
 import { allFilled, type SetupFacts } from '@/lib/setupChecklist';
 
@@ -244,11 +245,12 @@ export async function GET(req: Request) {
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, user.tenantId),
-      // `googleDriveEnabled` joins `name` for the setup checklist below. Two
-      // columns off a row this route already reads — not a second query, and
+      // `googleDriveEnabled` joins `name` for the setup checklist below, and the
+      // account type and personal name pick the personal side's label. Columns
+      // off a row this route already reads — not a second query, and
       // deliberately NOT `columns` omitted: the row carries `apiKey` and the
       // Drive OAuth tokens, and this payload is sent to every member.
-      columns: { name: true, googleDriveEnabled: true },
+      columns: { name: true, personalWorkspaceName: true, accountType: true, googleDriveEnabled: true },
     });
 
     /**
@@ -382,9 +384,19 @@ export async function GET(req: Request) {
       tenantName: tenant?.name || 'My Workspace',
       /** Which account this payload describes, for the header and for tests. */
       companyId,
+      /**
+       * Whether the header may offer a rename, and which name it would change:
+       * the company's own, a combo account's personal side (`personalName`), or
+       * the account's single name. Admin-only here as in the routes it calls —
+       * those remain the real gate.
+       */
+      canRename: user.role === 'TENANT_ADMIN',
+      renameKind: companyId
+        ? 'company'
+        : (tenant?.accountType === 'both' ? 'personal' : 'account'),
       workspaceName: companyId
         ? (company?.name || 'Company')
-        : (tenant?.name || 'My Workspace'),
+        : personalWorkspaceName(tenant),
       stats: {
         /**
          * ── THE DOCUMENTS TILE COUNTS THE WHOLE WORKSPACE ──────────────────

@@ -42,7 +42,7 @@ export type PersonMatch =
 
 /** One sentence for every reason a match cannot be used, so the cause never leaks. */
 export const CANNOT_ADD_MESSAGE =
-  'This member could not be added with these details. Check the mobile number and email, or ask them to contact support.';
+  'This user could not be added with these details. Check the mobile number and email, or ask them to contact support.';
 
 export async function matchExistingPerson(contacts: {
   email: string | null;

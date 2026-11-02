@@ -77,40 +77,16 @@ const InputField = ({ label, id, icon: Icon, hint, isPassword, error, action, ..
 };
 
 /**
- * The group-level equivalent, for the two answers that are not text inputs —
- * the account type and the consent box. Without it those failed with a toast and
- * nothing on screen, which is the half of this form people reported as "it just
- * does not submit".
+ * The group-level equivalent, for the answer that is not a text input — the
+ * consent box. Without it that failed with a toast and nothing on screen, which
+ * is the half of this form people reported as "it just does not submit".
  */
 const FieldError = ({ children }) => (
   children ? <p className="mt-1.5 text-xs font-medium text-danger-text">{children}</p> : null
 );
 
-/**
- * The three account shapes. Wording matters more than it looks: "Both" was the
- * option people misread as "I am not sure", so it now says what it actually is,
- * in the words the price list already uses — the paid tier is called "Combo
- * (Personal + Business)", and someone who came from the pricing page should meet
- * the same name here.
- *
- * The VALUES do not change. 'both' is the tenant's stored `account_type`, read
- * by the register route, `getDefaultPlan`, `planStatus` and the onboarding step
- * list, and already written on every existing tenant.
- */
-const ACCOUNT_TYPES = [
-  { value: 'personal', label: 'Personal', hint: 'My family\u2019s documents' },
-  { value: 'business', label: 'Business', hint: 'My company\u2019s documents' },
-  { value: 'both', label: 'Combo (Personal + Business)', hint: 'Switch between the two' },
-];
-
 export default function RegisterPage() {
   const router = useRouter();
-  /**
-   * Which workspaces this account gets. 'personal' is the default because it is
-   * what every account was before this existed, and because it is the answer
-   * for most people — a household filing its own documents.
-   */
-  const [accountType, setAccountType] = useState('personal');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -191,7 +167,7 @@ export default function RegisterPage() {
     // the form did not already say. It lives in a .ts module rather than in
     // this file because a page component cannot be imported by a test.
     const errors = validateRegisterForm({
-      name, email, password, confirmPassword, phoneNumber, accountType, consentData,
+      name, email, password, confirmPassword, phoneNumber, consentData,
     });
     if (Object.keys(errors).length > 0) {
       showFieldErrors(errors);
@@ -204,15 +180,16 @@ export default function RegisterPage() {
 
     setLoading(true);
     const res = await clientRegister({
-      name, email, password, phoneNumber, accountType,
+      name, email, password, phoneNumber,
       consentDataProcessing: consentData,
-      // ── NO tenantName, NO companyName, NO planCode ────────────────────────
-      // All three are asked for after this form now — the workspace name and
-      // the first company in the onboarding wizard, the plan in /billing — and
+      // ── NO accountType, NO tenantName, NO companyName, NO planCode ────────
+      // All four are asked for after this form now — the account type and the
+      // plan in /billing (the plan bought decides the account type), the
+      // workspace name and the first company in the onboarding wizard — and
       // the route is written to expect their absence: it derives a workspace
-      // name from `name` (src/lib/workspaceName.ts) and provisions the default
-      // plan for `accountType`. Sending them from here again would make this
-      // form the authority on three answers it no longer asks for.
+      // name from `name` (src/lib/workspaceName.ts) and creates the account as
+      // 'personal' with no plan. Sending them from here again would make this
+      // form the authority on answers it no longer asks for.
     });
     setLoading(false);
 
@@ -237,7 +214,7 @@ export default function RegisterPage() {
 
     // ── A REFUSAL ANSWERED WHERE IT HAPPENED ────────────────────────────────
     // This branch used to push to /login, which threw away the name, the
-    // number, the password, the account type and the consent tick on the way
+    // number, the password and the consent tick on the way
     // out — a brutal answer to a mistyped address. It stays here now: the
     // route already names the field at fault, and `signInHref` is the way out
     // for someone who really does have an account.
@@ -339,7 +316,6 @@ export default function RegisterPage() {
                   <PhoneInput
                     id="phoneNumber"
                     label="Phone Number *"
-                    required
                     value={phoneNumber}
                     onChange={handlePhoneChange}
                     disabled={loading}
@@ -407,50 +383,6 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   error={fieldErrors.confirmPassword}
                 />
-              </div>
-
-              {/*
-                Asked at signup rather than later because it decides the shape
-                of the whole account: which taxonomy the nav renders, whether
-                onboarding demands a company, and whether the workspace switcher
-                exists at all. Changeable afterwards in Settings, so this is not
-                a one-way door.
-
-                The company itself is NOT asked for here — the wizard's
-                Companies step collects it, and /api/onboarding/complete refuses
-                to finish a business account without one.
-              */}
-              <div>
-                <label className="mb-2 block text-sm font-medium">
-                  What will you use DocsNX for? *
-                </label>
-                <div id="accountType" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {ACCOUNT_TYPES.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => {
-                        setAccountType(option.value);
-                        clearFieldError('accountType');
-                      }}
-                      aria-pressed={accountType === option.value}
-                      className={cn(
-                        'rounded-lg border p-3 text-left transition-colors disabled:opacity-50',
-                        accountType === option.value
-                          ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                          : 'border-border hover:border-primary/50',
-                        fieldErrors.accountType && accountType !== option.value && 'border-danger-border',
-                      )}
-                    >
-                      <span className="block text-sm font-semibold">{option.label}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {option.hint}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <FieldError>{fieldErrors.accountType}</FieldError>
               </div>
 
               {/*

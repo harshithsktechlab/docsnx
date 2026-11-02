@@ -101,6 +101,14 @@ describe('which axis a ladder counts down', () => {
     expect(await runPlanExpiryCheck(tenant, 'personal')).toBeNull();
   });
 
+  it('says nothing to an account that never took a plan', async () => {
+    // A signup has no plan and an expiry of "now", which reads as EXPIRED. There
+    // is nothing to renew, so no notice.
+    tenant.subscriptionPlanId = null;
+    tenant.subscriptionExpiry = new Date();
+    expect(await runPlanExpiryCheck(tenant, 'personal')).toBeNull();
+  });
+
   it('remembers each ladder in its OWN column', async () => {
     await notifyPlanExpiry('t1', 'business', 'T-3');
 

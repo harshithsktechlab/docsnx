@@ -33,6 +33,7 @@ import {
   Package,
   MessageCircle,
   BarChart3,
+  ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -161,6 +162,7 @@ export default function AdminDashboardPage() {
     { title: 'AI Usage & Cost', href: '/admin/ai-usage', icon: BarChart3 },
     { title: 'SMTP Gateway', href: '/admin/smtp', icon: Mail },
     { title: 'WhatsApp Gateway', href: '/admin/whatsapp', icon: MessageCircle },
+    { title: 'Branding', href: '/admin/branding', icon: ImageIcon },
     { title: 'System Settings', href: '/admin/settings', icon: Sliders },
   ];
 
@@ -358,7 +360,7 @@ export default function AdminDashboardPage() {
               </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground pt-3 border-t border-border/40">
-              <span>Total Members: {data?.stats.totalUsers ?? 0}</span>
+              <span>Total Users: {data?.stats.totalUsers ?? 0}</span>
               <span>Drive Sync Adoption: {data?.stats.googleDriveEnabledTenants ?? 0}</span>
             </div>
           </CardContent>

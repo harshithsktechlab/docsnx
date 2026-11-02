@@ -88,7 +88,7 @@ const DATA_TYPES = [
   { id: 'phone', value: 'phone', label: 'Phone number' },
   { id: 'url', value: 'url', label: 'Web address' },
   // 0069. A workspace member, or a typed name for someone outside the app.
-  { id: 'member', value: 'member', label: 'Member (or a name)' },
+  { id: 'member', value: 'member', label: 'User (or a name)' },
   // Offered ONLY on a field that ships as a link: what it links to is declared
   // by the dictionary (`linkTarget`) and cannot be set here, so the server
   // refuses it anywhere else. See `typesFor`.
@@ -974,7 +974,7 @@ function FieldRow({
                 <p className="mt-1 text-xs text-amber-600">
                   Values already saved are not converted.
                   {(row.default?.dataType === 'member' || row.default?.dataType === 'record_link')
-                    && ' Existing member / linked-record values will show as raw ids.'}
+                    && ' Existing user / linked-record values will show as raw ids.'}
                 </p>
               )}
             </div>
@@ -1128,7 +1128,7 @@ function FieldRow({
                   />
                   <span className="text-xs text-muted-foreground">
                     Shipped default: {row.default.alertDaysBefore ?? 15} days.
-                    A member can ask for more notice on a single record.
+                    A user can ask for more notice on a single record.
                   </span>
                 </div>
               </div>

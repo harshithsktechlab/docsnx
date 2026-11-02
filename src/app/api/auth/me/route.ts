@@ -16,6 +16,7 @@ import { getDefaultPlan } from '@/lib/planProvisioning';
 import { hasDriveFileScope, refreshDriveQuotaIfStale } from '@/lib/googleDrive';
 import { serverError } from '@/lib/routeError';
 import { avatarUrl } from '@/lib/avatarImage';
+import { loadAppLogoVersion } from '@/lib/appLogo';
 import { listSeats } from '@/lib/account/memberships';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
 
@@ -185,6 +186,9 @@ export async function GET(req: Request) {
       columns: { maxUploadBytes: true },
     });
     const platformConfig = config ? { maxUploadBytes: config.maxUploadBytes } : null;
+    // Only the version of the app logo (0 = built-in), never the image: the shell
+    // appends it as `?v=` so a new upload shows on the next navigation.
+    const appLogoVersion = await loadAppLogoVersion();
 
     // Never expose secrets to the client: reset token / OTP hashes and the
     // tenant's Google Drive OAuth tokens.
@@ -290,7 +294,8 @@ export async function GET(req: Request) {
       planDetails: planDetails ? { ...planDetails, creditAllowance } : planDetails,
       storageData,
       driveNeedsReconnect,
-      platformConfig
+      platformConfig,
+      appLogoVersion
     });
   } catch (error) {
     // See the note in auth/verify-otp: `details` was the raw throw message.

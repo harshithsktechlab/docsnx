@@ -18,7 +18,7 @@ import { apiCall } from '@/lib/net/apiRequest';
 import { clientLogout } from '@/lib/clientAuth';
 import { connectResult, DRIVE_CHECKBOX_LABEL } from '@/lib/googleConnectResults';
 import { companySlots, companyStepBlurb } from '@/lib/companySlots';
-import { workspaceNameCopy } from '@/lib/workspaceName';
+import { workspaceNameCopy, personalNameCopy, namesCollide } from '@/lib/workspaceName';
 import {
   memberDestinations, defaultDestinationId, findDestination,
   membersStepBlurb, destinationPayload,
@@ -100,7 +100,7 @@ const STEP_LABELS = {
   [STEP_WELCOME]: 'Welcome',
   [STEP_STORAGE]: 'Storage',
   [STEP_COMPANIES]: 'Companies',
-  [STEP_MEMBERS]: 'Members',
+  [STEP_MEMBERS]: 'Users',
   [STEP_FINISH]: 'Finish',
 };
 
@@ -139,6 +139,12 @@ export default function OnboardingWizard() {
    * derived from the admin's own at registration (src/lib/workspaceName.ts).
    */
   const [workspaceName, setWorkspaceName] = useState('');
+  /**
+   * A combo account's personal side is named separately from its business
+   * account (0089) — `workspaceName` above is then the BUSINESS account's name
+   * and this is the personal workspace's. Unused on the other account types.
+   */
+  const [personalName, setPersonalName] = useState('');
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
   /**
    * How the Welcome step ASKS for that name, which is not the same question on
@@ -152,6 +158,10 @@ export default function OnboardingWizard() {
    * one `steps` above already assumes.
    */
   const nameCopy = workspaceNameCopy(accountType);
+  const isCombo = accountType === 'both';
+  // Both answers in a combo account, and they must read as different names.
+  const namesReady = workspaceName.trim().length >= 2
+    && (!isCombo || (personalName.trim().length >= 2 && !namesCollide(workspaceName, personalName)));
 
   const steps = accountType === 'personal' ? PERSONAL_STEPS : BUSINESS_STEPS;
 
@@ -227,7 +237,7 @@ export default function OnboardingWizard() {
    * not (yet) one of these — which is the state on first paint, and the state
    * after a company the admin had selected was somehow removed.
    */
-  const destinations = memberDestinations(accountType, workspaceName, companies);
+  const destinations = memberDestinations(accountType, isCombo ? personalName : workspaceName, companies);
   const chosenDestination = findDestination(destinations, destinationId)
     ?? findDestination(destinations, defaultDestinationId(destinations));
 
@@ -293,7 +303,17 @@ export default function OnboardingWizard() {
         // The name the row already carries, so a reload mid-wizard shows what
         // was saved rather than an empty box — and so the derived name is a
         // starting point to edit rather than something to retype.
-        setWorkspaceName(data.user?.tenant?.name || '');
+        const tenantName = data.user?.tenant?.name || '';
+        if (type === 'both') {
+          // Personal side: its own name, else the sign-up default. Business
+          // side: left empty until the personal side has been named, so the
+          // admin is not handed the same string twice.
+          const savedPersonal = (data.user?.tenant?.personalWorkspaceName || '').trim();
+          setPersonalName(savedPersonal || tenantName);
+          setWorkspaceName(savedPersonal ? tenantName : '');
+        } else {
+          setWorkspaceName(tenantName);
+        }
         // Already-created companies, so a reload mid-wizard does not look empty
         // and re-adding one does not 409.
         if (Array.isArray(data.companies)) setCompanies(data.companies);
@@ -368,9 +388,20 @@ export default function OnboardingWizard() {
    */
   const handleSaveWorkspaceName = async () => {
     const name = workspaceName.trim();
+    const personal = personalName.trim();
     if (name.length < 2) {
       toast.error(`Give your ${nameCopy.noun} a name of at least two characters.`, { id: 'onboarding-workspace' });
       return;
+    }
+    if (isCombo) {
+      if (personal.length < 2) {
+        toast.error(`Give your ${personalNameCopy.noun} a name of at least two characters.`, { id: 'onboarding-workspace' });
+        return;
+      }
+      if (namesCollide(name, personal)) {
+        toast.error('Your personal workspace and business account need different names.', { id: 'onboarding-workspace' });
+        return;
+      }
     }
 
     setIsSavingWorkspace(true);
@@ -378,10 +409,11 @@ export default function OnboardingWizard() {
       const { json: data } = await apiCall('/api/onboarding/workspace', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(isCombo ? { name, personalName: personal } : { name }),
       });
       if (data.success) {
         setWorkspaceName(name);
+        if (isCombo) setPersonalName(personal);
         handleNext();
       } else {
         toast.error(data.error || 'Could not save that workspace name', { id: 'onboarding-workspace' });
@@ -454,7 +486,7 @@ export default function OnboardingWizard() {
     // put anyone. The form is not drawn in that case, so this is the belt to
     // that brace rather than a message anyone should normally see.
     if (!chosenDestination) {
-      toast.error('Add a company first — a member has to work on one.', { id: 'onboarding-member' });
+      toast.error('Add a company first — a user has to work on one.', { id: 'onboarding-member' });
       return;
     }
 
@@ -476,7 +508,7 @@ export default function OnboardingWizard() {
           .filter(Boolean).join(' and ');
         toast.success(
           `${newMember.name} was added to ${chosenDestination.label}.`
-            + (sentOn ? ` Invite sent on ${sentOn}.` : data.invite ? ' The invite could not be delivered — resend it from Members.' : ''),
+            + (sentOn ? ` Invite sent on ${sentOn}.` : data.invite ? ' The invite could not be delivered — resend it from Users.' : ''),
           { id: 'onboarding-member' },
         );
         // The destination is kept on the row: "Added Members" was as silent
@@ -487,7 +519,7 @@ export default function OnboardingWizard() {
         setShowAccessEditor(false);
         hasEditedPermissionsRef.current = false;
       } else {
-        toast.error(data.error || 'Failed to add member', { id: 'onboarding-member' });
+        toast.error(data.error || 'Failed to add user', { id: 'onboarding-member' });
       }
     } catch (err) {
       // Transport failures are values now, not throws — `apiCall` and
@@ -495,7 +527,7 @@ export default function OnboardingWizard() {
       // block above, and calling that a network error sent people to check
       // a connection that was working.
       console.error('[onboarding] handler threw', err);
-      toast.error('Something went wrong while adding member. Please try again.', { id: 'onboarding-member' });
+      toast.error('Something went wrong while adding user. Please try again.', { id: 'onboarding-member' });
     } finally {
       setIsAddingMember(false);
     }
@@ -642,15 +674,33 @@ export default function OnboardingWizard() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="text-emerald-500 mt-0.5" size={20} />
-                  <p className="text-sm text-muted-foreground">Invite members to share access instantly.</p>
+                  <p className="text-sm text-muted-foreground">Invite users to share access instantly.</p>
                 </div>
 
                 {/*
-                  The only question this step asks. Prefilled with the name the
+                  The only question this step asks (two on a combo account: the
+                  personal side and the business account are named separately).
+                  Prefilled with the name the
                   account already has, derived from the admin's own at sign-up,
                   so the work here is editing a sensible answer rather than
                   facing an empty required field.
                 */}
+                {isCombo && (
+                  <div className="flex flex-col gap-1.5 pt-2">
+                    <Label htmlFor="personalName">{personalNameCopy.label}</Label>
+                    <Input
+                      id="personalName"
+                      value={personalName}
+                      onChange={(e) => setPersonalName(e.target.value)}
+                      placeholder={personalNameCopy.placeholder}
+                      disabled={isSavingWorkspace}
+                      maxLength={255}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {personalNameCopy.helper}
+                    </p>
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5 pt-2">
                   <Label htmlFor="workspaceName">{nameCopy.label}</Label>
                   <Input
@@ -676,7 +726,7 @@ export default function OnboardingWizard() {
             <CardFooter className="flex justify-end border-t p-4 bg-muted/20 sm:p-6">
               <Button
                 onClick={handleSaveWorkspaceName}
-                disabled={isSavingWorkspace || workspaceName.trim().length < 2}
+                disabled={isSavingWorkspace || !namesReady}
                 className="w-full sm:w-auto"
               >
                 {isSavingWorkspace ? (
@@ -933,7 +983,7 @@ export default function OnboardingWizard() {
                 <div className="bg-purple-500/10 p-2 rounded-lg text-purple-500">
                   <Users size={24} />
                 </div>
-                <CardTitle>Invite Members</CardTitle>
+                <CardTitle>Invite Users</CardTitle>
               </div>
               {/*
                 The one sentence that used to say nothing about WHERE. On a
@@ -976,7 +1026,7 @@ export default function OnboardingWizard() {
                               <span>
                                 <span className="block text-sm font-medium">{d.rowLabel}</span>
                                 <span className="block text-xs text-muted-foreground">
-                                  {d.scope === 'business' ? 'Company' : 'Household'}
+                                  {d.scope === 'business' ? 'Company' : 'Personal'}
                                 </span>
                               </span>
                             </span>
@@ -998,7 +1048,7 @@ export default function OnboardingWizard() {
                 {destinations.length === 0 && (
                   <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
                     <p className="text-sm text-muted-foreground">
-                      Every business member works on a company, and this account has none yet.
+                      Every business user works on a company, and this account has none yet.
                     </p>
                     <Button variant="outline" size="sm" onClick={() => goTo(STEP_COMPANIES)}>
                       <Building2 className="mr-2 size-4" /> Add a company first
@@ -1047,7 +1097,7 @@ export default function OnboardingWizard() {
                           Added with <strong className="text-foreground">Contributor</strong> access
                           by default — they can view and add records in every module, but can&apos;t
                           edit, delete, or share until you grant it. You can change this anytime from
-                          Manage Members.
+                          Manage Users.
                         </p>
                       </div>
                       <Button
@@ -1093,8 +1143,8 @@ export default function OnboardingWizard() {
                   <Button onClick={handleAddMember} disabled={isAddingMember} className="w-full sm:w-auto mt-2">
                     {isAddingMember ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                     {destinations.length > 1 && chosenDestination
-                      ? `Add Member to ${chosenDestination.label}`
-                      : 'Add Member'}
+                      ? `Add User to ${chosenDestination.label}`
+                      : 'Add User'}
                   </Button>
                 </div>
                 )}
@@ -1102,7 +1152,7 @@ export default function OnboardingWizard() {
                 {/* List of added members */}
                 {members.length > 0 && (
                   <div className="space-y-3 mt-6">
-                    <h4 className="text-sm font-medium">Added Members</h4>
+                    <h4 className="text-sm font-medium">Added Users</h4>
                     <div className="space-y-2">
                       {/*
                         Keyed by the number rather than the array index — it is

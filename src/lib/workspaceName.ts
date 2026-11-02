@@ -39,6 +39,25 @@ export function defaultWorkspaceName(fullName: string | null | undefined): strin
 }
 
 /**
+ * What the PERSONAL side of an account is called.
+ *
+ * `tenants.name` is the account / business name; on a combo tenant the personal
+ * side can carry its own (`personal_workspace_name`, 0089). NULL falls back to
+ * `name`, which is also the answer for personal-only and business-only tenants —
+ * they never set it — so this is safe to call for every account type.
+ */
+export function personalWorkspaceName(
+  tenant: { name?: string | null; personalWorkspaceName?: string | null } | null | undefined,
+): string {
+  return (tenant?.personalWorkspaceName || '').trim() || (tenant?.name || '').trim() || 'My Workspace';
+}
+
+/** True when two workspace names would read as the same name (trim + case-insensitive). */
+export function namesCollide(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+}
+
+/**
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║   THE SAME BOX ASKS TWO DIFFERENT QUESTIONS                             ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
@@ -60,7 +79,7 @@ export function defaultWorkspaceName(fullName: string | null | undefined): strin
  * top bar on EVERY page — including inside `/business/<id>/…`, where the
  * switcher chip is showing the company name beside it — it prints on invoices
  * (`billingName ?? name`), it names the account on the plan-lock screens, and
- * it is the string an admin must type back to confirm an erasure. A business
+ * it is the string an admin must type back to confirm an erasure when they have no mobile number on file. A business
  * account that never answered would be living under a name derived from the
  * admin's own at sign-up and shown all of those places.
  *
@@ -70,8 +89,8 @@ export function defaultWorkspaceName(fullName: string | null | undefined): strin
  * The old helper line ended "You can ask an administrator to change it later".
  * The person reading it IS the tenant admin, and no tenant-facing rename
  * exists: PUT /api/admin/tenants/[id] is the only route that renames a tenant
- * and it is SUPER_ADMIN-only. The line now points at support, which is what
- * actually happens.
+ * and it is SUPER_ADMIN-only. Since then PUT /api/tenants/workspace gives the
+ * admin a rename, and the line points at it.
  */
 export interface WorkspaceNameCopy {
   /** The question above the input. */
@@ -88,7 +107,7 @@ export interface WorkspaceNameCopy {
 }
 
 /** Said the same way in all three variants, because it is true in all three. */
-const RENAME = 'Contact DocsNX support if you need it changed later.';
+const RENAME = 'You can change it later from your dashboard or Settings.';
 
 /** Where the name shows up, in the three places a customer will actually meet it. */
 const PERSONAL_REACH = 'This is the name you’ll see across the app — in the sidebar, '
@@ -110,7 +129,7 @@ export function workspaceNameCopy(accountType: string | null | undefined): Works
   if (accountType === 'personal') {
     return {
       label: 'What should we call this workspace?',
-      placeholder: 'e.g. Sharma Household',
+      placeholder: 'e.g. Sharma Personal',
       helper: `${PERSONAL_REACH} ${RENAME}`,
       noun: 'workspace',
     };
@@ -125,15 +144,25 @@ export function workspaceNameCopy(accountType: string | null | undefined): Works
     };
   }
 
-  // 'both', and anything unrecognised. The extra clause is the one thing a
-  // combo account needs that a business-only one does not: the umbrella name is
-  // ALSO what its personal half is called, which is why the household row on
-  // the Members step reads "Personal — <this name>".
+  // 'both', and anything unrecognised. The personal side has its own name since
+  // 0089 (see `personalNameCopy`), so this one names the business half only.
   return {
-    label: 'What should we call this account?',
+    label: 'What should we call your business account?',
     placeholder: 'e.g. Sharma Group',
-    helper: `${ACCOUNT_REACH} It is also what your personal side is called. `
+    helper: `${ACCOUNT_REACH} Your personal side is named separately. `
       + `${COMPANIES_NEXT} ${RENAME}`,
-    noun: 'account',
+    noun: 'business account',
   };
 }
+
+/**
+ * The second question a combo account is asked: what its PERSONAL side is
+ * called. Asked in addition to `workspaceNameCopy('both')`, and the two answers
+ * must differ — see `namesCollide`.
+ */
+export const personalNameCopy: WorkspaceNameCopy = {
+  label: 'What should we call your personal workspace?',
+  placeholder: 'e.g. Sharma Personal',
+  helper: `${PERSONAL_REACH} It must be different from your business account name. ${RENAME}`,
+  noun: 'personal workspace',
+};

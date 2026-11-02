@@ -472,7 +472,7 @@ export default function WarrantyAmcPage() {
       { label: 'Expiry Date', value: formatDate(rec.expiryDate) },
       { label: 'Purchase Date', value: rec.purchaseDate ? formatDate(rec.purchaseDate) : 'N/A' },
       { label: 'Support Contact', value: rec.supportContact || 'N/A' },
-      { label: 'Assigned Holder', value: rec.holder?.name || 'All Members' }
+      { label: 'Assigned Holder', value: rec.holder?.name || 'All Users' }
     ];
     const res = await shareRecord(`Warranty/AMC: ${rec.applianceName}`, fields, rec.notes, rec.filePath,
       { fileName: rec.fileName, mimeType: rec.mimeType, pageCount: rec.pageCount });
@@ -487,7 +487,7 @@ export default function WarrantyAmcPage() {
       { label: 'Expiry Date', value: formatDate(rec.expiryDate) },
       { label: 'Purchase Date', value: rec.purchaseDate ? formatDate(rec.purchaseDate) : 'N/A' },
       { label: 'Support Contact', value: rec.supportContact || 'N/A' },
-      { label: 'Assigned Holder', value: rec.holder?.name || 'All Members' }
+      { label: 'Assigned Holder', value: rec.holder?.name || 'All Users' }
     ];
     printRecord(`Warranty/AMC details`, fields, rec.notes, rec.filePath);
   };

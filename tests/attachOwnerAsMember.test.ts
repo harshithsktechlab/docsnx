@@ -203,7 +203,7 @@ describe.each([
     }));
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/already a member/i);
+    expect((await res.json()).error).toMatch(/already a user/i);
     expect(usersInserted()).toHaveLength(0);
   });
 
@@ -212,7 +212,7 @@ describe.each([
     const res = await createUser(req(asOwner));
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/already a member/i);
+    expect((await res.json()).error).toMatch(/already a user/i);
     expect(usersInserted()).toHaveLength(0);
   });
 

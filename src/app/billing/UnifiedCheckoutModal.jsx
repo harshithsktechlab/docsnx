@@ -147,7 +147,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
    */
   const capacityOf = (addon) => {
     if (addon?.extraMembers > 0) {
-      return { axis: 'personal', unit: 'member', label: 'Additional members' };
+      return { axis: 'personal', unit: 'user', label: 'Additional users' };
     }
     if (addon?.extraCompanies > 0) {
       return { axis: 'business', unit: 'company', label: 'Additional companies' };
@@ -155,7 +155,7 @@ export default function UnifiedCheckoutModal({ isOpen, onClose, plan, plans, cur
     if (addon?.extraMembersPerCompany > 0) {
       // Per COMPANY, not a business-wide pool — the wording has to say so or a
       // customer buying "3" expects three employees and gets three per company.
-      return { axis: 'business', unit: 'member in each company', label: 'Additional members per company' };
+      return { axis: 'business', unit: 'user in each company', label: 'Additional users per company' };
     }
     return null;
   };

@@ -58,7 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (!target) {
-      return NextResponse.json({ error: 'Member not found' }, { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
     // No access yet (or sign-in turned off): a code is pointless — they could
@@ -74,13 +74,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     if (target.signInDisabledAt) {
       return NextResponse.json({
-        error: 'This member does not have access yet. Give them access first; they get a code when they first sign in.',
+        error: 'This user does not have access yet. Give them access first; they get a code when they first sign in.',
       }, { status: 400 });
     }
 
     if (isFullyVerified(target, { whatsappEnabled: await isWhatsAppEnabled() })) {
       return NextResponse.json({
-        error: 'This member has already completed verification.',
+        error: 'This user has already completed verification.',
       }, { status: 400 });
     }
 
@@ -125,6 +125,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       phoneHint,
     });
   } catch (error) {
-    return serverError(error, 'resending member verification');
+    return serverError(error, 'resending user verification');
   }
 }

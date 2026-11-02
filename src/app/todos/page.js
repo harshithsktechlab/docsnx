@@ -542,7 +542,7 @@ export default function TodosPage() {
                 <Label htmlFor="assigneeId">Assign To</Label>
                 <Select value={assigneeId} onValueChange={(val) => setAssigneeId(val)} disabled={saving}>
                   <SelectTrigger id="assigneeId">
-                    <SelectValue placeholder="Select Member" />
+                    <SelectValue placeholder="Select User" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Unassigned / All</SelectItem>
@@ -802,7 +802,7 @@ export default function TodosPage() {
                   <Label htmlFor="editAssigneeId">Assign To</Label>
                   <Select value={editAssigneeId} onValueChange={(val) => setEditAssigneeId(val)} disabled={editSaving}>
                     <SelectTrigger id="editAssigneeId">
-                      <SelectValue placeholder="Select Member" />
+                      <SelectValue placeholder="Select User" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Unassigned / All</SelectItem>

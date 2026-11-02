@@ -32,7 +32,7 @@ export const PLAN_EXPIRED_MESSAGE =
 export function planExpiredMessage(axis: 'personal' | 'business'): string {
   return axis === 'business'
     ? 'Your Business plan has expired. Renew it to regain access to your companies.'
-    : 'Your Personal plan has expired. Renew it to regain access to your household records.';
+    : 'Your Personal plan has expired. Renew it to regain access to your personal records.';
 }
 
 /**

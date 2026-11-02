@@ -134,7 +134,7 @@ export default function WhatsAppGatewayPage() {
               <span>WhatsApp (Meta Cloud API)</span>
             </CardTitle>
             <CardDescription className="text-xs">
-              When on, verification codes are sent on WhatsApp. Members with a phone number verify by WhatsApp;
+              When on, verification codes are sent on WhatsApp. Users with a phone number verify by WhatsApp;
               tenant admins with a phone number verify by both email and WhatsApp. When off, everyone verifies by email.
             </CardDescription>
           </CardHeader>

@@ -19,7 +19,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { seatPredicate } from '@/lib/account/seatCounts';
+import { seatPredicate, pendingSeatPredicate } from '@/lib/account/seatCounts';
 import { memberQuota } from '@/lib/billingAxis';
 
 const TENANT = '11111111-0000-4000-8000-000000000001';
@@ -128,5 +128,51 @@ describe('the quota the predicate is checked against', () => {
     expect(memberQuota(null, { extraMembersPerCompany: 0 }, 'business')).toBe(0);
     // …while the household keeps its historical floor of one, the admin.
     expect(memberQuota(null, {}, 'personal')).toBe(1);
+  });
+});
+
+/**
+ * ── A PENDING MEMBER ALREADY HOLDS A SEAT ────────────────────────────────────
+ *
+ * There is no invitations table: an added member IS a `users` row, and
+ * `seatPredicate` is the one definition of "occupies a seat". It must not look
+ * at invite state — narrowing it to `membership_status = 'active'` would stop
+ * the Members tiles moving after an add and let an admin invite past the limit.
+ */
+describe('seatPredicate counts a member who has not accepted yet', () => {
+  for (const axis of ['personal', 'business'] as const) {
+    it(`${axis}: does not filter on invite state`, () => {
+      const sql = sqlOf(seatPredicate(TENANT, axis, ACME));
+      expect(sql).not.toMatch(/membership_status/);
+      expect(sql).not.toMatch(/activated_at/);
+      expect(sql).not.toMatch(/invited_at/);
+    });
+  }
+});
+
+describe('pendingSeatPredicate is a subset of the seats, in the same workspace', () => {
+  for (const axis of ['personal', 'business'] as const) {
+    it(`${axis}: narrows seatPredicate rather than replacing it`, () => {
+      const seat = dialect.sqlToQuery(seatPredicate(TENANT, axis, ACME));
+      const pending = dialect.sqlToQuery(pendingSeatPredicate(TENANT, axis, ACME));
+      // Same workspace filter: every parameter of the seat count is in the pending one.
+      expect(pending.params).toEqual(expect.arrayContaining(seat.params));
+      expect(pending.sql).toMatch(/membership_status/);
+      expect(pending.sql).toMatch(/activated_at/);
+      expect(pending.sql).toMatch(/sign_in_disabled_at/);
+    });
+  }
+
+  it('business: still scoped to the company it was asked about', () => {
+    const { params } = dialect.sqlToQuery(pendingSeatPredicate(TENANT, 'business', ACME));
+    expect(params).toContain(ACME);
+  });
+
+  it('never counts the admin as waiting on an invite', () => {
+    expect(sqlOf(pendingSeatPredicate(TENANT, 'personal'))).toMatch(/"role"\s*<>/);
+  });
+
+  it('refuses a business count with no company, like the seat count', () => {
+    expect(() => pendingSeatPredicate(TENANT, 'business')).toThrow(/companyId/);
   });
 });

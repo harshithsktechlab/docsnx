@@ -44,6 +44,7 @@ import { db } from '@/lib/db';
 import { deletedAccounts, tenants } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
 import { blindIndex, encryptField } from '@/lib/fieldCrypto';
+import { adminDial, erasureConfirmMatches } from '@/lib/account/erasureConfirm';
 import {
   collectRetentionRecords,
   purgeLegacyUploadFiles,
@@ -97,14 +98,19 @@ export async function DELETE(req: NextRequest) {
     }
 
     /**
-     * Typing the workspace name is the guard, and it is load-bearing rather
+     * Typing the admin's own mobile number is the guard (the workspace name
+     * only when the admin has no number on file), and it is load-bearing rather
      * than ceremonial: this action is irreversible, unlogged in the tenant's
      * own audit trail (it takes that with it) and destroys data in a THIRD
      * party's storage. A verb-only DELETE would make it one stray fetch away.
      */
-    if (parsed.data.confirm.trim() !== tenant.name.trim()) {
+    if (!erasureConfirmMatches(parsed.data.confirm, user, tenant.name)) {
       return NextResponse.json(
-        { error: 'The workspace name does not match. Type it exactly to confirm deletion.' },
+        {
+          error: adminDial(user)
+            ? 'The mobile number does not match. Type your registered mobile number to confirm deletion.'
+            : 'The workspace name does not match. Type it exactly to confirm deletion.',
+        },
         { status: 400 },
       );
     }

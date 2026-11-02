@@ -473,7 +473,7 @@ export async function POST(req: Request) {
           kind: 'account',
           name: workspaceName,
           note: attachIdentityId
-            ? 'opened by an existing member of another account; it signs in with their existing password'
+            ? 'opened by an existing user of another account; it signs in with their existing password'
             : 'its admin was created and is pending first-login verification',
         }),
         req,

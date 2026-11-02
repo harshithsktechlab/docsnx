@@ -136,7 +136,6 @@ const withSerwist = withSerwistInit({
   // node-glob, which silently ignores `!`-prefixed patterns. Positive only.
   globPublicPatterns: [
     "favicon.ico",
-    "manifest.json",
     "apple-touch-icon.png",
     "icon-*.png",
     "brand/*",

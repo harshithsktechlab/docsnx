@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## 1. Project Overview
-docsnx is a multi-tenant member management SaaS platform deployed on Oracle Cloud OCI. The platform provides a secure environment for households and businesses to manage sensitive information, including document vaults, medical records, encrypted password managers, and financial tracking. It features an AI assistant powered by Gemini and OpenAI. The stack uses Next.js 15.1 (App Router), React 19, TypeScript, Drizzle ORM, PostgreSQL, and Tailwind CSS v3.
+docsnx is a multi-tenant user management SaaS platform deployed on Oracle Cloud OCI. The platform provides a secure environment for households and businesses to manage sensitive information, including document vaults, medical records, encrypted password managers, and financial tracking. It features an AI assistant powered by Gemini and OpenAI. The stack uses Next.js 15.1 (App Router), React 19, TypeScript, Drizzle ORM, PostgreSQL, and Tailwind CSS v3.
 
 ## 2. Mandatory Startup Protocol
 Before making changes to the codebase, AI agents must:

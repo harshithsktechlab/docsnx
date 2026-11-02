@@ -260,7 +260,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       grantCompanyIds = valid.map((c: any) => c.id);
       if (grantCompanyIds.length === 0) {
         return NextResponse.json({
-          error: 'A member has to work on at least one company.',
+          error: 'A user has to work on at least one company.',
         }, { status: 400 });
       }
 
@@ -295,7 +295,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             const name = valid.find((c: any) => c.id === companyId)?.name;
             return NextResponse.json({
               error: `${name || 'That company'} is full. Your plan allows ${seatCap} `
-                + 'member(s) per company. Upgrade or buy an add-on to add more.',
+                + 'user(s) per company. Upgrade or buy an add-on to add more.',
             }, { status: 403 });
           }
         }
@@ -385,7 +385,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         userId: currentUser.id,
         action: ACTIONS.user.update,
         details: auditSentence('update', {
-          kind: 'member',
+          kind: 'user',
           name: targetUser.name,
           note: editsCompanies
             ? `details, permissions and the ${grantCompanyIds.length} compan${grantCompanyIds.length === 1 ? 'y' : 'ies'} they work on`
@@ -522,7 +522,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     const isHolder = targetUser.role === 'STANDARD';
     if (isHolder && !parsed.success) {
       return NextResponse.json(
-        { error: "Choose whether to keep or delete this member's records before removing them." },
+        { error: "Choose whether to keep or delete this user's records before removing them." },
         { status: 400 },
       );
     }
@@ -546,7 +546,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
         userId: currentUser.id,
         action: ACTIONS.user.delete,
         details: auditSentence('delete', {
-          kind: 'member',
+          kind: 'user',
           name: targetUser.name,
           note: mode === 'delete'
             ? `${removed.counts.documents} record(s) and ${removed.counts.passwords} password(s) `
@@ -567,7 +567,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
     return NextResponse.json({
       success: true,
-      message: 'Member removed successfully',
+      message: 'User removed successfully',
       deleted: outcome.counts,
     });
   } catch (error) {

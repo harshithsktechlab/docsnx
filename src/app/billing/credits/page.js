@@ -174,7 +174,7 @@ export default function CreditHistoryPage() {
       render: (tx) => Number(tx.balanceAfter).toLocaleString(),
     },
     {
-      header: 'Member',
+      header: 'User',
       key: 'user',
       render: (tx) => (
         <span className="text-sm font-medium">{tx.user?.name || 'System / Auto'}</span>
@@ -207,7 +207,7 @@ export default function CreditHistoryPage() {
     },
     {
       key: 'userId',
-      label: 'Members',
+      label: 'Users',
       options: (filterOptions.users || []).map((u) => ({
         value: u.id,
         label: u.name,
@@ -237,7 +237,7 @@ export default function CreditHistoryPage() {
       <p className="text-sm font-semibold leading-relaxed text-foreground">{tx.description}</p>
 
       <div className="border-t border-border/50 pt-2.5 text-xs text-muted-foreground">
-        Member: <strong className="font-semibold text-foreground">{tx.user?.name || 'System / Auto'}</strong>
+        User: <strong className="font-semibold text-foreground">{tx.user?.name || 'System / Auto'}</strong>
       </div>
     </div>
   );
