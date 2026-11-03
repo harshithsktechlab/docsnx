@@ -533,6 +533,28 @@ export const appBranding = pgTable("app_branding", {
 });
 
 /**
+ * The forgot-password code (0093). One row per person, platform-wide, no
+ * tenant: it is read before a tenant is known. Holds the keyed hash of a
+ * six-digit code and its attempt counter — never the code, and never in
+ * `reset_token`, which /api/auth/reset-password redeems without a limiter.
+ * `subject_id` is the identity id, or the user id for a row without one.
+ */
+export const passwordResetOtps = pgTable("password_reset_otps", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  subjectId: uuid("subject_id").notNull(),
+  otpHash: varchar("otp_hash", { length: 255 }).notNull(),
+  /** 'phone' (WhatsApp) or 'email' — where the code was delivered. */
+  channel: varchar("channel", { length: 8 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  subjectIdx: uniqueIndex("password_reset_otps_subject_uq").on(table.subjectId),
+}));
+
+/**
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║   COMPANIES — the business account's unit of ownership                   ║
  * ╚══════════════════════════════════════════════════════════════════════════╝

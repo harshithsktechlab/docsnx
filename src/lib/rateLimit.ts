@@ -61,3 +61,22 @@ export const accountSecretRateLimiter = new RateLimiter(8, 15 * 60 * 1000);
 // finished search, so a person never comes near this; a script hammering the
 // route to fill the log does.
 export const searchTrackRateLimiter = new RateLimiter(120, 60 * 1000);
+
+// Forgot-password code requests (POST /api/auth/forgot-password), keyed by IP.
+// Its own bucket so a burst of reset requests cannot spend the budget login
+// shares in `authRateLimiter` and lock someone out of signing in. Every
+// accepted request can send a WhatsApp message, so this also bounds cost.
+export const passwordResetRequestRateLimiter = new RateLimiter(10, 15 * 60 * 1000);
+
+// Forgot-password code entry (POST /api/auth/forgot-password/verify), keyed by
+// IP. Wider than the request bucket: one person legitimately mistypes a few
+// times, and several people can share an office address. The real guard on a
+// single code is its attempt counter in the database; this bounds a script
+// that rotates through many accounts from one address.
+export const passwordResetVerifyRateLimiter = new RateLimiter(20, 15 * 60 * 1000);
+
+// Messages sent per PERSON, keyed by the subject id, so a script that rotates
+// IPs still cannot make one handset buzz all day. Silent when exceeded — the
+// route answers as if it had sent, because saying otherwise tells a stranger
+// the account exists.
+export const passwordResetSendRateLimiter = new RateLimiter(5, 60 * 60 * 1000);

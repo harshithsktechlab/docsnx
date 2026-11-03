@@ -3,50 +3,39 @@
  * ║   POST /api/auth/forgot-password — erased, unknown, and live             ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * Three addresses, three answers, and the mailer is the witness:
+ * Three addresses, three answers, and the code sender is the witness:
  *
  *   • erased   → 410 with the deleted sentence, and NOTHING is sent;
  *   • unknown  → the generic 200 it has always given, and nothing is sent;
- *   • live     → the generic 200, and the reset mail goes out.
+ *   • live     → the generic 200, and the reset code goes out.
  *
  * Plus the limiter: this route used to be the one pre-auth door without one,
- * and it now says something about erased addresses, so it shares login's.
+ * and it now says something about erased addresses, so it has a limiter of its own.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const GENERIC = 'If the email exists in our system, a password reset link has been sent.';
+const GENERIC = 'If an account exists, a verification code has been sent.';
 
 let foundUsers: any[] = [];
 let erased: any = null;
 let limiterAllows = true;
 const findErasedAccount = vi.fn(async () => erased);
-const sendPasswordResetEmail = vi.fn(async () => ({ success: true }));
+const issueResetOtp = vi.fn(async () => ({ issued: true, channel: 'phone' as const }));
 
-vi.mock('@/lib/db', () => {
-  const selectChain: any = {
-    from: () => selectChain,
-    where: () => selectChain,
-    limit: () => Promise.resolve(foundUsers),
-  };
-  const updateChain: any = { set: () => updateChain, where: () => Promise.resolve(undefined) };
-  return { db: { select: () => selectChain, update: () => updateChain } };
-});
+vi.mock('@/lib/db', () => ({ db: {} }));
 vi.mock('@/lib/account/erasedAccountLookup', async () => ({
   ...(await vi.importActual<any>('@/lib/account/erasedAccountLookup')),
   findErasedAccount: (...args: any[]) => findErasedAccount(...(args as [])),
 }));
-vi.mock('@/lib/mailer', () => ({ sendPasswordResetEmail }));
-vi.mock('@/lib/whatsapp', () => ({ sendPasswordResetWhatsApp: vi.fn(async () => ({ success: true })) }));
-vi.mock('@/lib/appUrl', () => ({ getAppBaseUrl: () => 'https://example.test' }));
-// The route resolves the address through the shared pre-auth lookup (0082) so a
-// person with several seats is sent a link through one they can use.
+vi.mock('@/lib/passwordResetOtp', () => ({ issueResetOtp }));
+// The route resolves the identifier through the shared pre-auth lookup (0082) so
+// a person with several seats is reset through one they can use.
 vi.mock('@/lib/authLookup', () => ({
   findUserByIdentifier: async () => foundUsers[0] ?? null,
 }));
-vi.mock('@/lib/fieldCrypto', () => ({ hashToken: (t: string) => `hashed:${t}` }));
 vi.mock('@/lib/clientIp', () => ({ getClientIp: () => '203.0.113.9' }));
 vi.mock('@/lib/rateLimit', () => ({
-  authRateLimiter: { check: () => ({ success: limiterAllows, resetTime: Date.now() + 60_000 }) },
+  passwordResetRequestRateLimiter: { check: () => ({ success: limiterAllows, resetTime: Date.now() + 60_000 }) },
 }));
 vi.mock('@/lib/audit', async () => ({
   writeAudit: vi.fn(async () => {}),
@@ -59,7 +48,7 @@ const request = (email: string) =>
   new Request('https://example.test/api/auth/forgot-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ identifier: email }),
   });
 
 const ERASED = { erasedAt: new Date('2026-09-21T09:21:36Z'), role: 'TENANT_ADMIN', tenantName: 'dev5 workspace' };
@@ -69,7 +58,7 @@ beforeEach(() => {
   erased = null;
   limiterAllows = true;
   findErasedAccount.mockClear();
-  sendPasswordResetEmail.mockClear();
+  issueResetOtp.mockClear();
 });
 
 describe('POST /api/auth/forgot-password — erased accounts', () => {
@@ -81,7 +70,7 @@ describe('POST /api/auth/forgot-password — erased accounts', () => {
     expect(body.accountErased).toBe(true);
     expect(body.error).toContain('permanently deleted on 21/09/2026');
     expect(body.identifier).toBe('dev5.hsktechlab@gmail.com');
-    expect(sendPasswordResetEmail).not.toHaveBeenCalled();
+    expect(issueResetOtp).not.toHaveBeenCalled();
   });
 
   it('keeps the generic answer for an address that was never here, and sends nothing', async () => {
@@ -89,17 +78,17 @@ describe('POST /api/auth/forgot-password — erased accounts', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true, message: GENERIC });
     expect(findErasedAccount).toHaveBeenCalledTimes(1);
-    expect(sendPasswordResetEmail).not.toHaveBeenCalled();
+    expect(issueResetOtp).not.toHaveBeenCalled();
   });
 
-  it('never consults the retention table for a live address — it mails the link', async () => {
-    foundUsers = [{ id: 'user-1', tenantId: 'tenant-1', email: 'asha@example.test', name: 'Asha', phoneNumber: null }];
+  it('never consults the retention table for a live address — it sends the code', async () => {
+    foundUsers = [{ id: 'user-1', identityId: null, tenantId: 'tenant-1', email: 'asha@example.test', name: 'Asha', phoneNumber: null }];
     erased = ERASED; // a stale row from an earlier erase-and-re-register must not win
     const res = await POST(request('asha@example.test'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true, message: GENERIC });
     expect(findErasedAccount).not.toHaveBeenCalled();
-    expect(sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+    expect(issueResetOtp).toHaveBeenCalledTimes(1);
   });
 
   it('is rate limited like login and register, before any lookup', async () => {
@@ -109,6 +98,6 @@ describe('POST /api/auth/forgot-password — erased accounts', () => {
     expect(res.status).toBe(429);
     expect(res.headers.get('Retry-After')).toBeTruthy();
     expect(findErasedAccount).not.toHaveBeenCalled();
-    expect(sendPasswordResetEmail).not.toHaveBeenCalled();
+    expect(issueResetOtp).not.toHaveBeenCalled();
   });
 });

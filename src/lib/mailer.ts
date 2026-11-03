@@ -139,6 +139,51 @@ export async function sendVerificationOtpEmail(email: string, name: string, otp:
 }
 
 
+/**
+ * The forgot-password code. Its own sender rather than a reuse of
+ * `sendVerificationOtpEmail`, whose copy thanks the reader for registering and
+ * promises fifteen minutes — both wrong for a reset that lives for five.
+ */
+export async function sendPasswordResetOtpEmail(email: string, name: string, otp: string, ttlMinutes = 5) {
+  // NOTE: never write OTPs to disk (esp. under public/). Secrets must not be
+  // recoverable outside the recipient's inbox.
+  try {
+    const mailer = await getMailer();
+    if (!mailer) {
+      console.warn('No email provider configured in systemConfig. Cannot send password reset code.');
+      return { success: false, message: 'Email provider not configured' };
+    }
+    const { send, from, platformName } = mailer;
+
+    const info = await send({
+      from,
+      to: email,
+      subject: `Your password reset code - ${platformName}`,
+      text: `Hello ${name},\n\nYour password reset code is: ${otp}\n\nThis code will expire in ${ttlMinutes} minutes. Do not share it with anyone.\n\nIf you did not request this, please ignore this email - your password has not changed.\n`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <h2 style="color: #0f172a; margin-top: 0;">Reset your password</h2>
+          <p style="color: #475569; font-size: 15px;">Hello <strong>${escapeHtml(name)}</strong>,</p>
+          <p style="color: #475569; font-size: 15px;">Use the code below to reset your ${escapeHtml(platformName)} password:</p>
+          <div style="margin: 24px 0; text-align: center;">
+            <div style="display: inline-block; padding: 14px 28px; font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #0f172a; background-color: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e1;">
+              ${otp}
+            </div>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">This code will expire in ${ttlMinutes} minutes. Do not share it with anyone.</p>
+          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">If you did not request this, please ignore this email - your password has not changed.</p>
+        </div>
+      `,
+    });
+    console.log('Password reset OTP email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error: any) {
+    console.error('Failed to send password reset OTP email via the email provider:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+
 /** Escape a person-supplied string for the HTML half of a message. */
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ({

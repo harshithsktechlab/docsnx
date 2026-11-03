@@ -652,6 +652,13 @@
       "when": 1786675322000,
       "tag": "0092_rename_member_seat_to_user",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1786675323000,
+      "tag": "0093_password_reset_otps",
+      "breakpoints": true
     }
   ]
 }
