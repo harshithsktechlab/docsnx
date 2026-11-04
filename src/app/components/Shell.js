@@ -1345,7 +1345,7 @@ export default function Shell({ children }) {
           <div key={invite.userId} className="w-full p-2 rounded-lg border-l-2 border-primary bg-card text-xs leading-relaxed">
             <div className="font-bold text-foreground text-xs mb-0.5">Invitation</div>
             <div className="text-muted-foreground">
-              You were invited to join <strong className="font-bold text-foreground">{invite.tenantName}</strong>.
+              You were invited to join <strong className="font-bold text-foreground">{invite.workspaceName || invite.tenantName}</strong>.
             </div>
             <div className="mt-1.5 flex gap-1.5">
               <Button size="sm" className="h-6 px-2 text-xs" disabled={inviteBusy === invite.userId} onClick={() => answerInvite(invite, 'accept')}>

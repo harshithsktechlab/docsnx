@@ -30,7 +30,7 @@ export function useInviteResponder(onAnswered) {
       toast.error(res.error || 'Could not answer this invitation.');
       return;
     }
-    toast.success(action === 'accept' ? `You joined ${invite.tenantName}.` : 'Invitation declined.');
+    toast.success(action === 'accept' ? `You joined ${invite.workspaceName || invite.tenantName}.` : 'Invitation declined.');
     onAnswered?.();
   };
 
@@ -48,7 +48,7 @@ export default function PendingInvites({ invites = [], onAnswered }) {
         <div key={invite.userId} className="flex flex-wrap items-center gap-3">
           <MailPlus size={16} className="shrink-0 text-primary" aria-hidden="true" />
           <p className="min-w-0 flex-1 text-sm text-foreground">
-            You were invited to join <strong className="font-bold">{invite.tenantName}</strong>.
+            You were invited to join <strong className="font-bold">{invite.workspaceName || invite.tenantName}</strong>.
           </p>
           <div className="flex shrink-0 gap-2">
             <Button size="sm" disabled={busy === invite.userId} onClick={() => answer(invite, 'accept')}>

@@ -18,6 +18,7 @@ import { serverError } from '@/lib/routeError';
 import crypto from 'crypto';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
+import { labelForSeat } from '@/lib/account/seatWorkspaceLabel';
 import { decideAttach, reportAttachedInvite } from '@/lib/account/attachDecision';
 
 /**
@@ -389,7 +390,7 @@ export async function POST(req: Request) {
         member: { id: created.id, name: created.name, email: created.email, phoneNumber: created.phoneNumber },
         req,
         kind: attachTo ? 'accept' : 'activate',
-        workspaceName: tenant.name,
+        workspaceName: await labelForSeat(tenant, created),
       })
       : null;
 

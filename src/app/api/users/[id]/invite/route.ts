@@ -14,6 +14,7 @@ import { serverError } from '@/lib/routeError';
 import { workspaceMemberScope } from '@/lib/account/workspaceMemberScope';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { canReceiveInvite, INVITE_COOLDOWN_MS, sendMemberInvite } from '@/lib/memberInvite';
+import { labelForSeat } from '@/lib/account/seatWorkspaceLabel';
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -63,7 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // A pending seat belongs to someone who already has a password (0082):
       // they sign in and accept, they do not "set up" anything.
       kind: member.membershipStatus === 'pending' ? 'accept' : 'activate',
-      workspaceName: currentUser.tenant?.name,
+      workspaceName: await labelForSeat(currentUser.tenant, member),
     });
     // For a pending seat the invitation went to contacts the admin may never have
     // typed; per-channel outcomes would reveal which exist.

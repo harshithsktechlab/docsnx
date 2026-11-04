@@ -22,11 +22,18 @@ import { db } from '@/lib/db';
 import { tenants, users } from '@/db/schema';
 import { isFullyVerified, type ChannelOptions } from '@/lib/verificationChannels';
 import { isSignableSeat } from '@/lib/account/membershipPick';
+import { companyNamesBySeat, seatWorkspaceLabel } from '@/lib/account/seatWorkspaceLabel';
 
 export interface SeatSummary {
   userId: string;
   tenantId: string;
   tenantName: string;
+  /**
+   * What the seat is a seat IN, for display: the company name(s) for a business
+   * seat, the personal workspace's name for a personal one. `tenantName` is the
+   * account's umbrella name and reads wrongly in an invitation.
+   */
+  workspaceName: string;
   accountType: string;
   role: string;
   /** Which half of the tenant a STANDARD member was added to. */
@@ -59,6 +66,10 @@ export async function listSeats(
       inArray(users.membershipStatus, ['active', 'pending']),
     ));
 
+  const grants = await companyNamesBySeat(
+    rows.filter(({ seat }) => seat.accountScope === 'business').map(({ seat }) => seat.id),
+  );
+
   return rows
     .map(({ seat, tenant }): SeatSummary => {
       const status = seat.membershipStatus === 'pending' ? 'pending' : 'active';
@@ -66,6 +77,7 @@ export async function listSeats(
         userId: seat.id,
         tenantId: tenant.id,
         tenantName: tenant.name,
+        workspaceName: seatWorkspaceLabel(tenant, seat.accountScope, grants.get(seat.id) ?? []),
         accountType: tenant.accountType,
         role: seat.role,
         accountScope: seat.accountScope,
@@ -76,7 +88,7 @@ export async function listSeats(
           && isFullyVerified(seat, channelOpts),
       };
     })
-    .sort((a, b) => Number(b.current) - Number(a.current) || a.tenantName.localeCompare(b.tenantName));
+    .sort((a, b) => Number(b.current) - Number(a.current) || a.workspaceName.localeCompare(b.workspaceName));
 }
 
 /**
