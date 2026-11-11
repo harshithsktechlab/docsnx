@@ -58,7 +58,7 @@ const TABS = [
   {
     id: 'filesize',
     label: 'File Size',
-    blurb: 'Set the maximum file size for document uploads across the platform.',
+    blurb: 'Set the maximum file size for uploads, and how much one Bulk Scan accepts, across the platform.',
   },
   {
     id: 'profile-options',

@@ -12,6 +12,7 @@ import {
   tenantFullyLapsed,
 } from '@/lib/planGate';
 import { checkStorageLimit } from '@/lib/storage';
+import { notifyStoragePressure } from '@/lib/storageNotifications';
 import { getDefaultPlan } from '@/lib/planProvisioning';
 import { hasDriveFileScope, refreshDriveQuotaIfStale } from '@/lib/googleDrive';
 import { serverError } from '@/lib/routeError';
@@ -124,6 +125,13 @@ export async function GET(req: Request) {
       if (storageData && !Number.isFinite(storageData.limitBytes)) {
         storageData = { ...storageData, limitBytes: null as any, unlimited: true };
       }
+
+      // "Almost full" / "full" goes to the bell instead of a popup on every load.
+      // Idempotent and non-throwing — see storageNotifications.ts.
+      await notifyStoragePressure(
+        { id: safeUser.id, tenantId: safeUser.tenant.id, role: safeUser.role },
+        storageData as any,
+      );
     }
 
     // What each credit pool is topped up with by the plan behind it: the personal
@@ -183,9 +191,16 @@ export async function GET(req: Request) {
      * by default instead of on.
      */
     const config = await db.query.systemConfigs.findFirst({
-      columns: { maxUploadBytes: true },
+      columns: { maxUploadBytes: true, maxScanFiles: true, maxScanPages: true, maxScanBytes: true },
     });
-    const platformConfig = config ? { maxUploadBytes: config.maxUploadBytes } : null;
+    const platformConfig = config
+      ? {
+          maxUploadBytes: config.maxUploadBytes,
+          maxScanFiles: config.maxScanFiles,
+          maxScanPages: config.maxScanPages,
+          maxScanBytes: config.maxScanBytes,
+        }
+      : null;
     // Only the version of the app logo (0 = built-in), never the image: the shell
     // appends it as `?v=` so a new upload shows on the next navigation.
     const appLogoVersion = await loadAppLogoVersion();

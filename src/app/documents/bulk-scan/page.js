@@ -23,6 +23,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -828,26 +829,29 @@ export default function BulkScanPage() {
   };
 
   /**
+   * Drop a record, and with it the pages it held.
+   *
+   * This used to hand the deleted record's pages to the FIRST record in the
+   * list. That is how a Certificate of Incorporation ended up listed under a
+   * PAN card: the member deleted the extra row, and its file was quietly filed
+   * on row one, where nothing offered to take it back out. A deleted record now
+   * takes its pages with it and says so. A page that belongs somewhere else is
+   * moved there first, with the control on its own row (`moveFile`).
+   *
    * @param {number} index
-   * @param {{rescueFiles?: boolean}} options  `false` when the row is dropped
-   *   as a DUPLICATE: its pages are a copy of something already on file, and
-   *   handing them to the first record would file them there instead.
    */
-  const deleteRecord = (index, { rescueFiles = true } = {}) => {
-    const recordToDelete = proposedRecords[index];
-    // Re-assign files of this deleted record back to the first record, if exists
-    const filesToRescue = rescueFiles ? (recordToDelete.fileIndices || []) : [];
-    
-    setProposedRecords(prev => {
-      const filtered = prev.filter((_, i) => i !== index);
-      if (filtered.length > 0 && filesToRescue.length > 0) {
-        filtered[0] = {
-          ...filtered[0],
-          fileIndices: [...new Set([...filtered[0].fileIndices, ...filesToRescue])],
-        };
-      }
-      return filtered;
-    });
+  const deleteRecord = (index) => {
+    const dropped = (proposedRecords[index]?.fileIndices || [])
+      .filter((i) => uploadedFiles[i]).length;
+    if (dropped > 0) {
+      toast.message(
+        dropped === 1
+          ? 'Record removed. Its file will not be saved.'
+          : `Record removed. Its ${dropped} files will not be saved.`,
+      );
+    }
+
+    setProposedRecords(prev => prev.filter((_, i) => i !== index));
     // Keyed by position, so every row after the removed one moves up by one.
     // Left alone, a field error would land on the neighbour below.
     setRecordErrors(prev => {
@@ -856,6 +860,49 @@ export default function BulkScanPage() {
         const i = Number(key);
         if (i < index) next[i] = value;
         else if (i > index) next[i - 1] = value;
+      }
+      return next;
+    });
+  };
+
+  /**
+   * Take one page out of a record: drop it, or move it to another row.
+   *
+   * `to` is the index of the receiving record, `'new'` for a fresh record that
+   * holds only this page, or `null` to leave the page out of the save.
+   *
+   * Both rows are cleared of what the last save said about them — their pages
+   * changed, so the duplicate verdict no longer describes them. A moved page
+   * goes to a NEW record rather than guessing a category for it: the member
+   * files it from the picker like any other row.
+   *
+   * @param {number} from     index of the record the page is in
+   * @param {number} fileIdx  index into `uploadedFiles`
+   * @param {number | 'new' | null} to
+   */
+  const moveFile = (from, fileIdx, to) => {
+    setProposedRecords(prev => {
+      const source = prev[from];
+      if (!source || !(source.fileIndices || []).includes(fileIdx)) return prev;
+
+      const next = prev.map((r, i) => {
+        if (i === from) {
+          return withoutIssue({ ...r, fileIndices: r.fileIndices.filter((n) => n !== fileIdx) });
+        }
+        if (typeof to === 'number' && i === to) {
+          return withoutIssue({ ...r, fileIndices: [...new Set([...(r.fileIndices || []), fileIdx])] });
+        }
+        return r;
+      });
+
+      if (to === 'new') {
+        const name = uploadedFiles[fileIdx]?.originalName || uploadedFiles[fileIdx]?.fileName || 'New record';
+        next.push({
+          title: name,
+          category: 'document',
+          fileIndices: [fileIdx],
+          extractedData: { name, fields: {} },
+        });
       }
       return next;
     });
@@ -1714,7 +1761,7 @@ export default function BulkScanPage() {
                                 </Button>
                               )}
                               <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2 text-xs"
-                                onClick={() => deleteRecord(rIdx, { rescueFiles: false })}>
+                                onClick={() => deleteRecord(rIdx)}>
                                 <Trash2 size={13} /> Don&apos;t save this one
                               </Button>
                             </span>
@@ -1960,12 +2007,11 @@ export default function BulkScanPage() {
                       )}
                     </div>
 
-                    {/* Grouped Files List — read-only.
-                        The per-file "Group to" select is gone: with one record
-                        it reassigned a page to the record it was already in,
-                        and the grouping it re-did is the scan's own job. A
-                        mis-grouped batch is corrected by deleting the record
-                        here, which returns its pages to the first record. */}
+                    {/* Grouped Files List.
+                        Each page can be moved to another record, to a record
+                        of its own, or left out of the save. Deleting a whole
+                        record no longer hands its pages to the first record,
+                        so this row is the only way a page changes owner. */}
                     <div className="mt-2 bg-muted/20 border border-border/40 p-4 rounded-xl flex flex-col gap-2.5">
                       <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
                         Associated Pages / Files <Badge variant="secondary" className="px-1.5 py-0 h-4 text-xs">{fileIndices.length}</Badge>
@@ -1985,10 +2031,42 @@ export default function BulkScanPage() {
                                 key={fileIdx}
                                 className="flex items-center gap-2 p-2 bg-card border border-border/20 rounded-lg text-xs"
                               >
-                                <span className="flex items-center gap-2 font-semibold text-foreground truncate">
+                                <span className="flex items-center gap-2 font-semibold text-foreground truncate min-w-0 flex-1">
                                   <FolderDot size={14} className="text-primary/70 flex-shrink-0" />
                                   <span className="truncate">{fileMeta.fileName}</span>
                                 </span>
+                                <Select
+                                  value=""
+                                  onValueChange={(v) => moveFile(rIdx, fileIdx, v === 'new' ? 'new' : Number(v))}
+                                >
+                                  <SelectTrigger
+                                    aria-label={`Move ${fileMeta.fileName} to another record`}
+                                    className="h-7 w-32 shrink-0 px-2 text-xs text-muted-foreground"
+                                  >
+                                    <SelectValue placeholder="Move to…" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {fileIndices.length > 1 && <SelectItem value="new">A new record</SelectItem>}
+                                    {proposedRecords.map((other, oIdx) => (
+                                      oIdx === rIdx ? null : (
+                                        <SelectItem key={oIdx} value={String(oIdx)}>
+                                          {other.title || `Record ${oIdx + 1}`}
+                                        </SelectItem>
+                                      )
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Remove ${fileMeta.fileName} from this record`}
+                                  title="Remove from this record (it will not be saved)"
+                                  onClick={() => moveFile(rIdx, fileIdx, null)}
+                                  className="size-7 shrink-0 text-danger-action hover:bg-destructive/10"
+                                >
+                                  <Trash2 size={13} />
+                                </Button>
                               </div>
                             );
                           })}

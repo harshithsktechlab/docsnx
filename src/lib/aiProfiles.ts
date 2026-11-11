@@ -231,17 +231,16 @@ export const AI_PROFILES: Record<string, AIProfile> = {
     name: 'Sales & Marketing',
     extractionFields: [
       'Document Type',
-      'Customer Name',
-      'Agreement Date',
-      'Contract Value',
-      'Service Level',
+      'Company / Product Name',
+      'Target Audience',
+      'Version / Date',
       'Validity Period',
     ],
     analyticalCapabilities: [
-      'Customer contract renewal schedule',
-      'Service-level commitment summary',
+      'Collateral inventory by type and version',
+      'Outdated or expiring price list and collateral flags',
     ],
-    mandatoryDisclaimer: 'Informational sales record summary only. Consult Legal Counsel on contract terms.'
+    mandatoryDisclaimer: 'Informational sales and marketing collateral summary only.'
   },
   biz_operations: {
     category: 'biz_operations',

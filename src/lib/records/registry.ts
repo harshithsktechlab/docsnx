@@ -239,7 +239,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     path: '/employment-payroll',
     primaryModule: 'employment',
     categories: k('employment', 'offer_appointment_letters', 'salary_slips',
-      'experience_relieving_letters', 'epf_uan_documents', 'other'),
+      'experience_relieving_letters', 'epf_uan_documents', 'resume_cv', 'other'),
   },
   // Added with 0065. Unlike the scopes above it never had a bespoke page, so it
   // is 1:1 with its module and lives on the generic `/modules` page, the way
@@ -307,7 +307,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_hr`,
     primaryModule: 'biz_hr',
-    categories: k('biz_hr', 'offer_letters', 'appointment_letters', 'employment_contracts', 'hr_policy_documents', 'payroll_records', 'pf_esi_employee_records', 'performance_appraisals', 'other'),
+    categories: k('biz_hr', 'offer_letters', 'appointment_letters', 'employment_contracts', 'hr_policy_documents', 'payroll_records', 'pf_esi_employee_records', 'performance_appraisals', 'resumes_cvs', 'other'),
   },
   biz_ip: {
     ...DEFAULTS,
@@ -337,7 +337,7 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     ...DEFAULTS,
     path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_sales`,
     primaryModule: 'biz_sales',
-    categories: k('biz_sales', 'sales_agreements', 'marketing_collateral_approvals', 'customer_contracts_slas', 'warranty_documents', 'other'),
+    categories: k('biz_sales', 'company_profile', 'pitch_deck', 'marketing_deck', 'marketing_materials', 'brochures_catalogs', 'case_studies_testimonials', 'price_lists_quotations', 'other'),
   },
   biz_operations: {
     ...DEFAULTS,

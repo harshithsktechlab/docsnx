@@ -79,3 +79,27 @@ describe('DataTable multi-select filters', () => {
     expect(openPanel('Sub-category').className).toContain('right-0');
   });
 });
+
+describe('DataTable collapsible filters', () => {
+  const COLUMNS = [{ header: 'Name', key: 'name' }];
+
+  it('renders no Filters button unless asked, so other lists are unchanged', () => {
+    render(<DataTable data={[]} columns={COLUMNS} filterDefinitions={FILTERS} />);
+    expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
+  });
+
+  it('folds the filters behind a button below sm and toggles them', () => {
+    render(<DataTable data={[]} columns={COLUMNS} filterDefinitions={FILTERS} collapsibleFilters />);
+    const button = screen.getByRole('button', { name: 'Filters' });
+    const panel = document.getElementById('data-table-filters') as HTMLElement;
+
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.className).toContain('hidden');
+    expect(panel.className).toContain('sm:flex');
+
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.className).toContain('grid-cols-2');
+    expect(panel.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+  });
+});

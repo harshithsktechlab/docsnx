@@ -1193,6 +1193,10 @@ export const systemConfigs = pgTable("system_configs", {
    */
   aiCostMultiplier: decimal("ai_cost_multiplier", { precision: 6, scale: 2 }).default("2.00").notNull(),
   maxUploadBytes: integer("max_upload_bytes"),
+  /** Bulk Scan limits (Admin → Field Config → File Size). NULL = built-in default. */
+  maxScanFiles: integer("max_scan_files"),
+  maxScanPages: integer("max_scan_pages"),
+  maxScanBytes: integer("max_scan_bytes"),
   /** Super-admin-managed dropdown lists for the company profile form: `{ entityType: [{value,label}] }`. NULL = code defaults. */
   profileFieldOptions: jsonb("profile_field_options"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

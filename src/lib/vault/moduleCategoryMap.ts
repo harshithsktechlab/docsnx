@@ -226,6 +226,9 @@ export const MODULE_CATEGORY: Record<string, ModuleCategoryPolicy> = {
       payslip: k('employment', 'salary_slips'),
       experienceletter: k('employment', 'experience_relieving_letters'),
       relievingletter: k('employment', 'experience_relieving_letters'),
+      resume: k('employment', 'resume_cv'),
+      cv: k('employment', 'resume_cv'),
+      curriculumvitae: k('employment', 'resume_cv'),
     },
     defaultKey: k('employment', 'salary_slips'),
   },
@@ -351,7 +354,7 @@ export const MODULE_CATEGORY: Record<string, ModuleCategoryPolicy> = {
   },
   biz_sales: {
     typeToKey: {},
-    defaultKey: k('biz_sales', 'sales_agreements'),
+    defaultKey: k('biz_sales', 'company_profile'),
   },
   biz_operations: {
     typeToKey: {},

@@ -42,7 +42,9 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { DataTable, parseFilterValues } from '@/components/ui/data-table';
+import { DataTable, parseFilterValues, isInteractiveTarget } from '@/components/ui/data-table';
+import DocumentDetailPanel from '@/components/records/DocumentDetailPanel';
+import { formatBytes } from '@/components/records/FilePreviewPane';
 import RowActionsMenu from '@/components/ui/row-actions-menu';
 import { MODULE_COLORS, DEFAULT_MODULE_COLOR } from '@/lib/documentCategories';
 import HolderSelect, {
@@ -128,6 +130,12 @@ export default function DocumentsPage() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [error, setError] = useState('');
   const [previewDoc, setPreviewDoc] = useState(null);
+  /**
+   * The row whose detail panel is open (a click on a row's name). Held as the
+   * row object rather than an id so the panel can open before — and survive —
+   * a list refetch; the effect below swaps in the fresh row after each one.
+   */
+  const [detailDoc, setDetailDoc] = useState(null);
   /**
    * The signed-in member, for `clientCan`.
    *
@@ -1733,14 +1741,16 @@ export default function DocumentsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this document?')) return;
+    if (!confirm('Are you sure you want to delete this document?')) return false;
     try {
       const { json } = await api(`/api/documents/${id}`, { method: 'DELETE' });
       if (json.success) {
         toast.success('Document deleted');
         setDocuments(prev => prev.filter(d => d.id !== id));
+        return true;
       } else {
         toast.error(json.error || 'Failed to delete document');
+        return false;
       }
     } catch (err) {
       // Transport failures are values now, not throws — `apiCall` and
@@ -1749,6 +1759,7 @@ export default function DocumentsPage() {
       // a connection that was working.
       console.error('[documents] handler threw', err);
       toast.error('Something went wrong deleting document. Please try again.');
+      return false;
     }
   };
 
@@ -2168,6 +2179,23 @@ export default function DocumentsPage() {
    * which is the point at which "this row" is unambiguous again.
    */
   const bulkSelectionActive = selectedIds.length > 1;
+
+  /**
+   * A click on the row itself opens its detail panel. Clicks that began on a
+   * control inside the row (Share, View, ⋮, the checkbox) keep their own job,
+   * and so does a text selection — dragging across a cell to copy a number
+   * must not open anything.
+   */
+  const handleRowClick = (doc, event) => {
+    if (isInteractiveTarget(event)) return;
+    if (typeof window !== 'undefined' && String(window.getSelection?.() ?? '').length > 0) return;
+    setDetailDoc(doc);
+  };
+
+  // After a refetch the panel shows the fresh row, not the one it opened with.
+  useEffect(() => {
+    setDetailDoc((prev) => (prev ? documents.find((d) => d.id === prev.id) ?? prev : prev));
+  }, [documents]);
   const rowActionTitle = (label) =>
     (bulkSelectionActive ? 'Use the bulk actions above' : label);
 
@@ -2184,6 +2212,7 @@ export default function DocumentsPage() {
     rotation: doc.rotation || 0,
     title: doc.title,
     fileName: doc.fileName,
+    fileSize: doc.fileSize,
     filePath: doc.filePath,
     mimeType: doc.mimeType,
     // A scanned agreement is stored a page per Drive object; without this
@@ -2714,6 +2743,10 @@ export default function DocumentsPage() {
           onSelectionChange={setSelectedIds}
           totalMatching={pagination?.totalCount || 0}
           onSelectAllMatching={handleSelectAllMatching}
+          onRowClick={handleRowClick}
+          onCardClick={handleRowClick}
+          compactCards
+          collapsibleFilters
           bulkActions={[
             // Disabled when NOTHING in the selection permits the action; a
             // partly-permitted selection stays enabled, acts on the subset and
@@ -2797,7 +2830,16 @@ export default function DocumentsPage() {
                       <FileText size={20} />
                     </span>
                     <div className="flex flex-col gap-0.5">
-                      <span className="font-bold text-foreground truncate max-w-[200px]">{doc.title}</span>
+                      {/* A real button so the keyboard can reach it; the whole
+                          row opens the panel too (onRowClick). */}
+                      <button
+                        type="button"
+                        onClick={() => setDetailDoc(doc)}
+                        className="text-left font-bold text-foreground truncate max-w-[200px] hover:text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                        title={`Open ${doc.title}`}
+                      >
+                        {doc.title}
+                      </button>
                       {/* Both tiers, so the row says where the document sits and
                           not merely which module owns it. The pair is roughly
                           twice as long as either half, so it WRAPS — a single
@@ -2888,113 +2930,76 @@ export default function DocumentsPage() {
           ]}
           renderCard={(doc, { checkbox }) => {
             const { fg: docColor, bg: docBg } = docColors(doc);
-            // No bottom margin on the Card: the table's mobile list already
-            // spaces these with `space-y-4`, and an `mb-4` on top of it left
-            // documents 32px apart while every other card list sits at 16px.
-            /* Content only: <DataTable> wraps every mobile row in <RecordCard>,
-               which owns the border, fill, padding and shadow — and paints the
-               selected state to match a selected desktop row. */
+            /* Content only: <DataTable> wraps every mobile row in <RecordCard>
+               (compact — see `compactCards`), which owns the border, fill and
+               the selected state.
+
+               ONE LINE OF CONTENT. The card names the document and offers its
+               three actions; category, number, holder and the rest are one tap
+               away in the detail panel (the whole card opens it), so repeating
+               them here only cost the screen four cards' worth of height. The
+               title takes the space between the icon and the buttons and wraps
+               to two lines rather than truncating on a phone, where there is no
+               hover tooltip. */
             return (
-              <div className="flex flex-col gap-4">
-                  <div className="flex items-start justify-between gap-4">
-                    {/* The selection control lives in the card's own header row,
-                        beside the file-type icon. Outside the card it indented
-                        the whole list away from the search box above it. */}
-                    <span className="flex items-center gap-3 min-w-0">
-                      {checkbox}
-                      <span
-                        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{ color: docColor, backgroundColor: docBg }}
-                      >
-                        <FileText size={20} />
-                      </span>
-                    </span>
+              <div className="flex items-center gap-2.5">
+                {/* The selection control sits in the card, beside the icon —
+                    outside it, it indented the list away from the search box. */}
+                <span className="flex items-center gap-2 shrink-0">
+                  {checkbox}
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ color: docColor, backgroundColor: docBg }}
+                  >
+                    <FileText size={16} />
+                  </span>
+                </span>
 
-                    
-                    {/* The same gates as the table's Actions column above —
-                        permissions AND the bulk-selection greying. Both have to
-                        carry them or the mobile view keeps offering what the
-                        desktop one has stopped offering. */}
-                    <div className="relative flex items-center gap-1.5 min-w-0">
-                      {may(doc, 'share') && (
-                        <Button
-                          onClick={() => handleShare(doc)}
-                          // Starts fetching the file on press rather than on click, so the
-                          // bytes are usually in hand before the handler runs and
-                          // `navigator.share()` still holds the user activation it
-                          // requires. See warmShare.
-                          onPointerDown={() => warmShare([asShareItem(doc)])}
-                          variant="outline"
-                          size="icon"
-                          disabled={bulkSelectionActive}
-                          className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10 border-primary/20 bg-primary/5"
-                          title={rowActionTitle('Share')}
-                        >
-                          <Share2 size={13} />
-                        </Button>
-                      )}
-                      {doc.filePath && (
-                        <Button
-                          onClick={() => openPreview(doc)}
-                          variant="outline"
-                          size="icon"
-                          disabled={bulkSelectionActive}
-                          className="h-8 w-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/20 bg-emerald-500/5"
-                          title={rowActionTitle('View')}
-                        >
-                          <Eye size={13} />
-                        </Button>
-                      )}
+                <span className="flex-1 min-w-0 text-sm font-bold leading-snug text-foreground line-clamp-2 break-words">
+                  {doc.title}
+                </span>
 
-                      <RowActionsMenu
-                        items={rowMenuItems(doc)}
-                        disabled={bulkSelectionActive}
-                        title={rowActionTitle('More actions')}
-                        triggerClassName="h-8 w-8 text-muted-foreground hover:bg-muted/10 border-border/50 bg-background/5"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-col gap-1 min-w-0">
-                    <span className="text-sm font-extrabold text-foreground truncate pr-2">{doc.title}</span>
-                    <div className="flex flex-col gap-1 mt-2">
-                      <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                        {/* Both tiers, exactly as the table's first column shows
-                            them. It spans the grid because the pair does not fit
-                            a half-width cell — this heading said "Category" and
-                            then named the SUB-category, which is the confusion
-                            the pair removes. */}
-                        <div className="flex flex-col gap-0.5 min-w-0 col-span-2">
-                          <span className="text-xs uppercase font-bold text-faint">Category</span>
-                          {/* Wraps rather than truncates: `title` is a hover
-                              tooltip, and there is no hover on a phone — the
-                              clipped half was simply unreadable. The block
-                              already spans both columns, so it has the width. */}
-                          <span
-                            className="text-xs font-semibold text-foreground whitespace-normal break-words leading-snug"
-                            title={docTaxonomyLabel(doc)}
-                          >
-                            {docTaxonomyLabel(doc).toUpperCase()}
-                          </span>
-                        </div>
-                        {doc.display?.number && (
-                          <div className="flex flex-col gap-0.5 min-w-0">
-                            {/* The category's own label — 'Voter ID Number',
-                                'Consumer Number' — rather than one word for
-                                eighty-three different kinds of number. */}
-                            <span className="text-xs uppercase font-bold text-faint">{doc.display.numberLabel || 'Doc No'}</span>
-                            <span className="text-xs font-mono font-medium text-foreground truncate">{doc.display.number}</span>
-                          </div>
-                        )}
-                        {doc.display?.holderName && (
-                          <div className="flex flex-col gap-0.5 min-w-0">
-                            <span className="text-xs uppercase font-bold text-faint">Holder</span>
-                            <span className="text-xs text-foreground truncate">{doc.display.holderName}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                {/* The same gates as the table's Actions column above —
+                    permissions AND the bulk-selection greying. Both have to
+                    carry them or the mobile view keeps offering what the
+                    desktop one has stopped offering. */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {may(doc, 'share') && (
+                    <Button
+                      onClick={() => handleShare(doc)}
+                      // Starts fetching the file on press rather than on click, so the
+                      // bytes are usually in hand before the handler runs and
+                      // `navigator.share()` still holds the user activation it
+                      // requires. See warmShare.
+                      onPointerDown={() => warmShare([asShareItem(doc)])}
+                      variant="outline"
+                      size="icon"
+                      disabled={bulkSelectionActive}
+                      className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10 border-primary/20 bg-primary/5"
+                      title={rowActionTitle('Share')}
+                    >
+                      <Share2 size={13} />
+                    </Button>
+                  )}
+                  {doc.filePath && (
+                    <Button
+                      onClick={() => openPreview(doc)}
+                      variant="outline"
+                      size="icon"
+                      disabled={bulkSelectionActive}
+                      className="h-8 w-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/20 bg-emerald-500/5"
+                      title={rowActionTitle('View')}
+                    >
+                      <Eye size={13} />
+                    </Button>
+                  )}
+                  <RowActionsMenu
+                    items={rowMenuItems(doc)}
+                    disabled={bulkSelectionActive}
+                    title={rowActionTitle('More actions')}
+                    triggerClassName="h-8 w-8 text-muted-foreground hover:bg-muted/10 border-border/50 bg-background/5"
+                  />
+                </div>
               </div>
             );
           }}
@@ -3038,6 +3043,30 @@ export default function DocumentsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Document detail — opened by clicking a row. Closes itself before
+          handing over to the full Edit form or the large preview, so two
+          dialogs are never stacked. */}
+      {detailDoc && (
+        <DocumentDetailPanel
+          key={detailDoc.id}
+          doc={detailDoc}
+          api={api}
+          companyId={companyId}
+          may={(action) => may(detailDoc, action)}
+          taxonomyLabel={docTaxonomyLabel(detailDoc)}
+          categoryOptions={categoryOptions}
+          onChanged={fetchDocuments}
+          onClose={() => setDetailDoc(null)}
+          onShare={() => handleShare(detailDoc)}
+          onDownload={() => handleDownload(detailDoc)}
+          onPrint={() => handlePrint(detailDoc)}
+          onDelete={async () => { if (await handleDelete(detailDoc.id)) setDetailDoc(null); }}
+          onEditAll={() => { const d = detailDoc; setDetailDoc(null); openEditModal(d); }}
+          onExpandPreview={() => { const d = detailDoc; setDetailDoc(null); openPreview(d); }}
+          onRotate={(deg) => saveRotation(detailDoc.id, deg)}
+        />
+      )}
+
       {/* Preview Modal */}
       <Dialog open={!!previewDoc} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
         {previewDoc && (
@@ -3046,6 +3075,17 @@ export default function DocumentsPage() {
               <DialogTitle className="text-base font-bold truncate">
                 Preview: {previewDoc.title}
               </DialogTitle>
+              {/* The name the file had when it was uploaded — the title above
+                  is what the member called the document, which is often not it. */}
+              {previewDoc.fileName && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0" title={previewDoc.fileName}>
+                  <FileText size={12} className="shrink-0" />
+                  <span className="truncate">
+                    Original file: <span className="font-medium text-foreground">{previewDoc.fileName}</span>
+                    {previewDoc.fileSize ? ` · ${formatBytes(previewDoc.fileSize)}` : ''}
+                  </span>
+                </p>
+              )}
             </DialogHeader>
             <FilePreviewPane
               className="min-h-[350px] max-h-[70vh] flex-1"

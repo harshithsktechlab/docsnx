@@ -20,6 +20,19 @@ import {
   isWithinUploadSize,
   setMaxUploadBytes,
   uploadSizeError,
+  DEFAULT_MAX_SCAN_FILES,
+  DEFAULT_MAX_SCAN_PAGES,
+  DEFAULT_MAX_SCAN_BYTES,
+  SCAN_FILES_CEILING,
+  SCAN_PAGES_CEILING,
+  MAX_SCAN_FILES,
+  MAX_SCAN_PAGES,
+  MAX_SCAN_BYTES,
+  setScanLimits,
+  scanBatchError,
+  scanBytesError,
+  trimScanBatch,
+  trimScanBytes,
 } from '@/lib/records/uploadTypes';
 
 const file = (name: string, type = '') => ({ name, type });
@@ -188,5 +201,69 @@ describe('the configurable size cap', () => {
 
     setMaxUploadBytes(UPLOAD_LIMIT_CEILING_BYTES);
     expect(MAX_UPLOAD_BYTES).toBe(UPLOAD_LIMIT_CEILING_BYTES);
+  });
+});
+
+/**
+ * The Bulk Scan limits are super-admin configurable (Admin → Field Config →
+ * File Size), so like the per-file cap they are live module state. What these
+ * pin is that a bad or missing value can never leave a scan unbounded.
+ */
+describe('the configurable Bulk Scan limits', () => {
+  afterEach(() => setScanLimits(null));
+
+  it('defaults to 15 files, 40 pages and 60 MB', () => {
+    expect([DEFAULT_MAX_SCAN_FILES, DEFAULT_MAX_SCAN_PAGES, DEFAULT_MAX_SCAN_BYTES])
+      .toEqual([15, 40, 60 * 1024 * 1024]);
+    expect([MAX_SCAN_FILES, MAX_SCAN_PAGES, MAX_SCAN_BYTES])
+      .toEqual([15, 40, 60 * 1024 * 1024]);
+  });
+
+  it('takes valid values, each independently', () => {
+    setScanLimits({ maxScanFiles: 20, maxScanPages: 60, maxScanBytes: 80 * 1024 * 1024 });
+    expect([MAX_SCAN_FILES, MAX_SCAN_PAGES, MAX_SCAN_BYTES]).toEqual([20, 60, 80 * 1024 * 1024]);
+
+    setScanLimits({ maxScanFiles: 20 });
+    expect([MAX_SCAN_FILES, MAX_SCAN_PAGES, MAX_SCAN_BYTES])
+      .toEqual([20, DEFAULT_MAX_SCAN_PAGES, DEFAULT_MAX_SCAN_BYTES]);
+  });
+
+  it('falls back to the default for null, zero, negative, fractional or non-numeric values', () => {
+    for (const bad of [null, undefined, 0, -3, 1.5, Number.NaN, 'abc', Infinity]) {
+      setScanLimits({ maxScanFiles: 30, maxScanPages: 30, maxScanBytes: 30 });
+      setScanLimits({ maxScanFiles: bad, maxScanPages: bad, maxScanBytes: bad });
+      expect([MAX_SCAN_FILES, MAX_SCAN_PAGES, MAX_SCAN_BYTES])
+        .toEqual([DEFAULT_MAX_SCAN_FILES, DEFAULT_MAX_SCAN_PAGES, DEFAULT_MAX_SCAN_BYTES]);
+    }
+  });
+
+  it('refuses values above each ceiling, and accepts the ceiling itself', () => {
+    setScanLimits({
+      maxScanFiles: SCAN_FILES_CEILING + 1,
+      maxScanPages: SCAN_PAGES_CEILING + 1,
+      maxScanBytes: UPLOAD_LIMIT_CEILING_BYTES + 1,
+    });
+    expect([MAX_SCAN_FILES, MAX_SCAN_PAGES, MAX_SCAN_BYTES])
+      .toEqual([DEFAULT_MAX_SCAN_FILES, DEFAULT_MAX_SCAN_PAGES, DEFAULT_MAX_SCAN_BYTES]);
+
+    setScanLimits({
+      maxScanFiles: SCAN_FILES_CEILING,
+      maxScanPages: SCAN_PAGES_CEILING,
+      maxScanBytes: UPLOAD_LIMIT_CEILING_BYTES,
+    });
+    expect([MAX_SCAN_FILES, MAX_SCAN_PAGES, MAX_SCAN_BYTES])
+      .toEqual([SCAN_FILES_CEILING, SCAN_PAGES_CEILING, UPLOAD_LIMIT_CEILING_BYTES]);
+  });
+
+  it('is followed by the helpers the picker and the route share', () => {
+    setScanLimits({ maxScanFiles: 20, maxScanPages: 60, maxScanBytes: 80 * 1024 * 1024 });
+
+    expect(trimScanBatch(13, Array.from({ length: 10 }, (_, i) => i)).accepted).toHaveLength(7);
+    expect(scanBatchError(25, 'files')).toContain('20 files');
+    expect(scanBatchError(70, 'pages')).toContain('60 pages');
+    expect(scanBytesError(90 * 1024 * 1024)).toContain('80 MB');
+    const kept = trimScanBytes(0, [{ size: 50 * 1024 * 1024 }, { size: 40 * 1024 * 1024 }]);
+    expect(kept.accepted).toHaveLength(1);
+    expect(kept.refused).toHaveLength(1);
   });
 });

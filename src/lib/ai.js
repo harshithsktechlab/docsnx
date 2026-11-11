@@ -141,44 +141,59 @@ async function generateContent({ client, model, provider }, contents) {
           generateContentInput = [sanitizedContents[sanitizedContents.length - 1]];
       }
 
-      const cache = await client.caches.create({
-        model,
-        contents: cacheContent,
-        ttl: '3600s'
-      });
-
+      // The cache is a cost optimisation, never a requirement. Creating one can
+      // be refused for reasons unrelated to the request — prod saw
+      //   400 "Cached content is too small. total_token_count=0,
+      //        min_total_token_count=1024"
+      // on a batch that countTokens had just measured above the threshold — and
+      // that 400 used to surface as the generic UNKNOWN error, failing a scan
+      // that the plain call below would have served. Fall back to it.
+      let cache = null;
       try {
-        const response = await client.models.generateContent({
+        cache = await client.caches.create({
           model,
-          contents: generateContentInput,
-          config: { cachedContent: cache.name, ...geminiThinking(model) }
+          contents: cacheContent,
+          ttl: '3600s'
         });
-        
-        return {
-          text: response.text || '',
-          promptTokens: response.usageMetadata?.promptTokenCount || 0,
-          completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-          thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
-          cachedTokens: response.usageMetadata?.cachedContentTokenCount || 0,
-        };
-      } finally {
-        await client.caches.delete({ name: cache.name }).catch(e => console.error('Cache delete error:', e));
-        console.log(`[AI] Context Cache ${cache.name} deleted successfully to prevent storage costs.`);
+      } catch (cacheErr) {
+        console.warn(`[AI] Context cache creation failed (${tokenCount} tokens, ${sanitizedContents.length} parts); falling back to an uncached call:`, cacheErr?.message || cacheErr);
       }
-    } else {
-      const response = await client.models.generateContent({
-        model,
-        contents: sanitizedContents,
-        ...configFor(model),
-      });
-      return {
-        text: response.text || '',
-        promptTokens: response.usageMetadata?.promptTokenCount || 0,
-        completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-        thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
-        cachedTokens: response.usageMetadata?.cachedContentTokenCount || 0,
-      };
+
+      if (cache) {
+        try {
+          const response = await client.models.generateContent({
+            model,
+            contents: generateContentInput,
+            config: { cachedContent: cache.name, ...geminiThinking(model) }
+          });
+
+          return {
+            text: response.text || '',
+            promptTokens: response.usageMetadata?.promptTokenCount || 0,
+            completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+            thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+            cachedTokens: response.usageMetadata?.cachedContentTokenCount || 0,
+          };
+        } finally {
+          await client.caches.delete({ name: cache.name }).catch(e => console.error('Cache delete error:', e));
+          console.log(`[AI] Context Cache ${cache.name} deleted successfully to prevent storage costs.`);
+        }
+      }
     }
+
+    // Under the cache threshold, or the cache could not be created.
+    const response = await client.models.generateContent({
+      model,
+      contents: sanitizedContents,
+      ...configFor(model),
+    });
+    return {
+      text: response.text || '',
+      promptTokens: response.usageMetadata?.promptTokenCount || 0,
+      completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+      thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+      cachedTokens: response.usageMetadata?.cachedContentTokenCount || 0,
+    };
   } catch (error) {
     console.error('[AI] Gemini generateContent error:', error);
     throw error;
@@ -362,7 +377,7 @@ Your tasks are:
 
 4. FOR EVERY RECORD, set "title": a clean concise name for it (e.g. exactly 'PAN Card' or 'Passport'). Do NOT append index suffixes like 'PAN Card - 1' or 'PAN Card 2'.
 
-5. FOR EVERY RECORD, set "holderName": the person the record is about, exactly as printed on the document — the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan. It is the person the record BELONGS TO, never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
+5. FOR EVERY RECORD, set "holderName": the person the record is about, exactly as printed on the document — the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). It is the person the record BELONGS TO, never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
 
 ${categoryList}
 
@@ -843,7 +858,7 @@ File it by its PRIMARY PURPOSE. Ignore advertisements, promotional banners, offe
 Return:
 1. "candidates" — the master taxonomy pairs this document could be filed under, BEST FIRST, at most three. Each is { "moduleKey": "...", "documentKey": "..." }, where "moduleKey" is the value shown in a module heading below and "documentKey" is one of the quoted keys listed UNDER that same heading. The two MUST come from the same module. Copy both verbatim — do not invent, abbreviate, pluralise or reword them, and never pair a key with a module that does not list it. Give a second and third choice whenever the document could reasonably go elsewhere. Do not answer with the fallback because you are unsure BETWEEN two entries that both fit; answer with both. But pick an entry only when the document's primary purpose genuinely matches that entry's description — when none does, the FIRST candidate must be the fallback. The user files it themselves from there, and a wrong category is worse than the fallback: it hides the document where nobody will look for it.
 2. "title" — a clean, concise name for this document (e.g. exactly 'PAN Card' or 'Passport'). No index suffixes like 'PAN Card - 1'.
-3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan. Never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
+3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). Never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
 
 ${categoryList}
    The fallback above is for pages that are blank or unreadable, and for any document whose purpose matches nothing on this list. Never stretch an entry to fit: a document is not a subscription because it shows a fee, nor a contract because it prints terms.

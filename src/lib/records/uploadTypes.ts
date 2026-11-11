@@ -379,7 +379,7 @@ export function isWithinUploadSize(file: { size?: number }): boolean {
  */
 
 /**
- * Files per scan.
+ * Files per scan — the built-in default.
  *
  * Fifteen covers a household folder — the IDs, the policies, the year's bills —
  * in one pass, while keeping the classification prompt inside the size where it
@@ -388,11 +388,17 @@ export function isWithinUploadSize(file: { size?: number }): boolean {
  *
  * Counted in FILES, not records: it is what the user selected and what they can
  * see on screen, so a refusal names something they can act on.
+ *
+ * A super admin can move it (Admin → Field Config → File Size) within
+ * `SCAN_FILES_CEILING`; `MAX_SCAN_FILES` below is the live value.
  */
-export const MAX_SCAN_FILES = 15;
+export const DEFAULT_MAX_SCAN_FILES = 15;
+
+/** Hard ceiling for the configurable files-per-scan: past it the prompt is unusable. */
+export const SCAN_FILES_CEILING = 50;
 
 /**
- * Pages reaching the classifier, across the whole batch.
+ * Pages reaching the classifier, across the whole batch — the built-in default.
  *
  * `MAX_SCAN_FILES` alone bounds the wrong unit — fifteen files is fifteen images
  * of ID cards or a hundred and fifty of loan agreements, and only the second
@@ -409,7 +415,10 @@ export const MAX_SCAN_FILES = 15;
  * supposed to split into several records. Refusing the batch loses no page and
  * hides nothing — the user drops the long file and scans it on its own.
  */
-export const MAX_SCAN_PAGES = 40;
+export const DEFAULT_MAX_SCAN_PAGES = 40;
+
+/** Hard ceiling for the configurable pages-per-scan. */
+export const SCAN_PAGES_CEILING = 200;
 
 /**
  * Why a batch was refused, worded once for the picker and the route.
@@ -478,8 +487,43 @@ export function trimScanBatch<T>(
  * Client-side only, unlike the two above. The route cannot enforce it usefully
  * — nginx has already rejected anything larger before Next sees a byte — and a
  * limit checked where it cannot fire is worse than no limit.
+ *
+ * This is the default; a super admin can move it up to `UPLOAD_LIMIT_CEILING_BYTES`
+ * (the nginx / Cloudflare body cap, which no setting here can lift).
  */
-export const MAX_SCAN_BYTES = 60 * 1024 * 1024;
+export const DEFAULT_MAX_SCAN_BYTES = 60 * 1024 * 1024;
+
+/**
+ * The live per-scan limits. `let` exports are live bindings, exactly like
+ * `MAX_UPLOAD_BYTES` above, so every importer (the picker, `/api/ai/scan`,
+ * `scanBatchError`, `trimScanBatch`, `trimScanBytes`) reads the current value
+ * with no signature change. Synced by `setScanLimits`, from `/api/auth/me` in
+ * the browser and from the database on the server.
+ */
+export let MAX_SCAN_FILES = DEFAULT_MAX_SCAN_FILES;
+export let MAX_SCAN_PAGES = DEFAULT_MAX_SCAN_PAGES;
+export let MAX_SCAN_BYTES = DEFAULT_MAX_SCAN_BYTES;
+
+function wholeWithin(value: unknown, ceiling: number, fallback: number): number {
+  const n = Number(value);
+  return value !== null && value !== undefined && Number.isInteger(n) && n >= 1 && n <= ceiling
+    ? n
+    : fallback;
+}
+
+/**
+ * Update the runtime scan limits. Each field is validated on its own — whole,
+ * at least 1 and within its ceiling — and an absent or invalid one falls back
+ * to the built-in default, so a bad value in the database can never leave a
+ * scan with no limit at all.
+ */
+export function setScanLimits(
+  limits: { maxScanFiles?: unknown; maxScanPages?: unknown; maxScanBytes?: unknown } | null | undefined,
+): void {
+  MAX_SCAN_FILES = wholeWithin(limits?.maxScanFiles, SCAN_FILES_CEILING, DEFAULT_MAX_SCAN_FILES);
+  MAX_SCAN_PAGES = wholeWithin(limits?.maxScanPages, SCAN_PAGES_CEILING, DEFAULT_MAX_SCAN_PAGES);
+  MAX_SCAN_BYTES = wholeWithin(limits?.maxScanBytes, UPLOAD_LIMIT_CEILING_BYTES, DEFAULT_MAX_SCAN_BYTES);
+}
 
 /**
  * Why a batch was refused for its size, in MB because that is the unit the

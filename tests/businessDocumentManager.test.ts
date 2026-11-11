@@ -53,8 +53,8 @@ const labelOf = (moduleKey: string, documentKey: string, fieldKey: string) =>
   specOf(moduleKey, documentKey).find((f) => f.fieldKey === fieldKey)?.fieldLabel;
 
 describe('every business sub-category names the number it is known by', () => {
-  it('covers all 90 of them, with none left identified by nothing', () => {
-    expect(BUSINESS).toHaveLength(90);
+  it('covers all 94 of them, with none left identified by nothing', () => {
+    expect(BUSINESS).toHaveLength(94);
     const naked = BUSINESS.filter((c) => idsOf(c.moduleKey, c.documentKey).length === 0);
     expect(naked.map((c) => `${c.moduleKey}/${c.documentKey}`)).toEqual([]);
   });

@@ -781,7 +781,9 @@ describe('Document category field dictionary', () => {
           // …and 0074's gold / silver / diamond purchases.
           && !(p.moduleKey === 'bank_investments' && p.documentKey === 'precious_metals_purchases')
           // …and every module's own `other` (0084).
-          && !isModuleOther(p),
+          && !isModuleOther(p)
+          // …and 0096's resume / CV.
+          && !(p.moduleKey === 'employment' && p.documentKey === 'resume_cv'),
       );
       expect(stated).toHaveLength(expected.length);
       expect([...stated].sort()).toEqual(
@@ -798,7 +800,7 @@ describe('Document category field dictionary', () => {
         (p) => isBusinessModule(p.moduleKey),
       );
       // 90 real categories, 15 module Others (0084) and the `biz_other` catch-all (0067).
-      expect(business).toHaveLength(106);
+      expect(business).toHaveLength(110);
       const unsealed = business.filter((p) => p.encryptedFields.length === 0);
       expect(unsealed.map((p) => `${p.moduleKey}/${p.documentKey}`)).toEqual([]);
       // `reference_number` is the one every business category carries.

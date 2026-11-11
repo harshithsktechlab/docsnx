@@ -1,13 +1,13 @@
 import { db } from '@/lib/db';
 import { systemConfigs } from '@/db/schema';
-import { setMaxUploadBytes } from './uploadTypes';
+import { setMaxUploadBytes, setScanLimits } from './uploadTypes';
 
 const TTL_MS = 60_000;
 let lastLoaded = 0;
 
 /**
- * Sync the runtime upload cap (`MAX_UPLOAD_BYTES`) with what the super admin
- * configured, at most once a minute. Called by every server-side enforcement
+ * Sync the runtime upload cap (`MAX_UPLOAD_BYTES`) and the Bulk Scan limits
+ * (`MAX_SCAN_FILES/PAGES/BYTES`) with what the super admin configured, at most once a minute. Called by every server-side enforcement
  * point before it measures a file.
  *
  * NEVER THROWS. This is a cache refresh for one number that already has a
@@ -25,10 +25,16 @@ export async function refreshUploadLimit(): Promise<void> {
   lastLoaded = Date.now();
   try {
     const [config] = await db
-      .select({ maxUploadBytes: systemConfigs.maxUploadBytes })
+      .select({
+        maxUploadBytes: systemConfigs.maxUploadBytes,
+        maxScanFiles: systemConfigs.maxScanFiles,
+        maxScanPages: systemConfigs.maxScanPages,
+        maxScanBytes: systemConfigs.maxScanBytes,
+      })
       .from(systemConfigs)
       .limit(1);
     setMaxUploadBytes(config?.maxUploadBytes);
+    setScanLimits(config);
   } catch {
     // Keep whatever limit is already in memory. See above.
   }

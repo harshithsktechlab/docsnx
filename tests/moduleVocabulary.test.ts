@@ -195,7 +195,7 @@ describe('record scopes partition the taxonomy', () => {
 
     expect(new Set(owned).size, 'a category is owned by two scopes').toBe(owned.length);
     expect(owned.sort()).toEqual([...seeded].sort());
-    expect(owned).toHaveLength(196);
+    expect(owned).toHaveLength(201);
   });
 
   it("keeps each scope's primaryModule inside the modules it spans", () => {
@@ -216,11 +216,11 @@ describe('record scopes partition the taxonomy', () => {
 });
 
 describe('the realignment preserved the taxonomy', () => {
-  it('has 196 categories — 90 personal plus 106 business (105 + the 0067 catch-all)', () => {
-    expect(DOCUMENT_CATEGORY_SEED).toHaveLength(196);
-    expect(DOCUMENT_CATEGORY_ENCRYPTED_FIELDS).toHaveLength(196);
+  it('has 201 categories — 91 personal plus 110 business (106 + the 0067 catch-all)', () => {
+    expect(DOCUMENT_CATEGORY_SEED).toHaveLength(201);
+    expect(DOCUMENT_CATEGORY_ENCRYPTED_FIELDS).toHaveLength(201);
     const business = DOCUMENT_CATEGORY_SEED.filter((r) => r.moduleKey.startsWith('biz_'));
-    expect(business).toHaveLength(106);
+    expect(business).toHaveLength(110);
   });
 
   it('seals far more than the baseline in the one catch-all', () => {

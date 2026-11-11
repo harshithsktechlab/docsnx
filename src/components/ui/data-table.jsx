@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RecordCard } from '@/components/ui/record-card';
-import { Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Search, SlidersHorizontal, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -178,6 +178,18 @@ function MultiSelectFilter({ label, allLabel, options, values, disabled, align =
   );
 }
 
+/**
+ * Did this click start on something that has its own job — a button, link,
+ * checkbox, menu item or form control? A row-level handler must not also fire
+ * for those: pressing Share on a row is not "open the row".
+ */
+export function isInteractiveTarget(event) {
+  const el = event?.target;
+  return Boolean(el?.closest?.(
+    'button, a, input, select, textarea, label, [role="checkbox"], [role="menuitem"], [role="menu"], [data-no-row-click]',
+  ));
+}
+
 export function DataTable({
   data,
   columns,
@@ -230,6 +242,26 @@ export function DataTable({
    * has an element of its own to hang the handler on.
    */
   onCardClick,
+  /**
+   * Clicking a desktop row: `(row, event)`. Opt-in, like `onCardClick`, and it
+   * is the CALLER's job to ignore clicks that began on a control inside the row
+   * (a button, the checkbox, a menu) — see `isInteractiveTarget` below, which
+   * the table exports for exactly that.
+   */
+  onRowClick,
+  /**
+   * Denser mobile cards: tighter padding and gap, for lists whose card is only
+   * a name and a few buttons and whose detail lives behind a tap. Off by
+   * default so every other list keeps its spacing.
+   */
+  compactCards = false,
+  /**
+   * Below `sm`, fold the filter dropdowns behind a filter icon beside the
+   * search box instead of stacking them under it. Opt-in: a list with a couple
+   * of filters is fine as it is. From `sm` up nothing changes — the filters are
+   * always inline and the icon is not rendered.
+   */
+  collapsibleFilters = false,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -237,6 +269,8 @@ export function DataTable({
 
   // Local state for search to avoid lagging the input field
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+  /** Whether the collapsed filter panel is showing (phone only). */
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Debounce search update to URL
   useEffect(() => {
@@ -317,8 +351,9 @@ export function DataTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDefinitions.map((f) => `${f.key}:${(f.resets || []).join(',')}`).join('|')]);
 
-  const activeFilterCount = filterKeys.filter((key) => searchParams.get(key)).length
-    + (searchParams.get('search') ? 1 : 0);
+  /** Filters only — the search text is visible in its own box, so the icon's badge leaves it out. */
+  const setFilterCount = filterKeys.filter((key) => searchParams.get(key)).length;
+  const activeFilterCount = setFilterCount + (searchParams.get('search') ? 1 : 0);
 
   // Deliberately leaves `sortBy`/`sortOrder` alone: a column sort is not a
   // filter — it changes the order of the results, not which ones there are.
@@ -428,8 +463,14 @@ export function DataTable({
   return (
     <div className="w-full space-y-4">
       {/* Search and Filters Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-        <div className="relative w-full sm:max-w-sm">
+      <div className={cn(
+        'flex flex-col sm:flex-row justify-between items-start sm:items-center',
+        collapsibleFilters ? 'gap-2 sm:gap-4' : 'gap-4',
+      )}>
+        {/* `contents` when not collapsible: the wrapper then generates no box, so the
+            search field is the toolbar's direct flex child exactly as before. */}
+        <div className={collapsibleFilters ? 'flex w-full items-center gap-2 sm:max-w-sm' : 'contents'}>
+        <div className={cn('relative w-full sm:max-w-sm', collapsibleFilters && 'flex-1 min-w-0')}>
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search..."
@@ -449,6 +490,32 @@ export function DataTable({
             </button>
           )}
         </div>
+        {/* The phone's way in to the filters. Highlighted while the panel is
+            open or while anything is set, so a collapsed panel never hides
+            that the list is narrowed. */}
+        {collapsibleFilters && filterDefinitions.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setFiltersOpen((prev) => !prev)}
+            aria-label="Filters"
+            aria-expanded={filtersOpen}
+            aria-controls="data-table-filters"
+            title="Filters"
+            className={cn(
+              'relative h-10 w-10 shrink-0 p-0 sm:hidden',
+              (filtersOpen || setFilterCount > 0) && 'border-primary/40 bg-primary/10 text-primary',
+            )}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {setFilterCount > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+                {setFilterCount}
+              </span>
+            )}
+          </Button>
+        )}
+        </div>
         
         {/* Two controls per row on a phone rather than one. Each trigger is
             `w-full` below `sm`, so a list with four of them (the Document
@@ -456,7 +523,14 @@ export function DataTable({
             into four full-width rows and pushed the results off the screen.
             `sm` and up is unchanged. */}
         {filterDefinitions.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:w-auto">
+          <div
+            id="data-table-filters"
+            className={cn(
+              collapsibleFilters && !filtersOpen
+                ? 'hidden sm:flex sm:flex-wrap sm:w-auto sm:gap-2'
+                : 'grid grid-cols-2 gap-2 w-full sm:flex sm:flex-wrap sm:w-auto',
+            )}
+          >
             {filterDefinitions.map((filter, index) => {
               if (filter.multiple) {
                 return (
@@ -580,7 +654,12 @@ export function DataTable({
               data.map((item, rowIndex) => {
                 const rowId = getRowId(item);
                 return (
-                <TableRow key={rowId || rowIndex} data-state={selectable && selected.has(rowId) ? 'selected' : undefined}>
+                <TableRow
+                  key={rowId || rowIndex}
+                  data-state={selectable && selected.has(rowId) ? 'selected' : undefined}
+                  className={onRowClick ? 'cursor-pointer' : undefined}
+                  onClick={onRowClick ? (event) => onRowClick(item, event) : undefined}
+                >
                   {selectable && (
                     <TableCell className="w-[44px]">
                       <Checkbox
@@ -610,7 +689,7 @@ export function DataTable({
       </div>
 
       {/* Mobile Card View */}
-      <div className="block md:hidden space-y-4">
+      <div className={cn('block md:hidden', compactCards ? 'space-y-2' : 'space-y-4')}>
         {loading ? (
           <div className="text-center py-8 text-muted-foreground">Loading...</div>
         ) : data && data.length > 0 ? (
@@ -640,9 +719,10 @@ export function DataTable({
                rail a selected desktop row gets. */
             <RecordCard
               key={rowId || i}
+              className={compactCards ? 'p-2.5' : undefined}
               selected={selectable && selected.has(rowId)}
               interactive={Boolean(onCardClick)}
-              onClick={onCardClick ? () => onCardClick(item) : undefined}
+              onClick={onCardClick ? (event) => onCardClick(item, event) : undefined}
             >
               {renderCard ? renderCard(item, { checkbox }) : (
                 /* Fallback if renderCard is not provided */

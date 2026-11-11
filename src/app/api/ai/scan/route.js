@@ -6,6 +6,7 @@ import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { isBusinessModule } from '@/lib/documentCategories';
 import { processUpload, sweepStaleScanDirs } from '@/lib/documentProcessor';
 import { scanMultipleFiles } from '@/lib/ai';
+import { splitMixedSingleDocuments } from '@/lib/records/scanGrouping';
 import { AI_ERROR_MESSAGES, AI_ERROR_CODES } from '@/lib/aiKeyManager';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -531,6 +532,32 @@ export async function POST(req) {
       fileCount: files.length,
       pageCount: aiFiles.length,
     });
+
+    // 3b. Check the model's grouping. A single-document category (a PAN card)
+    //     that came back holding pages from more than one uploaded file is split
+    //     by file, and each file is classified again on its own — see
+    //     src/lib/records/scanGrouping.ts. Costs nothing when the grouping is
+    //     right, which is every batch that is not mixed.
+    const scanUsage = { batchId, fileCount: files.length, pageCount: aiFiles.length };
+    result.proposedRecords = await splitMixedSingleDocuments(
+      result.proposedRecords || [],
+      aiFiles,
+      async (indices) => {
+        const subset = indices.map((i) => aiFiles[i]);
+        const again = await scanMultipleFiles(subset, user.tenantId, user.id, taxonomy, companyId, {
+          ...scanUsage,
+          fileCount: new Set(subset.map((p) => p.originalName || p.fileName)).size,
+          pageCount: subset.length,
+        });
+        // The sub-call numbers its pages 0..n-1; put them back on the batch's.
+        return (again.proposedRecords || []).map((r) => ({
+          ...r,
+          fileIndices: (r.fileIndices || [])
+            .map((local) => indices[local])
+            .filter((i) => i !== undefined),
+        }));
+      },
+    );
 
     // 4. Resolve the AI's master category codes to ids for the review UI.
     await attachCategoryIds(result.proposedRecords);

@@ -43,15 +43,15 @@ import { maskSensitiveText } from '../src/lib/aiPrivacyMasker';
  * `precious_metals_purchases` in 0074. 0084 gave every module but the
  * catch-all its own `other`.
  */
-const EXPECTED_PERSONAL_COUNTS = [9, 13, 7, 9, 5, 7, 5, 5, 6, 4, 3, 4, 5, 7, 1];
+const EXPECTED_PERSONAL_COUNTS = [9, 13, 7, 9, 5, 7, 6, 5, 6, 4, 3, 4, 5, 7, 1];
 /**
  * Business modules 101..114, added by 0050, 115 `biz_travel` by 0065, and the
  * company catch-all 116 `biz_other` by 0067.
  */
-const EXPECTED_BUSINESS_COUNTS = [9, 8, 9, 8, 8, 7, 8, 8, 6, 6, 6, 5, 5, 5, 7, 1];
+const EXPECTED_BUSINESS_COUNTS = [9, 8, 9, 8, 8, 7, 8, 9, 6, 6, 6, 5, 8, 5, 7, 1];
 const EXPECTED_MODULE_COUNTS = [...EXPECTED_PERSONAL_COUNTS, ...EXPECTED_BUSINESS_COUNTS];
-const TOTAL_PERSONAL = 90;
-const TOTAL_BUSINESS = 106;
+const TOTAL_PERSONAL = 91;
+const TOTAL_BUSINESS = 110;
 const TOTAL_SUBCATEGORIES = TOTAL_PERSONAL + TOTAL_BUSINESS;
 
 const MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0023_master_taxonomy_realignment.sql');
@@ -63,6 +63,8 @@ const FOLD_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0070_fold_wealth_i
 const PURCHASE_BILLS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0073_purchase_bills_category.sql');
 const PRECIOUS_METALS_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0074_precious_metals_purchases.sql');
 const MODULE_OTHER_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0084_module_other_subcategories.sql');
+const SALES_MARKETING_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0095_sales_marketing_subcategories.sql');
+const RESUME_CV_MIGRATION_PATH = join(__dirname, '..', 'drizzle', '0096_resume_cv_subcategories.sql');
 
 /**
  * 0036 reaped the 15 tombstones 0023 left behind, once 0035 had removed their
@@ -95,7 +97,7 @@ describe('Document category taxonomy', () => {
       );
     });
 
-    it('has 196 sub-categories in total', () => {
+    it('has 201 sub-categories in total', () => {
       const total = DOCUMENT_CATEGORY_MODULES.reduce((n, m) => n + m.subCategories.length, 0);
       expect(total).toBe(TOTAL_SUBCATEGORIES);
       expect(EXPECTED_MODULE_COUNTS.reduce((a, b) => a + b, 0)).toBe(TOTAL_SUBCATEGORIES);
@@ -180,7 +182,7 @@ describe('Document category taxonomy', () => {
     });
   });
 
-  describe('Migration parity (drizzle/0023, 0050, 0065, then 0073)', () => {
+  describe('Migration parity (drizzle/0023, 0050, 0065, …, 0096)', () => {
     // 0023 carries one row per category: the OLD (module_key, document_key) it is
     // matched on, and the NEW module_no / module_key / module_name /
     // document_key / sort_order it is rewritten to. Those new values ARE the
@@ -370,6 +372,63 @@ describe('Document category taxonomy', () => {
       }
     });
 
+    /**
+     * 0095 replaces Sales & Marketing's contract-style sub-categories with
+     * collateral ones: seven additive rows, `other` moved to the end, and the
+     * four old keys RETIRED (is_active = false) — never deleted or renamed.
+     */
+    const salesSql = readFileSync(SALES_MARKETING_MIGRATION_PATH, 'utf8');
+    const salesRows = Array.from(salesSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+    const SALES_RETIRED = [
+      'sales_agreements', 'marketing_collateral_approvals',
+      'customer_contracts_slas', 'warranty_documents',
+    ];
+    const SALES_OTHER_SORT = 113008;
+
+    /**
+     * 0096 adds `employment/resume_cv` and `biz_hr/resumes_cvs` additively and
+     * moves each module's `other` after its new row.
+     */
+    const resumeSql = readFileSync(RESUME_CV_MIGRATION_PATH, 'utf8');
+    const resumeRows = Array.from(resumeSql.matchAll(bizRowRe)).map((m) => ({
+      moduleNo: Number(m[1]),
+      moduleKey: m[2],
+      moduleName: m[3].replace(/''/g, "'"),
+      documentKey: m[4],
+      sortOrder: Number(m[6]),
+    }));
+    const RESUME_OTHER_SORT: Record<string, number> = { employment: 7006, biz_hr: 108009 };
+
+    it('adds the resume / CV rows additively in 0096 and moves `other` after them', () => {
+      expect(resumeRows.map((r) => `${r.moduleKey}/${r.documentKey}`)).toEqual([
+        'employment/resume_cv', 'biz_hr/resumes_cvs',
+      ]);
+      expect(resumeSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(resumeSql).not.toMatch(/DELETE\s+FROM/i);
+    });
+
+    it('retires the four old Sales & Marketing keys in 0095 without deleting them', () => {
+      expect(salesRows.map((r) => r.documentKey)).toEqual([
+        'company_profile', 'pitch_deck', 'marketing_deck', 'marketing_materials',
+        'brochures_catalogs', 'case_studies_testimonials', 'price_lists_quotations',
+      ]);
+      expect(salesSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(salesSql).not.toMatch(/DELETE\s+FROM/i);
+      expect(salesSql).toMatch(/SET "is_active" = false/);
+      for (const key of SALES_RETIRED) expect(salesSql).toContain(`'${key}'`);
+      // The TS constant must not list a retired key, or the seed would revive it.
+      const sales = DOCUMENT_CATEGORY_MODULES.find((m) => m.moduleKey === 'biz_sales')!;
+      const keys = sales.subCategories.map((s) => s.documentKey);
+      for (const key of SALES_RETIRED) expect(keys).not.toContain(key);
+      expect(sales.subCategories.at(-1)?.documentKey).toBe('other');
+    });
+
     it('adds the two travel modules additively in 0065', () => {
       expect(travelRows).toHaveLength(12);
       expect([...new Set(travelRows.map((r) => r.moduleKey))]).toEqual(['travel', 'biz_travel']);
@@ -390,7 +449,17 @@ describe('Document category taxonomy', () => {
         ...purchaseRows,
         ...preciousRows,
         ...otherRows,
+        // 0095 adds seven Sales & Marketing rows; the four it retires and the
+        // `other` sort position it moves are reconciled just below.
+        ...salesRows,
+        // 0096 adds the two resume / CV rows; the `other` moves are reconciled below.
+        ...resumeRows,
       ]
+        .filter((r) => !(r.moduleKey === 'biz_sales' && SALES_RETIRED.includes(r.documentKey)))
+        .map((r) => (r.moduleKey === 'biz_sales' && r.documentKey === 'other'
+          ? { ...r, sortOrder: SALES_OTHER_SORT } : r))
+        .map((r) => (r.documentKey === 'other' && RESUME_OTHER_SORT[r.moduleKey]
+          ? { ...r, sortOrder: RESUME_OTHER_SORT[r.moduleKey] } : r))
         .map((r) => ({
           moduleNo: r.moduleNo,
           moduleKey: r.moduleKey,

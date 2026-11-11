@@ -1899,6 +1899,18 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       // The UAN passbook / yearly statement covers one FY.
       PERIOD_FIELD,
     ],
+
+    // No isIdentifier: a person keeps several versions of a resume, and none
+    // of these fields identifies one — a shared name must not make a newer CV
+    // overwrite an older one as a "duplicate".
+    resume_cv: [
+      { fieldKey: 'candidate_name', fieldLabel: 'Candidate Name', dataType: 'text', isPii: true, isRequired: true },
+      { fieldKey: 'current_designation', fieldLabel: 'Current Designation', dataType: 'text', isPii: false },
+      { fieldKey: 'current_employer', fieldLabel: 'Current Employer', dataType: 'text', isPii: false },
+      { fieldKey: 'total_experience', fieldLabel: 'Total Experience', dataType: 'text', isPii: false },
+      { fieldKey: 'highest_qualification', fieldLabel: 'Highest Qualification', dataType: 'text', isPii: false },
+      { fieldKey: 'skills', fieldLabel: 'Key Skills', dataType: 'text', isPii: false },
+    ],
   },
 
   // ── Vehicle ──
@@ -2674,6 +2686,20 @@ const BUSINESS_CATEGORY_FIELDS: Readonly<
     pf_esi_employee_records: [
       { fieldKey: 'uan_number', fieldLabel: 'UAN', dataType: 'text', isPii: true, isIdentifier: true },
     ],
+    // Not identified by a number — a CV has none. `candidate_name` is the
+    // employee or applicant; the Document Date from the module default is the
+    // date of the CV.
+    resumes_cvs: [
+      // A CV has no number of its own; the employee ID (or the requisition /
+      // application reference) is the closest thing. Optional like every
+      // business identifier, so it never makes two CVs duplicates.
+      { fieldKey: 'reference_number', fieldLabel: 'Employee ID / Application Ref.', dataType: 'text', isPii: true, isIdentifier: true },
+      { fieldKey: 'candidate_name', fieldLabel: 'Candidate / Employee Name', dataType: 'text', isPii: true },
+      { fieldKey: 'current_designation', fieldLabel: 'Current Designation', dataType: 'text', isPii: false },
+      { fieldKey: 'total_experience', fieldLabel: 'Total Experience', dataType: 'text', isPii: false },
+      { fieldKey: 'highest_qualification', fieldLabel: 'Highest Qualification', dataType: 'text', isPii: false },
+      { fieldKey: 'skills', fieldLabel: 'Key Skills', dataType: 'text', isPii: false },
+    ],
   },
 
   biz_ip: {
@@ -2742,21 +2768,6 @@ const BUSINESS_CATEGORY_FIELDS: Readonly<
     ],
     vendor_contracts: [
       { fieldKey: 'contract_number', fieldLabel: 'Contract Number', dataType: 'text', isPii: true, isIdentifier: true },
-    ],
-  },
-
-  biz_sales: {
-    customer_contracts_slas: [
-      { fieldKey: 'contract_number', fieldLabel: 'Contract Number', dataType: 'text', isPii: true, isIdentifier: true },
-    ],
-    marketing_collateral_approvals: [
-      { fieldKey: 'reference_number', fieldLabel: 'Approval Reference Number', dataType: 'text', isPii: true, isIdentifier: true },
-    ],
-    sales_agreements: [
-      { fieldKey: 'agreement_number', fieldLabel: 'Agreement Number', dataType: 'text', isPii: true, isIdentifier: true },
-    ],
-    warranty_documents: [
-      { fieldKey: 'serial_number', fieldLabel: 'Product Serial Number', dataType: 'text', isPii: true, isIdentifier: true },
     ],
   },
 

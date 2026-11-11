@@ -49,11 +49,10 @@ import { APP_NAME, APP_MARK } from '@/lib/brand';
 import { personalWorkspaceName } from '@/lib/workspaceName';
 import BrandWordmark from '@/app/components/BrandWordmark';
 import GlobalSearch from '@/app/components/GlobalSearch';
-import { maybeToastStoragePressure } from '@/lib/storageToast';
 import { ONBOARDING_PATH } from '@/lib/onboardingGate';
 import { expiryWarningDays, lockAxisFor, lockAxisLabel, workspaceLock } from '@/lib/workspaceLock';
 import { formatDate } from '@/lib/dateHelper';
-import { setMaxUploadBytes } from '@/lib/records/uploadTypes';
+import { setMaxUploadBytes, setScanLimits } from '@/lib/records/uploadTypes';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -521,10 +520,8 @@ export default function Shell({ children }) {
         setMemberships(Array.isArray(data.memberships) ? data.memberships : []);
         setPendingInvites(Array.isArray(data.pendingInvites) ? data.pendingInvites : []);
         setPlanState(data.planStatus || null);
-        // Warn on the way to full, not only once uploads start failing. Deduped
-        // per state inside the helper — this runs on every navigation.
-        maybeToastStoragePressure(data.storageData || null);
         setMaxUploadBytes(data.platformConfig?.maxUploadBytes);
+        setScanLimits(data.platformConfig);
         setAppLogoVersion(Number(data.appLogoVersion) || 0);
 
         // Setup Push Notifications

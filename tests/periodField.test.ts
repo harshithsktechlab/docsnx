@@ -43,7 +43,6 @@ const ONE_OFF: Record<string, string[]> = {
     'fire_theft_insurance', 'marine_cargo_insurance',
   ],
   biz_procurement: ['purchase_orders', 'vendor_contracts', 'quality_certifications'],
-  biz_sales: ['sales_agreements', 'marketing_collateral_approvals', 'customer_contracts_slas', 'warranty_documents'],
   biz_operations: ['property_lease_deeds', 'equipment_purchase_maintenance'],
   biz_compliance: ['board_resolutions'],
   biz_registration: ['certificate_of_incorporation'],

@@ -28,6 +28,20 @@ import { cn } from '@/lib/utils';
 
 const MB = 1024 * 1024;
 
+/**
+ * The Bulk Scan limits, in the order they are shown. `bytes` is typed in MB and
+ * stored in bytes, like the per-file cap above. A blank field is "use the
+ * built-in default" and is sent as null.
+ */
+const SCAN_FIELDS = [
+  { key: 'files', api: 'maxScanFiles', label: 'Files per scan', unit: 'files',
+    help: 'How many documents can be selected for one Bulk Scan.' },
+  { key: 'pages', api: 'maxScanPages', label: 'Pages per scan', unit: 'pages',
+    help: 'Pages across the whole batch that the AI reads at once. A long PDF counts every page.' },
+  { key: 'mb', api: 'maxScanBytes', label: 'Total size per scan', unit: 'MB',
+    help: 'Combined size of all files in one scan.' },
+];
+
 export default function FileSizeTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,6 +54,12 @@ export default function FileSizeTab() {
   const [savedMb, setSavedMb] = useState(null);
   const [defaultMb, setDefaultMb] = useState(25);
   const [ceilingMb, setCeilingMb] = useState(100);
+
+  /** Bulk Scan limits as typed ('' = default) and as last confirmed by the server. */
+  const [scan, setScan] = useState({ files: '', pages: '', mb: '' });
+  const [savedScan, setSavedScan] = useState({ files: '', pages: '', mb: '' });
+  const [scanDefaults, setScanDefaults] = useState({ files: 15, pages: 40, mb: 60 });
+  const [scanCeilings, setScanCeilings] = useState({ files: 50, pages: 200, mb: 100 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +77,33 @@ export default function FileSizeTab() {
         setCeilingMb(ceiling);
         setValueMb(String(current));
         setSavedMb(current);
+
+        const toForm = (api, key) => {
+          const v = data[api];
+          if (v == null) return '';
+          return String(key === 'mb' ? Math.round(v / MB) : v);
+        };
+        const loaded = {
+          files: toForm('maxScanFiles', 'files'),
+          pages: toForm('maxScanPages', 'pages'),
+          mb: toForm('maxScanBytes', 'mb'),
+        };
+        setScan(loaded);
+        setSavedScan(loaded);
+        if (data.scanDefaults) {
+          setScanDefaults({
+            files: data.scanDefaults.files,
+            pages: data.scanDefaults.pages,
+            mb: Math.round(data.scanDefaults.bytes / MB),
+          });
+        }
+        if (data.scanCeilings) {
+          setScanCeilings({
+            files: data.scanCeilings.files,
+            pages: data.scanCeilings.pages,
+            mb: Math.round(data.scanCeilings.bytes / MB),
+          });
+        }
       } else setError(data.error || 'Could not load the upload limit');
     } catch { setError('Could not load the upload limit'); }
     setLoading(false);
@@ -67,7 +114,19 @@ export default function FileSizeTab() {
   const parsed = Number(valueMb);
   const valid = valueMb !== '' && Number.isFinite(parsed)
     && Number.isInteger(parsed) && parsed >= 1 && parsed <= ceilingMb;
-  const dirty = valueMb !== '' && parsed !== savedMb;
+  const fileDirty = valueMb !== '' && parsed !== savedMb;
+
+  // A blank scan field means "default" and is always valid; anything typed must
+  // be a whole number from 1 up to its ceiling.
+  const scanValid = (key) => {
+    const raw = scan[key];
+    if (raw === '') return true;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 1 && n <= scanCeilings[key];
+  };
+  const allScanValid = SCAN_FIELDS.every((f) => scanValid(f.key));
+  const scanDirty = SCAN_FIELDS.some((f) => scan[f.key] !== savedScan[f.key]);
+  const dirty = fileDirty || scanDirty;
 
   // The Fields tab guards its unsaved edits the same way, and for the same
   // reason: a tab switch here keeps the component mounted, but a reload does not.
@@ -79,7 +138,7 @@ export default function FileSizeTab() {
   }, [dirty]);
 
   const save = useCallback(async () => {
-    if (!valid) return;
+    if (!valid || !allScanValid) return;
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -87,15 +146,21 @@ export default function FileSizeTab() {
       const { json: data } = await apiCall('/api/admin/document-fields/file-size', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ maxUploadBytes: parsed * MB }),
+        body: JSON.stringify({
+          maxUploadBytes: parsed * MB,
+          maxScanFiles: scan.files === '' ? null : Number(scan.files),
+          maxScanPages: scan.pages === '' ? null : Number(scan.pages),
+          maxScanBytes: scan.mb === '' ? null : Number(scan.mb) * MB,
+        }),
       });
       if (data.success) {
         setSavedMb(parsed);
-        setSuccess(`Uploads are now capped at ${parsed} MB per file.`);
+        setSavedScan(scan);
+        setSuccess('Upload limits saved.');
       } else setError(data.error || 'Could not save the upload limit');
     } catch { setError('Could not save the upload limit'); }
     setSaving(false);
-  }, [valid, parsed]);
+  }, [valid, parsed, allScanValid, scan]);
 
   if (loading) {
     return (
@@ -157,11 +222,59 @@ export default function FileSizeTab() {
         </p>
       </div>
 
+      <div className="space-y-4 rounded-lg border bg-card/50 p-5">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Bulk scan limits</h3>
+          <p className="text-xs text-muted-foreground">
+            What one Bulk Scan (&ldquo;Start AI Group &amp; Scan&rdquo;) accepts. Leave a field blank to
+            use the platform default. Raising files or pages makes the AI read more at
+            once, which is slower, costs more and files documents less accurately.
+          </p>
+        </div>
+
+        {SCAN_FIELDS.map((f) => {
+          const ok = scanValid(f.key);
+          const id = `scan-${f.key}`;
+          return (
+            <div key={f.key} className="space-y-1">
+              <label htmlFor={id} className="block text-sm font-medium">{f.label}</label>
+              <div className="flex items-center gap-2">
+                <input
+                  id={id}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={scanCeilings[f.key]}
+                  step={1}
+                  placeholder={String(scanDefaults[f.key])}
+                  value={scan[f.key]}
+                  onChange={(e) => { setScan((p) => ({ ...p, [f.key]: e.target.value })); setSuccess(null); }}
+                  disabled={saving}
+                  className={cn(
+                    'h-9 w-32 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm',
+                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                    !ok && 'border-destructive focus-visible:ring-destructive',
+                  )}
+                />
+                <span className="text-sm text-muted-foreground">{f.unit}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {!ok
+                  ? `Enter a whole number between 1 and ${scanCeilings[f.key]}, or leave blank for the default.`
+                  : `${f.help} Default ${scanDefaults[f.key]}, maximum ${scanCeilings[f.key]}.${
+                    f.key === 'mb' ? ' Above that the web server rejects the upload.' : ''}`}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={save}
-          disabled={!dirty || !valid || saving}
+          disabled={!dirty || !valid || !allScanValid || saving}
           className={cn(
             'inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium',
             'bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
@@ -174,7 +287,7 @@ export default function FileSizeTab() {
         {dirty && !saving && (
           <button
             type="button"
-            onClick={() => { setValueMb(String(savedMb)); setError(null); }}
+            onClick={() => { setValueMb(String(savedMb)); setScan(savedScan); setError(null); }}
             className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-accent"
           >
             Discard
