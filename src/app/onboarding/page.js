@@ -992,7 +992,7 @@ export default function OnboardingWizard() {
               */}
               <CardDescription>{membersStepBlurb(chosenDestination, destinations)}</CardDescription>
             </CardHeader>
-            <CardContent className="py-4">
+            <CardContent className="px-4 py-4 sm:px-6">
               <div className="space-y-6">
                 {/*
                   ── WHO ARE YOU ADDING? ────────────────────────────────────
@@ -1058,13 +1058,13 @@ export default function OnboardingWizard() {
 
                 {/* Add Form */}
                 {destinations.length > 0 && (
-                <div className="grid gap-4 p-4 border rounded-lg bg-background">
+                <div className="grid grid-cols-1 gap-4 p-4 border rounded-lg bg-background min-w-0">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <Label>Name</Label>
                       <Input placeholder="John Doe" value={newMember.name} onChange={e => setNewMember({...newMember, name: e.target.value})} />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <PhoneInput
                         id="onboardingMemberPhone"
                         label="Mobile Number *"
@@ -1073,12 +1073,12 @@ export default function OnboardingWizard() {
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 min-w-0">
                     <Label>Email <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <Input type="email" placeholder="john@example.com" value={newMember.email} onChange={e => setNewMember({...newMember, email: e.target.value})} />
-                    <p className="text-xs text-muted-foreground">Optional — if given, the invite and their sign-in code are emailed too.</p>
+                    <p className="text-xs text-muted-foreground break-words">Optional — if given, the invite and their sign-in code are emailed too.</p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground break-words">
                     We&apos;ll send them an invite on WhatsApp (and email, if given) to set their own password.
                   </p>
 
@@ -1093,7 +1093,7 @@ export default function OnboardingWizard() {
                     <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
                       <div className="flex items-start gap-2">
                         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-                        <p className="text-xs text-muted-foreground leading-relaxed">
+                        <p className="min-w-0 text-xs text-muted-foreground leading-relaxed break-words">
                           Added with <strong className="text-foreground">Contributor</strong> access
                           by default — they can view and add records in every module, but can&apos;t
                           edit, delete, or share until you grant it. You can change this anytime from

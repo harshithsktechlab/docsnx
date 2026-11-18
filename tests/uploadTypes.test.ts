@@ -1,10 +1,9 @@
 /**
  * What may be uploaded.
  *
- * The list is consumed twice — the form's `accept` attribute and the POST
- * route's check — and only the second one is a control: `accept` filters a file
- * dialog, it does not constrain a request. These assertions pin the behaviour
- * that matters when someone posts directly.
+ * Any type may be stored; only a file with neither a name nor a type is
+ * refused. The picker carries no `accept` attribute, so no platform greys a
+ * file out (iOS Safari did, for .pptx).
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import {
@@ -12,7 +11,9 @@ import {
   UPLOAD_ACCEPT_ATTRIBUTE,
   UPLOAD_ACCEPT_LABEL,
   extensionOf,
+  extensionForMime,
   isAcceptedUpload,
+  isInlineSafeMime,
   uploadTypeError,
   DEFAULT_MAX_UPLOAD_BYTES,
   MAX_UPLOAD_BYTES,
@@ -92,11 +93,15 @@ describe('accepted types', () => {
     expect(isAcceptedUpload(file('capture.gif', 'image/gif'))).toBe(true);
   });
 
-  it('refuses what can carry script, and opaque blobs', () => {
-    expect(isAcceptedUpload(file('logo.svg', 'image/svg+xml'))).toBe(false);
-    expect(isAcceptedUpload(file('page.html', 'text/html'))).toBe(false);
-    expect(isAcceptedUpload(file('backup.zip', 'application/zip'))).toBe(false);
-    expect(isAcceptedUpload(file('setup.exe', 'application/x-msdownload'))).toBe(false);
+  it('takes any type — presentations, archives, markup and unknown extensions included', () => {
+    expect(isAcceptedUpload(file('deck.pptx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'))).toBe(true);
+    expect(isAcceptedUpload(file('deck.ppt', ''))).toBe(true);
+    expect(isAcceptedUpload(file('deck.pptx', 'application/octet-stream'))).toBe(true);
+    expect(isAcceptedUpload(file('logo.svg', 'image/svg+xml'))).toBe(true);
+    expect(isAcceptedUpload(file('page.html', 'text/html'))).toBe(true);
+    expect(isAcceptedUpload(file('backup.zip', 'application/zip'))).toBe(true);
+    expect(isAcceptedUpload(file('thing.weird', ''))).toBe(true);
   });
 
   it('refuses a file it can judge by neither name nor type', () => {
@@ -106,36 +111,38 @@ describe('accepted types', () => {
 });
 
 describe('the accept attribute', () => {
-  it('carries extensions AND MIME types', () => {
-    // Safari matches `accept` by MIME, Windows Chrome by extension. Only one
-    // spelling and the picker silently shows nothing on one of them.
-    expect(UPLOAD_ACCEPT_ATTRIBUTE).toContain('.docx');
-    expect(UPLOAD_ACCEPT_ATTRIBUTE).toContain('application/pdf');
-    expect(UPLOAD_ACCEPT_ATTRIBUTE).toContain('image/jpeg');
+  it('is absent, so no picker greys a file out', () => {
+    expect(UPLOAD_ACCEPT_ATTRIBUTE).toBeUndefined();
   });
 
-  it('lists every declared type', () => {
-    for (const type of ACCEPTED_UPLOAD_TYPES) {
-      expect(UPLOAD_ACCEPT_ATTRIBUTE).toContain(type.extension);
-    }
+  it('keeps a hint that reads as a sentence', () => {
+    expect(UPLOAD_ACCEPT_LABEL).toBe('Any file type');
   });
+});
 
-  it('reads as a short human list, deduplicated', () => {
-    // Deduplicated and in declaration order. Seventeen extensions read as ten
-    // names: .jpg/.jpeg are both "JPEG", .heic/.heif "HEIC", .tif/.tiff
-    // "TIFF", .bmp/.gif "Image", .doc/.docx "Word", .xls/.xlsx "Excel" and
-    // .txt/.csv "Text".
-    expect(UPLOAD_ACCEPT_LABEL).toBe(
-      'PDF, JPEG, PNG, WebP, HEIC, TIFF, Image, Word, Excel, Text',
-    );
+describe('extensionForMime', () => {
+  it('names presentations so the share sheet gets a usable filename', () => {
+    expect(extensionForMime(
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation')).toBe('.pptx');
+    expect(extensionForMime('application/vnd.ms-powerpoint')).toBe('.ppt');
+  });
+});
+
+describe('inline-safe types', () => {
+  it('lets only types a browser renders without running anything', () => {
+    expect(isInlineSafeMime('application/pdf')).toBe(true);
+    expect(isInlineSafeMime('image/jpeg; charset=x')).toBe(true);
+    expect(isInlineSafeMime('text/html')).toBe(false);
+    expect(isInlineSafeMime('image/svg+xml')).toBe(false);
+    expect(isInlineSafeMime('application/zip')).toBe(false);
+    expect(isInlineSafeMime('')).toBe(false);
+    expect(isInlineSafeMime(null)).toBe(false);
   });
 });
 
 describe('the refusal message', () => {
-  it('names the extension and what would be accepted', () => {
-    const message = uploadTypeError(file('backup.zip'));
-    expect(message).toContain('.zip');
-    expect(message).toContain('PDF');
+  it('names the file — only a nameless, typeless one can be refused', () => {
+    expect(uploadTypeError(file('mystery'))).toContain('mystery');
   });
 });
 

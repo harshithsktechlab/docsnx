@@ -170,6 +170,12 @@ export default function HolderSelect({
   compact = false,
   /** Allow several members — see `holderValues`. The value becomes an array. */
   multiple = false,
+  /**
+   * Company workspaces only: called with true while the scan read a name that
+   * is neither the company's nor a member's and nothing has been chosen yet, so
+   * the form can refuse to save until the user answers "Belongs to".
+   */
+  onNeedsChoiceChange,
 }) {
   const { members, canAddMembers } = useMembers();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -261,6 +267,36 @@ export default function HolderSelect({
     const matched = findMember(suggestedName, indexMembers(members));
     if (matched) onChangeRef.current(multiple ? [matched] : matched);
   }, [members, suggestedName, untouched, multiple]);
+
+  /**
+   * ── A SCANNED NAME THAT IS NOBODY HERE ────────────────────────────────────
+   * In a company the picker normally defaults to the company. That default is
+   * right until the scan reads a name that is neither the company's nor any
+   * member's ("HSK TECHLAB PRIVATE LIMITED" in Redpluto's workspace): then the
+   * document most likely belongs to someone else, and filing it under the
+   * company without asking is the silent wrong answer.
+   *
+   * So while the value is still untouched, the control has no default and the
+   * form is told (`onNeedsChoiceChange`) to refuse the save. Picking the
+   * company — an explicit `COMPANY_HOLDER` — or a member answers it; renaming
+   * the company to the scanned name makes the names agree, which also answers it.
+   * A matched member is adopted by the effect above, so it is never "nobody".
+   *
+   * `value` is read the way the single picker reads it: for `multiple`, null is
+   * untouched, `[]` is the company and `[id]` a member. An edit form seeds 'all'
+   * for a null holder, which is a stored answer, not an untouched control.
+   */
+  const effectiveValue = companyId && multiple
+    ? (value == null ? '' : (value[0] || COMPANY_HOLDER))
+    : value;
+  const needsChoice = Boolean(companyId)
+    && !effectiveValue
+    && Boolean(companyNameMismatch(companyName, suggestedName));
+  const onNeedsChoiceChangeRef = useRef(onNeedsChoiceChange);
+  onNeedsChoiceChangeRef.current = onNeedsChoiceChange;
+  useEffect(() => {
+    onNeedsChoiceChangeRef.current?.(needsChoice);
+  }, [needsChoice]);
 
   const openAddMember = () => {
     const params = new URLSearchParams({ add: '1', close: '1' });
@@ -440,7 +476,13 @@ export default function HolderSelect({
     // Only worth saying while nothing explains the name: once a member is
     // picked (or auto-adopted), the name on the document is accounted for.
     const scannedOther = memberChosen ? null : companyNameMismatch(companyName, suggestedName);
-    const shownError = renameError || error;
+    // Nothing chosen and the scanned name is nobody here: no default, a prompt.
+    const shownError = renameError || error
+      || (needsChoice
+        ? (compact
+          ? 'Pick who this belongs to'
+          : 'This document doesn’t match this company or any user — choose who it belongs to.')
+        : '');
     const companyLabel = companyName || 'This company';
     const editingInline = renameDraft !== null && !compact;
 
@@ -464,7 +506,12 @@ export default function HolderSelect({
 
     return (
       <div className={`flex flex-col gap-1.5 ${className}`}>
-        {label ? <Label htmlFor={id}>{label}</Label> : null}
+        {label ? (
+          <Label htmlFor={id}>
+            {label}
+            {needsChoice && <span className="text-danger-text ml-0.5">*</span>}
+          </Label>
+        ) : null}
         {editingInline ? (
           <div className="flex items-center gap-1.5">
             {renameControls}
@@ -490,7 +537,9 @@ export default function HolderSelect({
               // what an untouched picker files the record under. 'all' is what
               // an edit form seeds for a null holder; in a company that is the
               // company too.
-              value={memberChosen ? value : COMPANY_HOLDER}
+              // '' (never undefined — that flips uncontrolled→controlled)
+              // shows the placeholder while a choice is still owed.
+              value={memberChosen ? value : (needsChoice ? '' : COMPANY_HOLDER)}
               onValueChange={onChange}
               disabled={disabled}
             >
@@ -503,7 +552,7 @@ export default function HolderSelect({
                 title={memberChosen ? undefined : companyLabel}
                 className={`flex-1 min-w-0 text-left [&>span]:min-w-0 ${shownError ? 'border-destructive' : ''}`}
               >
-                <SelectValue placeholder={companyLabel} />
+                <SelectValue placeholder={needsChoice ? 'Select who this belongs to' : companyLabel} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={COMPANY_HOLDER}>

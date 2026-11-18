@@ -615,6 +615,7 @@ const FIELD_PROMPT_HINTS = {
   last_premium_paid_date: 'the date the most recent premium was PAID (last premium paid on / premium paid up to / receipt date) — not the policy start date and not the next due date',
   policy_status: 'only when the document states the status (In Force, Lapsed, Paid-up, Matured, Surrendered)',
   renewal_due_date: 'for an insurance policy, the NEXT premium due date (next due / FUP / due date of next premium) as printed',
+  issue_date: 'the date the document itself says it was issued or given (issued on / dated / date of issue / given under my hand / date of incorporation or registration) — also when it is written in words, e.g. "SECOND day of APRIL TWO THOUSAND TWENTY SIX" = 2026-04-02. NOT a digital-signature timestamp, print date or validity date; use a signature date only when no other issue date is printed',
 };
 
 /**
@@ -697,7 +698,7 @@ ${fieldList}
 
 RULES
 1. Return a key ONLY when the document actually shows that value. Omit anything you cannot read. Never guess, never infer a plausible-looking number, and never copy an example value from the list above.
-2. Dates must be "YYYY-MM-DD". If only a month and year are printed, use the first day of that month.
+2. Dates must be "YYYY-MM-DD". If only a month and year are printed, use the first day of that month. A date printed in words or with a month name (e.g. "SECOND day of APRIL TWO THOUSAND TWENTY SIX", "2nd April 2026") is a printed date: convert it to "YYYY-MM-DD" (2026-04-02).
 3. Numbers and amounts: digits only, with at most one decimal point. No currency symbols, no thousands separators, no words.
    A period stated anywhere on the document — including the terms & conditions or the fine print ("warranty period is 12 months", "exchange within 15 days", "1 year warranty") — IS printed: read it into a matching months or days field, converting years to months. Do not compute an end date from it yourself.
 4. Booleans: true or false.

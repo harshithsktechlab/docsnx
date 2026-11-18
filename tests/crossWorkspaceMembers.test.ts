@@ -95,7 +95,7 @@ describe('inWorkspace — the rule as one SQL condition', () => {
   it('a company: its admins, plus whoever holds a grant for THAT company', () => {
     const { sql: text, params } = render(inWorkspace(COMPANY));
     expect(text).toContain('"users"."role" = $1');
-    expect(text).toMatch(/exists \(select 1 from "company_access" where "company_access"\."user_id" = "users"\."id" and "company_access"\."company_id" = \$2\)/);
+    expect(text).toMatch(/exists \(select 1 from company_access ca where ca\.user_id = "users"\."id" and ca\.company_id = \$2\)/);
     expect(params).toEqual(['TENANT_ADMIN', COMPANY]);
   });
 

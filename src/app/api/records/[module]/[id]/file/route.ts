@@ -11,6 +11,7 @@ import { visibleDocument } from '@/lib/records/documentVisibility';
 import { previewFailureMessage, renderForPreview } from '@/lib/records/previewRender';
 import { serverError } from '@/lib/routeError';
 import { findAttachment } from '@/lib/records/recordAttachments';
+import { isInlineSafeMime } from '@/lib/records/uploadTypes';
 
 export const dynamic = 'force-dynamic';
 
@@ -266,7 +267,8 @@ export async function GET(
         'Content-Security-Policy':
           "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
       };
-      if (wantsDownload || photoType === 'image/svg+xml') {
+      if (!isInlineSafeMime(photoType)) photoHeaders['Content-Type'] = 'application/octet-stream';
+      if (wantsDownload || !isInlineSafeMime(photoType)) {
         const safeName = String(attachment.name || 'photo').replace(/["\\\r\n]/g, '_');
         photoHeaders['Content-Disposition'] = `attachment; filename="${safeName}"`;
       }
@@ -431,7 +433,12 @@ export async function GET(
     // the RENDERED type when `render=1` ran, and the renderer flattens an SVG
     // into a PNG precisely so it can be looked at safely, so that path is never
     // still `image/svg+xml` here.
-    const forceDownload = contentType === 'image/svg+xml' || wantsDownload;
+    // Any stored type is now allowed, so anything outside the short inline-safe
+    // set (HTML, SVG, scripts, archives, unknown) goes out as an opaque
+    // attachment: it downloads, it never renders on this origin.
+    const inlineSafe = isInlineSafeMime(contentType);
+    if (!inlineSafe) headers['Content-Type'] = 'application/octet-stream';
+    const forceDownload = !inlineSafe || wantsDownload;
     if (forceDownload) {
       const safeName = String(record.fileName || 'file').replace(/["\\\r\n]/g, '_');
       headers['Content-Disposition'] = `attachment; filename="${safeName}"`;

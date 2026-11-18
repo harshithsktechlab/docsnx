@@ -30,7 +30,7 @@
 import { NextResponse } from 'next/server';
 import { db, withTenant } from '@/lib/db';
 import {
-  documents, passwords, todos, emergencyContacts, companies, companyProfiles,
+  documents, passwords, todos, companies, companyProfiles,
   profiles, users, tenants, auditLogs,
 } from '@/db/schema';
 import { eq, and, desc, count, isNull } from 'drizzle-orm';
@@ -215,7 +215,7 @@ export async function GET(req: Request) {
      */
     const todoVisibility = todoVisibilityCondition(user);
 
-    const [passwordCount, todoCount, contactCount] = await withTenant(user.tenantId, async (tx) => Promise.all([
+    const [passwordCount, todoCount] = await withTenant(user.tenantId, async (tx) => Promise.all([
       await hasPermission(user, 'passwords', 'view')
         ? tx.$count(passwords, and(
           eq(passwords.tenantId, user.tenantId),
@@ -233,12 +233,6 @@ export async function GET(req: Request) {
           inCompanyOf(todos.companyId, companyId),
           eq(todos.status, 'PENDING'),
           ...(todoVisibility ? [todoVisibility] : []),
-        ))
-        : 0,
-      await hasPermission(user, 'emergency_contacts', 'view')
-        ? tx.$count(emergencyContacts, and(
-          eq(emergencyContacts.tenantId, user.tenantId),
-          inCompanyOf(emergencyContacts.companyId, companyId),
         ))
         : 0,
     ]));
@@ -429,11 +423,10 @@ export async function GET(req: Request) {
         // opened a page with records on it.
         medical: byTaxonomyModule.get('health_medical') ?? 0,
         passwords: Number(passwordCount),
-        // The two the company dashboard cards read. Personal has them too —
-        // they cost one `$count` each and the household has the same tasks and
-        // contacts — but its card row is unchanged and simply ignores them.
+        // The company dashboard's To-Dos card reads this. Personal has it too —
+        // it costs one `$count` and the household has the same tasks — but its
+        // card row is unchanged and simply ignores it.
         todos: Number(todoCount),
-        contacts: Number(contactCount),
         vehicles: byTaxonomyModule.get('vehicle') ?? 0,
         investments: byModule.get('investments') ?? 0,
         bankInvestments: byTaxonomyModule.get('bank_investments') ?? 0,

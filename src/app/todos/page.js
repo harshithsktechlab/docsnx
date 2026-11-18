@@ -17,15 +17,10 @@ import {
   Clock,
   CheckCircle,
   Bell,
-  Sparkles,
-  Upload,
-  Info,
   Eye,
   FileDown
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { acceptedFileFrom } from '@/app/components/acceptFile';
-import { UPLOAD_ACCEPT_ATTRIBUTE } from '@/lib/records/uploadTypes';
 import { shareRecord, printRecord, getFileUrl, downloadRecord } from '@/lib/sharePrintHelper';
 import { reportShareResult } from '@/lib/shareToast';
 import { clientGetMe } from '@/lib/clientAuth';
@@ -43,8 +38,6 @@ import RowActionsMenu from '@/components/ui/row-actions-menu';
 import PageContainer from '@/app/components/PageContainer';
 import { apiCall } from '@/lib/net/apiRequest';
 import { useWorkspaceApi } from '@/lib/net/useWorkspaceApi';
-import { postUpload } from '@/lib/records/uploadRequest';
-import { toastApiError } from '@/lib/net/toastApiError';
 
 
 export default function TodosPage() {
@@ -83,13 +76,6 @@ export default function TodosPage() {
   const [editStatus, setEditStatus] = useState('PENDING');
   const [editPushNotification, setEditPushNotification] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
-
-  
-  // AI scanning states
-  const [file, setFile] = useState(null);
-  const [editFile, setEditFile] = useState(null);
-  const [aiScanning, setAiScanning] = useState(false);
-  const [aiMessage, setAiMessage] = useState('');
 
   const fetchTodos = async () => {
     try {
@@ -167,99 +153,6 @@ export default function TodosPage() {
     initPage();
   }, []);
 
-  const handleFileChange = async (e) => {
-    const chosen = await acceptedFileFrom(e);
-    if (chosen) setFile(chosen);
-  };
-
-  const handleEditFileChange = async (e) => {
-    const chosen = await acceptedFileFrom(e);
-    if (chosen) setEditFile(chosen);
-  };
-
-  const formatDateToInput = (dateStr) => {
-    if (!dateStr) return '';
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return '';
-      return d.toISOString().substring(0, 10);
-    } catch (e) {
-      return '';
-    }
-  };
-
-  const handleAiScan = async () => {
-    const selectedFile = editingTodo ? editFile : file;
-    if (!selectedFile) {
-      toast.info('Please select or upload a document file first to use AI Auto-fill.');
-      return;
-    }
-
-    setAiScanning(true);
-    setAiMessage('Uploading & scanning document page contents with AI...');
-
-    try {
-      const formData = new FormData();
-      formData.append('files', selectedFile);
-
-      /**
-       * `postUpload`, not `fetch`: this sends a file, so nginx answers an
-       * oversized one with a 413 HTML page — and `res.json()` threw a
-       * SyntaxError on it, which landed in the catch below and was reported as
-       * "Network error calling AI Scan endpoint". The user went and checked a
-       * connection that was working perfectly.
-       */
-      const outcome = await postUpload('/api/ai/scan', formData);
-      if (!outcome.ok) {
-        // Names the actual cause. An empty credit balance, a model the provider
-        // retired, a file over the size limit and a dropped connection all used
-        // to arrive as "AI could not detect structured values. Try filling
-        // manually." — which describes a model that read the document and found
-        // nothing in it, and is true for none of them.
-        toastApiError(outcome, { subject: 'document', action: 'reading this document' });
-        setAiMessage('');
-        return;
-      }
-      const json = outcome.json;
-      if (json.success && json.proposedRecords?.length > 0) {
-        const proposed = json.proposedRecords[0];
-        const data = proposed.extractedData;
-        const title = proposed.title || '';
-
-        // Safely extract proposed values
-        const extractedTask = data.task || title || '';
-        const extractedDueDate = formatDateToInput(data.dueDate);
-
-        if (editingTodo) {
-          if (extractedTask) setEditTask(extractedTask);
-          if (extractedDueDate) setEditDueDate(extractedDueDate);
-        } else {
-          if (extractedTask) setTask(extractedTask);
-          if (extractedDueDate) setDueDate(extractedDueDate);
-        }
-
-        setAiMessage('AI Auto-fill successful! Form fields updated.');
-        setTimeout(() => setAiMessage(''), 3000);
-      } else {
-        // Reached only when the scan genuinely came back with nothing to fill
-        // in — every other cause returned above with its own sentence.
-        toast.error(json.error
-          || 'The scan did not find these fields on this document — fill them in below.');
-        setAiMessage('');
-      }
-    } catch (err) {
-      // Transport failures are values now, not throws — `apiCall` and
-      // `postUpload` return them. So reaching this catch means a bug in the
-      // block above, and calling that a network error sent people to check
-      // a connection that was working.
-      console.error('[todos] handler threw', err);
-      toast.error('Something went wrong calling AI Scan endpoint. Please try again.');
-      setAiMessage('');
-    } finally {
-      setAiScanning(false);
-    }
-  };
-
   // ─── Closing the Add form ─────────────────────────────────────────────────
   // Every way out goes through these two, so "closed" has ONE definition and it
   // always clears. Before, the fields were reset only inside the success branch
@@ -270,7 +163,6 @@ export default function TodosPage() {
     setDueDate('');
     setAssigneeId('none');
     setPushNotification(false);
-    setFile(null);
   };
 
   const closeAddForm = () => {
@@ -347,8 +239,6 @@ export default function TodosPage() {
     setEditAssigneeId(todo.assigneeId || 'none');
     setEditStatus(todo.status || 'PENDING');
     setEditPushNotification(todo.pushNotification || false);
-    setEditFile(null);
-
   };
 
   const handleEditSubmit = async (e) => {
@@ -375,7 +265,6 @@ export default function TodosPage() {
       });
       if (json.success) {
         setEditingTodo(null);
-        setEditFile(null);
         fetchTodos();
       } else {
         toast.error(json.error || 'Update failed');
@@ -567,43 +456,6 @@ export default function TodosPage() {
                 <Bell size={13} className="text-muted-foreground" />
                 <span>Send FCM Push Notification Alert</span>
               </Label>
-            </div>
-
-            {/* Document Upload with AI Auto-fill visual button */}
-            <div className="flex flex-col gap-2.5 border-t border-border/30 pt-4 mt-2">
-              <Label>Attach/Scan document to auto-fill details</Label>
-              <div className="flex flex-col sm:flex-row gap-3 items-center">
-                <div className="border-2 border-dashed border-border/50 rounded-xl p-4 text-center bg-card hover:bg-card transition-colors relative cursor-pointer flex-1 w-full">
-                  <input
-                    type="file"
-                    accept={UPLOAD_ACCEPT_ATTRIBUTE}
-                    onChange={handleFileChange}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    disabled={saving || aiScanning}
-                  />
-                  <Upload size={18} className="mx-auto text-muted-foreground mb-1" />
-                  <p className="text-xs font-semibold text-foreground truncate max-w-[280px] mx-auto">
-                    {file ? file.name : 'Select file to scan'}
-                  </p>
-                </div>
-
-                <Button 
-                  type="button" 
-                  variant="outline"
-                  onClick={handleAiScan}
-                  disabled={aiScanning || saving}
-                  className="h-12 w-full sm:w-auto px-4 bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20 hover:text-sky-300 font-bold flex gap-2 shrink-0 shadow-sm"
-                >
-                  <Sparkles size={15} className={aiScanning ? 'animate-spin' : ''} />
-                  <span>{aiScanning ? 'Scanning...' : 'Auto-fill with AI'}</span>
-                </Button>
-              </div>
-              {aiMessage && (
-                <div className="flex items-center gap-1.5 text-xs text-sky-400 font-medium">
-                  <Info size={13} />
-                  <span>{aiMessage}</span>
-                </div>
-              )}
             </div>
 
             {/* Cancel sits WITH Save, at the foot of the form, because that is
@@ -843,41 +695,6 @@ export default function TodosPage() {
                   </Label>
                 </div>
 
-                <div className="flex flex-col gap-2.5 border-t border-border/30 pt-4 mt-2">
-                  <Label>Attach/Scan document to auto-fill details</Label>
-                  <div className="flex flex-col sm:flex-row gap-3 items-center">
-                    <div className="border-2 border-dashed border-border/50 rounded-xl p-4 text-center bg-card hover:bg-card transition-colors relative cursor-pointer flex-1 w-full">
-                      <input
-                        type="file"
-                        accept={UPLOAD_ACCEPT_ATTRIBUTE}
-                        onChange={handleEditFileChange}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        disabled={editSaving || aiScanning}
-                      />
-                      <Upload size={18} className="mx-auto text-muted-foreground mb-1" />
-                      <p className="text-xs font-semibold text-foreground truncate max-w-[280px] mx-auto">
-                        {editFile ? editFile.name : 'Select file to scan'}
-                      </p>
-                    </div>
-
-                    <Button 
-                      type="button" 
-                      variant="outline"
-                      onClick={handleAiScan}
-                      disabled={aiScanning || editSaving}
-                      className="h-12 w-full sm:w-auto px-4 bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20 hover:text-sky-300 font-bold flex gap-2 shrink-0 shadow-sm"
-                    >
-                      <Sparkles size={15} className={aiScanning ? 'animate-spin' : ''} />
-                      <span>{aiScanning ? 'Scanning...' : 'Auto-fill with AI'}</span>
-                    </Button>
-                  </div>
-                  {aiMessage && (
-                    <div className="flex items-center gap-1.5 text-xs text-sky-400 font-medium">
-                      <Info size={13} />
-                      <span>{aiMessage}</span>
-                    </div>
-                  )}
-                </div>
               </div>
 
               <Button 

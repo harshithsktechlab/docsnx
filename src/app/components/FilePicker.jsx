@@ -143,7 +143,7 @@ export default function FilePicker({
         <p className="text-xs font-medium text-danger-text">{error}</p>
       ) : (
         <p className="text-xs text-faint">
-          {hint} Accepted: {UPLOAD_ACCEPT_LABEL}.
+          {hint} {UPLOAD_ACCEPT_LABEL}.
         </p>
       )}
     </div>

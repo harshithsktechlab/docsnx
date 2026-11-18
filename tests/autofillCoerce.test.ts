@@ -68,10 +68,29 @@ describe('coerceExtracted — dates', () => {
     expect(coerceExtracted(date, '04/13/2021')).toBeNull();
   });
 
+  it('reads the year-first shape a digital-signature block prints', () => {
+    expect(coerceExtracted(date, '2026.04.17')).toBe('2026-04-17');
+    expect(coerceExtracted(date, '2026/04/17')).toBe('2026-04-17');
+    expect(coerceExtracted(date, '2026.04.17 09:48:21 IST')).toBe('2026-04-17');
+  });
+
+  it('reads a date with the month spelled out, in either order', () => {
+    expect(coerceExtracted(date, '2 April 2026')).toBe('2026-04-02');
+    expect(coerceExtracted(date, '02-APR-2026')).toBe('2026-04-02');
+    expect(coerceExtracted(date, 'April 2, 2026')).toBe('2026-04-02');
+    expect(coerceExtracted(date, '2nd April, 2026')).toBe('2026-04-02');
+    expect(coerceExtracted(date, '2nd day of April 2026')).toBe('2026-04-02');
+    expect(coerceExtracted(date, 'SECOND day of APRIL 2026')).toBeNull();
+    expect(coerceExtracted(date, '15 Sept 2025')).toBe('2025-09-15');
+  });
+
   it('refuses shapes an <input type="date"> would silently blank', () => {
     expect(coerceExtracted(date, 'March 2021')).toBeNull();
     expect(coerceExtracted(date, '14/03/21')).toBeNull();
     expect(coerceExtracted(date, '2021-13-45')).toBeNull();
+    expect(coerceExtracted(date, '31 April 2026')).toBeNull();
+    expect(coerceExtracted(date, '2026.13.01')).toBeNull();
+    expect(coerceExtracted(date, '2 Foo 2026')).toBeNull();
   });
 });
 

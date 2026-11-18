@@ -2430,6 +2430,15 @@ export const PERIODIC_BUSINESS_CATEGORIES: Readonly<Record<string, readonly stri
   biz_operations: ['asset_registers', 'utility_bills'],
 };
 
+/**
+ * Module-default fields a specific business category does NOT carry. A CV has no
+ * validity window, so asking when it is "valid from / until" is a question with
+ * no answer (and `valid_to` would raise a follow-up for it).
+ */
+const BUSINESS_FIELD_EXCLUSIONS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  biz_hr: { resumes_cvs: ['valid_from', 'valid_to'] },
+};
+
 const BUSINESS_MODULE_DEFAULTS: Readonly<Record<string, readonly FieldSpec[]>> = {
   biz_tax: BUSINESS_FINANCIAL,
   biz_finance: BUSINESS_FINANCIAL,
@@ -2687,8 +2696,9 @@ const BUSINESS_CATEGORY_FIELDS: Readonly<
       { fieldKey: 'uan_number', fieldLabel: 'UAN', dataType: 'text', isPii: true, isIdentifier: true },
     ],
     // Not identified by a number — a CV has none. `candidate_name` is the
-    // employee or applicant; the Document Date from the module default is the
-    // date of the CV.
+    // employee or applicant. The Document Date (date of the CV) is OPTIONAL here,
+    // unlike the module default, and there is no Valid From / Valid Until
+    // (BUSINESS_FIELD_EXCLUSIONS).
     resumes_cvs: [
       // A CV has no number of its own; the employee ID (or the requisition /
       // application reference) is the closest thing. Optional like every
@@ -2699,6 +2709,10 @@ const BUSINESS_CATEGORY_FIELDS: Readonly<
       { fieldKey: 'total_experience', fieldLabel: 'Total Experience', dataType: 'text', isPii: false },
       { fieldKey: 'highest_qualification', fieldLabel: 'Highest Qualification', dataType: 'text', isPii: false },
       { fieldKey: 'skills', fieldLabel: 'Key Skills', dataType: 'text', isPii: false },
+      // Redeclared (own fields win a key collision) to drop `isRequired`; Issued By
+      // is restated ahead of it to keep the module default's field order.
+      { fieldKey: 'issuing_authority', fieldLabel: 'Issued By', dataType: 'text', isPii: false },
+      { fieldKey: 'issue_date', fieldLabel: 'Document Date', dataType: 'date', isPii: false },
     ],
   },
 
@@ -2911,7 +2925,11 @@ function specificFieldsFor(moduleKey: string, documentKey: string): readonly Fie
         ? own
         : BUSINESS_CATEGORY_FIELDS[moduleKey]?.[documentKey] ?? [];
       const specificKeys = new Set(specific.map((f) => f.fieldKey));
-      const merged = [...specific, ...moduleDefault.filter((f) => !specificKeys.has(f.fieldKey))];
+      const excluded = BUSINESS_FIELD_EXCLUSIONS[moduleKey]?.[documentKey] ?? [];
+      const merged = [
+        ...specific,
+        ...moduleDefault.filter((f) => !specificKeys.has(f.fieldKey) && !excluded.includes(f.fieldKey)),
+      ];
       if (!PERIODIC_BUSINESS_CATEGORIES[moduleKey]?.includes(documentKey) || specificKeys.has('period')) {
         return merged;
       }

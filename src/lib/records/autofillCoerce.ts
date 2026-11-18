@@ -71,11 +71,64 @@ function asDate(value: string): string | null {
   }
 
   const dmy = value.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
-  if (!dmy) return null;
-  const day = Number(dmy[1]);
-  const month = Number(dmy[2]);
-  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
-  return `${dmy[3]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+    return `${dmy[3]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  return asYearFirstDate(value) ?? asMonthNameDate(value);
+}
+
+/** English month names and their 3-letter forms, lower-cased, to month number. */
+const MONTHS: Record<string, number> = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8,
+  september: 9, sep: 9, sept: 9, october: 10, oct: 10, november: 11, nov: 11,
+  december: 12, dec: 12,
+};
+
+/** `YYYY-MM-DD` only if it is a real calendar day (rejects 31 April, 30 Feb). */
+function isoIfReal(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1) return null;
+  if (day > new Date(Date.UTC(year, month, 0)).getUTCDate()) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * `2026.04.17` / `2026/04/17` — the year-first shape a digital-signature block
+ * prints. A leading four-digit year leaves one reading (year, month, day), so
+ * unlike a slashed `03/04/2021` there is nothing to guess. A trailing time
+ * ("09:48:21 IST") is ignored.
+ */
+function asYearFirstDate(value: string): string | null {
+  const m = value.match(/^(\d{4})[./](\d{1,2})[./](\d{1,2})(?:[\sT]+\d{1,2}:\d{2}.*)?$/);
+  return m ? isoIfReal(Number(m[1]), Number(m[2]), Number(m[3])) : null;
+}
+
+/**
+ * A date with the month spelled out: `2 April 2026`, `02-APR-2026`,
+ * `April 2, 2026`, `2nd April, 2026`, `2nd day of April 2026`.
+ *
+ * A month NAME removes the day/month ambiguity that makes a numeric date
+ * unsafe, so these are accepted in either order. A year must be four digits
+ * and a day must be present — `March 2021` stays refused. Dates written fully
+ * in number words ("SECOND day of APRIL TWO THOUSAND TWENTY SIX") are not
+ * parsed here; the prompt asks the model to convert those.
+ */
+function asMonthNameDate(value: string): string | null {
+  const text = value.trim().replace(/\s+/g, ' ');
+  const dayFirst = text.match(/^(\d{1,2})(?:st|nd|rd|th)?(?: day)?(?: of)?[ \-./,]*([A-Za-z]{3,9})\.?[ \-./,]*(\d{4})$/i);
+  const monthFirst = text.match(/^([A-Za-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,? ?(\d{4})$/i);
+  const [day, name, year] = dayFirst
+    ? [dayFirst[1], dayFirst[2], dayFirst[3]]
+    : monthFirst
+      ? [monthFirst[2], monthFirst[1], monthFirst[3]]
+      : [];
+  if (!day || !name || !year) return null;
+  const month = MONTHS[name.toLowerCase()];
+  return month ? isoIfReal(Number(year), month, Number(day)) : null;
 }
 
 /**

@@ -40,6 +40,16 @@ import PageContainer from '@/app/components/PageContainer';
 import { useWorkspaceApi } from '@/lib/net/useWorkspaceApi';
 
 
+// The URL field is free text (e.g. "gmail"). Only offer "Open URL" when the
+// value is a real link or a domain-like string; otherwise return null.
+function toOpenableUrl(value) {
+  const v = (value || '').trim();
+  if (!v || /\s/.test(v)) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^[^/.]+(\.[^/.]+)+(\/.*)?$/.test(v)) return `https://${v}`;
+  return null;
+}
+
 export default function PasswordsPage() {
   // Every request this page makes is scoped to the workspace in the URL:
   // the household at `/todos`, one company at `/business/<id>/todos`. See
@@ -511,8 +521,12 @@ export default function PasswordsPage() {
                 <Label htmlFor="url">Website URL</Label>
                 <Input
                   id="url"
-                  type="url"
-                  placeholder="https://accounts.google.com"
+                  type="text"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="gmail or https://accounts.google.com"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   disabled={saving}
@@ -743,11 +757,11 @@ export default function PasswordsPage() {
                           label: 'Print',
                           onClick: () => handlePrint(cred),
                         },
-                        cred.url && {
+                        toOpenableUrl(cred.url) && {
                           key: 'openurl',
                           icon: <ExternalLink size={12} />,
                           label: 'Open URL',
-                          onClick: () => window.open(cred.url, '_blank', 'noreferrer'),
+                          onClick: () => window.open(toOpenableUrl(cred.url), '_blank', 'noreferrer'),
                         },
                         {
                           key: 'download',
@@ -979,7 +993,11 @@ export default function PasswordsPage() {
                   <Label htmlFor="editUrl">Website URL</Label>
                   <Input
                     id="editUrl"
-                    type="url"
+                    type="text"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={editUrl}
                     onChange={(e) => setEditUrl(e.target.value)}
                     disabled={editSaving}

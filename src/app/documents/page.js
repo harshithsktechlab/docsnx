@@ -223,6 +223,8 @@ export default function DocumentsPage() {
    * member exists.
    */
   const [holderNameFromScan, setHolderNameFromScan] = useState('');
+  /** Company workspace: the scanned name is nobody here and "Belongs to" is unanswered. */
+  const [holderNeedsChoice, setHolderNeedsChoice] = useState(false);
   /**
    * The last title a scan gave this document — "PAN Card - Ravi Kumar" — so a
    * later scan, or a change of sub-category, may replace it. A title seeded
@@ -1292,6 +1294,13 @@ export default function DocumentsPage() {
     // control that had already answered it.
     if (holderRequired(companyId) && holderIds == null) {
       setHolderError(HOLDER_REQUIRED_MESSAGE);
+      setFormError('Please choose who this document belongs to.');
+      return;
+    }
+    // A company workspace defaults to the company — except when the scan read a
+    // name that is neither the company's nor a member's. Then the picker has no
+    // default (see HolderSelect `needsChoice`) and the answer is owed.
+    if (companyId && holderNeedsChoice && holderIds == null) {
       setFormError('Please choose who this document belongs to.');
       return;
     }
@@ -2556,7 +2565,7 @@ export default function DocumentsPage() {
                 <p className="text-xs font-medium text-danger-text">{fileError}</p>
               )}
               <p className="text-xs text-faint">
-                One document at a time — use Scan with camera to photograph a multi-page document. Accepted: {UPLOAD_ACCEPT_LABEL}.
+                One document at a time — use Scan with camera to photograph a multi-page document. {UPLOAD_ACCEPT_LABEL}.
               </p>
 
               <div className="flex flex-col gap-2 mt-2">
@@ -2629,6 +2638,7 @@ export default function DocumentsPage() {
                   required
                   error={holderError}
                   suggestedName={holderNameFromScan}
+                  onNeedsChoiceChange={setHolderNeedsChoice}
                 />
                 {holderFromScan && (
                   <p className="text-xs font-medium text-info-text">Matched from the scan — change it if that is wrong.</p>

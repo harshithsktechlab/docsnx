@@ -928,7 +928,7 @@ export default function Shell({ children }) {
       // Members (the null-keyed `/users`) is TENANT_ADMIN-only: /api/users
       // refuses everyone else, so offering it to a member was a link to a 403.
       // MoreScreen applies the same filter, so the two lists stay identical.
-      items: UTILITY_MODULES.filter((m) => m.key !== null || user?.role === 'TENANT_ADMIN').map((m) => ({
+      items: UTILITY_MODULES.filter((m) => !m.hidden && (m.key !== null || user?.role === 'TENANT_ADMIN')).map((m) => ({
         name: m.name,
         path: utilityNavPath(m.path, activeCompanyId),
         icon: moduleIcon(m.path),

@@ -33,7 +33,6 @@ import {
   MAX_SCAN_BYTES,
   MAX_SCAN_FILES,
   UPLOAD_ACCEPT_ATTRIBUTE,
-  UPLOAD_ACCEPT_LABEL,
   isAcceptedUpload,
   scanBatchError,
   scanBytesError,
@@ -455,7 +454,11 @@ export default function BulkScanPage() {
     // stays '' however long the reviewer looks at the grid. Counting those made
     // Save permanently disabled — "N records need attention" over a grid with
     // no row marked, and no way past it.
-    () => (companyId ? [] : proposedRecords.filter((r) => !rowHolder(r))),
+    //
+    // One exception: a row whose scanned name is neither the company's nor a
+    // member's (`needsOwner`, reported by that row's picker) has no default, so
+    // its answer is owed — the same as a household row.
+    () => proposedRecords.filter((r) => (companyId ? r.needsOwner : true) && !rowHolder(r)),
     [proposedRecords, companyId],
   );
 
@@ -530,8 +533,7 @@ export default function BulkScanPage() {
     const refused = newFiles.filter((f) => !isAcceptedUpload(f));
     if (refused.length > 0) {
       toast.error(
-        `${refused.map((f) => f.name).join(', ')} — cannot be scanned. `
-        + `Accepted: ${UPLOAD_ACCEPT_LABEL}.`,
+        `${refused.map((f) => f.name || 'A file')} — cannot be scanned: no name or type.`,
       );
     }
     if (accepted.length === 0) return;
@@ -1153,7 +1155,7 @@ export default function BulkScanPage() {
 
     // Snapshot of what is being saved. The grid is hidden while this runs, so
     // the rows cannot change underneath it, and every index below is into it.
-    const payload = proposedRecords.map(({ _issue, ...r }) => ({
+    const payload = proposedRecords.map(({ _issue, needsOwner, ...r }) => ({
       ...r,
       // `undefined` in a company workspace, which `JSON.stringify` drops —
       // the omission `holderFrom` reads as "not sent", so `resolveHolder`
@@ -1843,6 +1845,13 @@ export default function BulkScanPage() {
                             // adopt the member as soon as they are added, which
                             // is the point of adding them mid-batch.
                             suggestedName={rowHolder(record) ? '' : (record.holderNameFromScan || '')}
+                            // Company workspace: this row's scanned name is
+                            // nobody here, so the picker has no default.
+                            onNeedsChoiceChange={(needs) => setProposedRecords((prev) => (
+                              prev[rIdx] && Boolean(prev[rIdx].needsOwner) !== needs
+                                ? prev.map((r, i) => (i === rIdx ? { ...r, needsOwner: needs } : r))
+                                : prev
+                            ))}
                             onChange={(val) => setProposedRecords(prev => {
                               const updated = [...prev];
                               // Choosing by hand outranks the scan's match, and

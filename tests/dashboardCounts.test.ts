@@ -285,19 +285,17 @@ describe('every tally names the workspace it is counting', () => {
   });
 
   it('reports zero for a utility the member may not view, not the raw count', async () => {
-    tableCounts = { passwords: 9, todos: 9, emergency_contacts: 9 };
+    tableCounts = { passwords: 9, todos: 9 };
     hasPermission.mockResolvedValue(false);
     const s = await stats();
     expect(s.passwords).toBe(0);
     expect(s.todos).toBe(0);
-    expect(s.contacts).toBe(0);
   });
 
-  it('carries the to-do and contact tallies the company cards read', async () => {
-    tableCounts = { todos: 4, emergency_contacts: 2 };
+  it('carries the to-do tally the company card reads', async () => {
+    tableCounts = { todos: 4 };
     const s = await stats(COMPANY);
     expect(s.todos).toBe(4);
-    expect(s.contacts).toBe(2);
   });
 });
 

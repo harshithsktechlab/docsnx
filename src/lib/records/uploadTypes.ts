@@ -9,20 +9,31 @@
  * decide what it will actually store. One constant so those two cannot drift,
  * which is the only way an allowlist stays true.
  *
- * ── MATCHED BY EXTENSION *AND* MIME ────────────────────────────────────────
- * Both, because neither alone is reliable. Windows reports `.xlsx` as
- * `application/octet-stream` often enough that a MIME-only rule rejects real
- * spreadsheets; and an extension-only rule is trivially renamed around. A file
- * is accepted when EITHER matches, and the extension is what the picker filters
- * on — Safari matches `accept` by MIME, Windows Chrome by extension, so the
- * attribute needs both spellings too.
+ * ── WHY THE TABLE NAMES BOTH EXTENSION AND MIME ────────────────────────────
+ * Neither alone is reliable: Windows reports `.xlsx` as
+ * `application/octet-stream` often enough that a MIME-only rule misses real
+ * spreadsheets, and an extension-only rule is trivially renamed around.
  *
- * ── WHAT IS DELIBERATELY ABSENT ────────────────────────────────────────────
- * SVG and HTML. Both can carry script, and a stored file is served from this
- * app's own origin. The file route already forces SVG to download rather than
- * render, but declining to store it is a stronger position than containing it.
- * Archives (.zip) are out too: nothing downstream can read inside one, so it
- * would be an opaque blob billed against the tenant's quota.
+ * ── NOTHING IS REFUSED BY TYPE ─────────────────────────────────────────────
+ * The vault stores any file a user chooses to give it. A type allowlist kept
+ * turning real documents away at the picker — iOS Safari greys out anything
+ * whose MIME is not in `accept`, which is how a .pptx became unselectable — and
+ * a list can only ever lag behind what people actually keep.
+ *
+ * `UPLOAD_ACCEPT_ATTRIBUTE` is therefore `undefined` (React then omits the
+ * attribute and every platform's picker offers every file), and
+ * `isAcceptedUpload` refuses only a descriptor with neither a name nor a type.
+ *
+ * That is safe to do because of how stored files are SERVED, not because of what
+ * is stored: the file routes send `nosniff` and a sandboxing CSP, and any type
+ * outside the short inline-safe set (see `isInlineSafeMime`) is delivered as an
+ * `application/octet-stream` attachment, so an uploaded .html or .svg is
+ * downloaded, never rendered on this app's origin. Size is still bounded per
+ * file (`MAX_UPLOAD_BYTES`) and per tenant (src/lib/storage.ts).
+ *
+ * `ACCEPTED_UPLOAD_TYPES` below survives as the table of types the product
+ * KNOWS — it names files for the share sheet (`extensionForMime`). Being absent
+ * from it only means "no special handling", never "refused".
  *
  * ── AND WHAT WAS ABSENT BY ACCIDENT ────────────────────────────────────────
  * `.webp`, `.txt` and `.csv`. `documentProcessor` has always handled all three
@@ -100,26 +111,46 @@ export const ACCEPTED_UPLOAD_TYPES: readonly AcceptedType[] = [
     label: 'Excel',
     mimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
   },
+  {
+    extension: '.ppt',
+    label: 'PowerPoint',
+    mimeTypes: ['application/vnd.ms-powerpoint'],
+  },
+  {
+    extension: '.pptx',
+    label: 'PowerPoint',
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  },
+  {
+    extension: '.odt',
+    label: 'OpenDocument',
+    mimeTypes: ['application/vnd.oasis.opendocument.text'],
+  },
+  {
+    extension: '.ods',
+    label: 'OpenDocument',
+    mimeTypes: ['application/vnd.oasis.opendocument.spreadsheet'],
+  },
+  {
+    extension: '.odp',
+    label: 'OpenDocument',
+    mimeTypes: ['application/vnd.oasis.opendocument.presentation'],
+  },
+  { extension: '.rtf', label: 'Text', mimeTypes: ['application/rtf', 'text/rtf'] },
   { extension: '.txt', label: 'Text', mimeTypes: ['text/plain'] },
-  // NOT also `text/plain`, which is what several browsers report for a .csv:
-  // every MIME here widens what `isAcceptedUpload` takes for ANY filename, and
-  // a .csv mislabelled text/plain is already accepted on its extension. The
-  // narrower set costs nothing and admits less.
+  // Not also `text/plain`: that MIME already maps to `.txt`, and the share
+  // helper resolves a name from the first match.
   { extension: '.csv', label: 'Text', mimeTypes: ['text/csv'] },
 ];
 
-/** The `accept` attribute: extensions AND MIME types, for both matching styles. */
-export const UPLOAD_ACCEPT_ATTRIBUTE: string = [
-  ...ACCEPTED_UPLOAD_TYPES.map((t) => t.extension),
-  ...new Set(ACCEPTED_UPLOAD_TYPES.flatMap((t) => t.mimeTypes)),
-].join(',');
+/**
+ * The `accept` attribute — deliberately absent. With no `accept`, every picker
+ * (iOS Safari, Android, Windows, macOS) offers every file. See the header.
+ */
+export const UPLOAD_ACCEPT_ATTRIBUTE: string | undefined = undefined;
 
-/** "PDF, JPEG, PNG, WebP, HEIC, …" — deduplicated, in declaration order. */
-export const UPLOAD_ACCEPT_LABEL: string =
-  [...new Set(ACCEPTED_UPLOAD_TYPES.map((t) => t.label))].join(', ');
-
-const EXTENSIONS = new Set(ACCEPTED_UPLOAD_TYPES.map((t) => t.extension));
-const MIME_TYPES = new Set(ACCEPTED_UPLOAD_TYPES.flatMap((t) => t.mimeTypes));
+/** The hint under the picker. Reads as a sentence on its own: "Any file type." */
+export const UPLOAD_ACCEPT_LABEL: string = 'Any file type';
 
 /**
  * MIME → the canonical extension for it, built from the list above.
@@ -256,19 +287,38 @@ export function isMachineFileName(name: string | null | undefined): boolean {
 /**
  * May this file be stored?
  *
- * Either signal is enough — see the note above on why neither alone works. A
- * file with no name and no type is refused: there is nothing to judge it by.
+ * Any type. The only refusal is a descriptor with neither a name nor a type —
+ * there is nothing to store it under and nothing to serve it as.
  */
 export function isAcceptedUpload(file: { name?: string; type?: string }): boolean {
-  const extension = extensionOf(file?.name ?? '');
-  const mime = (file?.type ?? '').toLowerCase().split(';')[0].trim();
-  return EXTENSIONS.has(extension) || MIME_TYPES.has(mime);
+  return Boolean((file?.name ?? '').trim() || (file?.type ?? '').trim());
 }
 
-/** The message shown against the file control when a type is refused. */
+/**
+ * The message shown when a file cannot be stored. Only reachable for a file with
+ * no name and no type, since no type is refused.
+ */
 export function uploadTypeError(file: { name?: string }): string {
-  const extension = extensionOf(file?.name ?? '');
-  return `${extension || 'That file type'} cannot be stored. Accepted: ${UPLOAD_ACCEPT_LABEL}.`;
+  return `${file?.name || 'That file'} has no name or type, so it cannot be stored.`;
+}
+
+/**
+ * May a stored file of this MIME type be served under its own type?
+ *
+ * Yes for every type the product knows (`ACCEPTED_UPLOAD_TYPES`): none of them
+ * is something a browser executes from this origin — a PDF, a raster image, an
+ * office document (which the browser downloads) or plain text. Everything else
+ * — HTML, SVG, XML, scripts, archives, executables, unknown or missing types —
+ * is served as an `application/octet-stream` attachment by the file routes, so
+ * it downloads and never renders here.
+ */
+const INLINE_SAFE_MIMES: ReadonlySet<string> = new Set(
+  ACCEPTED_UPLOAD_TYPES.flatMap((t) => t.mimeTypes),
+);
+
+export function isInlineSafeMime(mimeType?: string | null): boolean {
+  const mime = (mimeType ?? '').toLowerCase().split(';')[0].trim();
+  return INLINE_SAFE_MIMES.has(mime);
 }
 
 /**

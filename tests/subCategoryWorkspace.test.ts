@@ -275,8 +275,11 @@ describe('mandatory fields', () => {
     // and is left out of the count for the same reason.
     const bare = DOCUMENT_CATEGORY_SEED.filter((row) => !isModuleOther(row)
       && !fieldsFor(row).some((f) => f.isRequired && f.fieldKey !== 'document_title'));
+    // `biz_hr/resumes_cvs` is a deliberate exception: a CV's date is optional by
+    // request (many have none), and it still carries candidate, designation,
+    // experience and skills fields to search on.
     expect(bare.map((r) => `${r.moduleKey}/${r.documentKey}`))
-      .toEqual(['other/uncategorized', 'biz_other/uncategorized']);
+      .toEqual(['other/uncategorized', 'biz_hr/resumes_cvs', 'biz_other/uncategorized']);
   });
 
   it('requires the deadline on the documents that exist to be renewed', () => {

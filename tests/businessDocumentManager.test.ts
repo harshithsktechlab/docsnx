@@ -330,3 +330,24 @@ describe('serving a company record’s bytes', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('Resumes / CVs (biz_hr) form', () => {
+  const keys = specOf('biz_hr', 'resumes_cvs').map((f) => f.fieldKey);
+
+  it('keeps Document Date optional', () => {
+    const date = specOf('biz_hr', 'resumes_cvs').find((f) => f.fieldKey === 'issue_date');
+    expect(date).toBeDefined();
+    expect(date!.isRequired).toBeFalsy();
+  });
+
+  it('has no validity window', () => {
+    expect(keys).not.toContain('valid_from');
+    expect(keys).not.toContain('valid_to');
+  });
+
+  it('still requires Document Date and offers validity for other HR documents', () => {
+    const contracts = specOf('biz_hr', 'payroll_records');
+    expect(contracts.find((f) => f.fieldKey === 'issue_date')!.isRequired).toBe(true);
+    expect(contracts.map((f) => f.fieldKey)).toContain('valid_to');
+  });
+});

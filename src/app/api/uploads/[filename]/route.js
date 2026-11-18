@@ -5,6 +5,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { tenantOwnsUploadedFile } from '@/lib/uploadAccess';
 import { previewFailureMessage, renderForPreview } from '@/lib/records/previewRender';
+import { isInlineSafeMime } from '@/lib/records/uploadTypes';
 
 /**
  * Authenticated, tenant-scoped file serving.
@@ -114,7 +115,10 @@ export async function GET(req, { params }) {
     // SVG can carry script — never render it inline; force download instead.
     // `served` rather than `ext`: a rendered SVG has been flattened to a PNG,
     // which is safe to show and must not be pushed at the user as a download.
-    if (served === 'image/svg+xml') {
+    // Any stored type is allowed now, so only a short inline-safe set renders;
+    // everything else is an opaque attachment.
+    if (!isInlineSafeMime(served)) {
+      headers['Content-Type'] = 'application/octet-stream';
       headers['Content-Disposition'] = `attachment; filename="${filename}"`;
     }
 

@@ -134,11 +134,26 @@ describe('no add surface asks for a holder it renders no control for', () => {
     });
   }
 
-  it('the Power Scan grid does not count business rows as unassigned', () => {
+  it('the Power Scan grid counts a business row as unassigned only when its scanned name is nobody here', () => {
     const src = read('src/app/documents/bulk-scan/page.js');
-    expect(src).toMatch(/companyId \? \[\] : proposedRecords\.filter/);
+    // Business rows default to the company, so only a row flagged `needsOwner`
+    // (its picker reported a scanned name that is neither the company's nor a
+    // member's) is owed an answer; household rows are always owed one.
+    expect(src).toMatch(/companyId \? r\.needsOwner : true\) && !rowHolder\(r\)/);
+    expect(src).toMatch(/onNeedsChoiceChange=/);
     expect(src).not.toMatch(/holderPayload\(/);
   });
+
+  for (const path of [
+    'src/app/documents/page.js',
+    'src/app/components/CategoryRecordForm.jsx',
+  ]) {
+    it(`${path} refuses to save a business record whose scanned owner is unanswered`, () => {
+      const src = read(path);
+      expect(src).toMatch(/companyId && holderNeedsChoice && holderIds == null/);
+      expect(src).toMatch(/onNeedsChoiceChange=\{setHolderNeedsChoice\}/);
+    });
+  }
 });
 
 describe('is_global is derived, never posted', () => {

@@ -56,7 +56,12 @@ export function inWorkspace(companyId: string | null | undefined): SQL {
   return companyId
     ? or(
         eq(users.role, 'TENANT_ADMIN'),
-        sql`exists (select 1 from ${companyAccess} where ${companyAccess.userId} = ${users.id} and ${companyAccess.companyId} = ${companyId})`,
+        // Plain identifiers on purpose, NOT `${companyAccess.userId}`. This runs inside
+        // `tx.query.users.findFirst({ where })`, and drizzle's relational builder rewrites
+        // EVERY column object in that where to the root table's alias — so
+        // `company_access.user_id` became `"users"."user_id"` (no such column) and every
+        // to-do created in a company workspace failed with a 500. Raw text is not rewritten.
+        sql`exists (select 1 from company_access ca where ca.user_id = ${users.id} and ca.company_id = ${companyId})`,
       )!
     : or(eq(users.role, 'TENANT_ADMIN'), eq(users.accountScope, 'personal'))!;
 }

@@ -279,3 +279,34 @@ describe('the download gate', () => {
     );
   });
 });
+
+describe('a stored type the product does not know', () => {
+  // Any type may be stored now, so containment is done when serving: HTML, SVG,
+  // archives and unknown types are an opaque attachment and never render here.
+  it.each([
+    ['page.html', 'text/html'],
+    ['logo.svg', 'image/svg+xml'],
+    ['bundle.zip', 'application/zip'],
+  ])('serves %s as an octet-stream attachment', async (_name, type) => {
+    readRecord.mockResolvedValue({ pages: [{ page: 1, fileId: 'page-uuid-1', mimeType: type }] });
+    const res = await GET(
+      new Request('http://localhost/api/records/rentals/doc-1/file'),
+      params('rentals'),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(res.headers.get('Content-Disposition')).toContain('attachment');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  it('still serves a PDF inline under its own type', async () => {
+    const res = await GET(
+      new Request('http://localhost/api/records/rentals/doc-1/file'),
+      params('rentals'),
+    );
+
+    expect(res.headers.get('Content-Type')).toBe('application/pdf');
+    expect(res.headers.get('Content-Disposition')).toBeNull();
+  });
+});

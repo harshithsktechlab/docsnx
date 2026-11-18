@@ -146,7 +146,6 @@ function cardsFor(stats, followUps, companyId) {
     { name: 'To-Dos', count: stats.todos, icon: ListTodo, color: '#f59e0b', path: `${base}/todos` },
     // `null` until its own request lands — see the note on the fetch below.
     { name: 'Follow Up', count: followUps, icon: CheckCircle2, color: '#ef4444', path: `${base}/follow-up` },
-    { name: 'Contacts', count: stats.contacts, icon: Phone, color: '#10b981', path: `${base}/important-contacts` },
   ];
 }
 

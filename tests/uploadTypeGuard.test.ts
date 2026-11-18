@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   THE ALLOWLIST REACHES THE FOURTEEN LEGACY MODULES TOO                  ║
+ * ║   THE UPLOAD GUARD REACHES THE FOURTEEN LEGACY MODULES TOO               ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * `/api/documents` and the sub-category form each checked their own upload. The
@@ -40,7 +40,7 @@ const ctx = {
 const upload = (name: string, type: string) =>
   ({ name, type, size: 12, arrayBuffer: async () => new ArrayBuffer(12) }) as unknown as File;
 
-describe('createRecord refuses a type the vault does not store', () => {
+describe('createRecord refuses only a file it cannot name or type', () => {
   it('throws before it touches the database', async () => {
     // The db mock throws on ANY access, so this passing is the assertion that
     // nothing was written, billed or uploaded to Drive first.
@@ -48,18 +48,22 @@ describe('createRecord refuses a type the vault does not store', () => {
       title: 'Prescription',
       categoryKey,
       record: {},
-      file: upload('backup.zip', 'application/zip'),
+      file: upload('', ''),
     } as any)).rejects.toBeInstanceOf(UnsupportedUploadError);
   });
 
-  it('names the extension in the message the form shows', async () => {
+  it.each([
+    ['deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['backup.zip', 'application/zip'],
+    ['setup.exe', 'application/x-msdownload'],
+  ])('lets %s through the guard — no type is refused', async (name, type) => {
     const error = await createRecord(ctx, {
       title: 'Prescription',
       categoryKey,
       record: {},
-      file: upload('setup.exe', 'application/x-msdownload'),
+      file: upload(name, type),
     } as any).catch((e: Error) => e);
-    expect((error as Error).message).toContain('.exe');
+    expect(error).not.toBeInstanceOf(UnsupportedUploadError);
   });
 
   it('lets an accepted type through to the work it was going to do', async () => {

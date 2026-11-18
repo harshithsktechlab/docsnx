@@ -117,7 +117,7 @@ export default function MoreScreen({ companyId = null }) {
   // The same five rows as the sidebar's Workspace group, filtered the same
   // way: `/users` (Members) is the null-keyed entry and TENANT_ADMIN-only.
   const utilityLinks = UTILITY_MODULES
-    .filter((m) => m.key !== null || user?.role === 'TENANT_ADMIN')
+    .filter((m) => !m.hidden && (m.key !== null || user?.role === 'TENANT_ADMIN'))
     .map((m) => ({ ...m, path: utilityNavPath(m.path, companyId) }));
 
   // The desktop rail's Overview group, minus what the bottom nav already

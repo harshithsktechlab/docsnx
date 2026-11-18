@@ -110,13 +110,20 @@ describe('prepareUploadFile — the order is the contract', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('refuses a wrong type BEFORE reading it', async () => {
+  it('refuses a file with neither a name nor a type BEFORE reading it', async () => {
     const spy = vi.fn();
-    const file = fileOf('page.html', 'text/html', 10);
+    const file = fileOf('', '', 10);
     Object.defineProperty(file, 'arrayBuffer', { value: spy });
     const result = await prepareUploadFile(file);
     expect(result.ok).toBe(false);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('does not refuse a presentation on its type', async () => {
+    const file = fileOf('deck.pptx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', 10);
+    const result = await prepareUploadFile(file);
+    expect(result.ok).toBe(true);
   });
 
   it('refuses an unreadable file with the Downloads sentence', async () => {

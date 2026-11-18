@@ -46,7 +46,7 @@ export const UTILITY_MODULES = [
   { key: null,                 path: '/users',              name: 'Users'       },
   { key: 'passwords',          path: '/passwords',          name: 'Passwords'          },
   { key: 'todos',              path: '/todos',              name: 'To-Dos'             },
-  { key: 'emergency_contacts', path: '/important-contacts', name: 'Important Contacts' },
+  { key: 'emergency_contacts', path: '/important-contacts', name: 'Important Contacts', hidden: true },
 ];
 
 /**

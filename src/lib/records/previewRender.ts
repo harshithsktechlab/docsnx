@@ -120,6 +120,9 @@ const OFFICE_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.oasis.opendocument.text',
   'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.presentation',
 ]);
 
 type PreviewKind = 'passthrough' | 'text' | 'rasterise' | 'office';
@@ -174,6 +177,9 @@ const KIND_BY_EXTENSION: Record<string, PreviewKind> = {
   '.xlsx': 'office',
   '.odt': 'office',
   '.ods': 'office',
+  '.ppt': 'office',
+  '.pptx': 'office',
+  '.odp': 'office',
 };
 
 /**
@@ -235,6 +241,9 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
   'application/vnd.oasis.opendocument.text': '.odt',
   'application/vnd.oasis.opendocument.spreadsheet': '.ods',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+  'application/vnd.oasis.opendocument.presentation': '.odp',
   'image/heic': '.heic',
   'image/heif': '.heif',
   'image/tiff': '.tiff',

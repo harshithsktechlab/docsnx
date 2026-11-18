@@ -206,6 +206,8 @@ export default function CategoryRecordForm({
    * they have been added.
    */
   const [holderNameFromScan, setHolderNameFromScan] = useState('');
+  /** Company workspace: the scanned name is nobody here and "Belongs to" is unanswered. */
+  const [holderNeedsChoice, setHolderNeedsChoice] = useState(false);
   /**
    * Words the scan read off the attached document, posted back with the save
    * as `searchText` so the record can be found by them. The server hashes them
@@ -761,6 +763,12 @@ export default function CategoryRecordForm({
     if (holderRequired(companyId) && holderIds == null) {
       clientErrors.holderId = errors.holderId || HOLDER_REQUIRED_MESSAGE;
     }
+    // A company defaults to the company — unless the scan read a name that is
+    // neither the company's nor a member's; then the picker has no default
+    // (HolderSelect `needsChoice`) and the answer is owed.
+    if (companyId && holderNeedsChoice && holderIds == null) {
+      clientErrors.holderId = HOLDER_REQUIRED_MESSAGE;
+    }
     if (!String(record[TITLE_KEY] ?? '').trim()) {
       clientErrors[TITLE_KEY] = clientErrors[TITLE_KEY] ?? 'Give this record a title';
     }
@@ -1047,6 +1055,7 @@ export default function CategoryRecordForm({
                   required
                   error={touched.holderId ? errors.holderId : undefined}
                   suggestedName={holderNameFromScan}
+                  onNeedsChoiceChange={setHolderNeedsChoice}
                 />
                 {holderFromScan && (
                   <p className="text-xs font-medium text-info-text">

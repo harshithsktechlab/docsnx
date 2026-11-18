@@ -9,18 +9,12 @@
  * ║   WHAT THE DOCUMENT MANAGER WILL STORE — the route is the control       ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * The upload form filters its file dialog with `accept`, but `accept` is a
- * PICKER HINT: a drag & drop, a scripted fetch, or a renamed file all reach the
- * route regardless of it. So `/api/documents` enforces the same allowlist
- * (src/lib/records/uploadTypes.ts) itself.
+ * No file type is refused (src/lib/records/uploadTypes.ts): the picker carries
+ * no `accept`, and the route agrees. Safety lives in how stored files are
+ * SERVED (see recordFileRoute tests), not in what may be stored.
  *
- * The check has to run BEFORE the first write. `createRecord` uploads to the
- * tenant's Drive and bills their quota; refusing a type after that would leave
- * bytes behind for a document that was never accepted — and with several files
- * in one request, a refused third file must not land after two good ones.
- *
- * These assert exactly that: refused types 400 with nothing written, and a
- * legitimate PDF still goes through.
+ * These assert that a presentation, an SVG, an archive and an extension nobody
+ * has heard of all reach `createRecord`, and a legitimate PDF still goes through.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -112,38 +106,24 @@ beforeEach(() => {
   createRecord.mockResolvedValue({ id: 'doc-1', title: 'A document', fields: {}, masked: {} });
 });
 
-describe('POST /api/documents refuses what it cannot store', () => {
-  it('rejects an SVG — it can carry script and is served from this origin', async () => {
-    const res = await upload('logo.svg', 'image/svg+xml');
+describe('POST /api/documents stores any type', () => {
+  it('accepts a presentation — the file iOS used to grey out', async () => {
+    const res = await upload(
+      'deck.pptx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    );
 
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/cannot be stored/i);
+    expect(res.status).toBe(201);
+    expect(createRecord).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an archive, whose contents nothing downstream can read', async () => {
-    const res = await upload('bundle.zip', 'application/zip');
-
-    expect(res.status).toBe(400);
+  it('accepts an SVG and an archive — they are contained when served, not refused here', async () => {
+    expect((await upload('logo.svg', 'image/svg+xml')).status).toBe(201);
+    expect((await upload('bundle.zip', 'application/zip')).status).toBe(201);
   });
 
-  it('writes nothing when a type is refused', async () => {
-    await upload('logo.svg', 'image/svg+xml');
-
-    expect(createRecord).not.toHaveBeenCalled();
-    expect(resolveCategory).not.toHaveBeenCalled();
-  });
-
-  it('refuses the whole request when ONE of several files is not storable', async () => {
-    const body = new FormData();
-    body.append('files', new File([new Uint8Array([1])], 'scan.pdf', { type: 'application/pdf' }));
-    body.append('files', new File([new Uint8Array([1])], 'logo.svg', { type: 'image/svg+xml' }));
-    body.append('title', 'A document');
-    body.append('categoryId', '11111111-1111-1111-1111-111111111111');
-
-    const res = await POST(new Request('http://localhost/api/documents', { method: 'POST', body }));
-
-    expect(res.status).toBe(400);
-    expect(createRecord).not.toHaveBeenCalled();
+  it('accepts an unknown extension with no type at all', async () => {
+    expect((await upload('thing.weird', '')).status).toBe(201);
   });
 
   it('still accepts a PDF', async () => {

@@ -91,12 +91,12 @@ export const PhoneInput = ({
         disabled ? "opacity-50 cursor-not-allowed" : "",
         className
       )}>
-        <div className="relative flex items-center h-full border-r border-input bg-muted/20 hover:bg-muted/30 transition-colors rounded-l-md">
+        <div className="relative flex items-center h-full shrink-0 border-r border-input bg-muted/20 hover:bg-muted/30 transition-colors rounded-l-md">
           <select
             disabled={disabled}
             value={selectedCountry.code}
             onChange={handleCountryChange}
-            className="h-full pl-2 pr-6 appearance-none bg-transparent outline-none text-sm font-medium cursor-pointer disabled:cursor-not-allowed z-10"
+            className="h-full max-w-[6.5rem] text-ellipsis pl-2 pr-6 appearance-none bg-transparent outline-none text-sm font-medium cursor-pointer disabled:cursor-not-allowed z-10"
             title="Select Country Code"
           >
             {COUNTRIES.map(c => (
@@ -116,7 +116,7 @@ export const PhoneInput = ({
           value={numberPart}
           onChange={handleNumberChange}
           placeholder="Phone number"
-          className="flex-1 h-full bg-transparent px-3 py-1 text-base file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed md:text-sm"
+          className="flex-1 min-w-0 w-full h-full bg-transparent px-3 py-1 text-base file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed md:text-sm"
           {...props}
         />
       </div>
