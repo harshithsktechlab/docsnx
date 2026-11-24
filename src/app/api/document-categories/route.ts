@@ -55,6 +55,7 @@ import { withTenant } from '@/lib/db';
 import { documentCategories } from '@/db/schema';
 import { getUserFromRequest, hasPermission } from '@/lib/auth';
 import { canonicalCategory, isMirrorAlias } from '@/lib/categoryMirrors';
+import { isClientModule } from '@/lib/documentCategories';
 import { serverError } from '@/lib/routeError';
 
 export const dynamic = 'force-dynamic';
@@ -105,6 +106,10 @@ export async function GET(req: Request) {
 
     const categories = [];
     for (const row of rows) {
+      // Client Documents categories are per-company, per-client and configured
+      // on their own pages (/api/clients/subcategories); they are not part of
+      // the module list a nav or a picker builds from this response.
+      if (isClientModule(row.moduleKey)) continue;
       const mirrored = isMirrorAlias(row);
       // A picker must offer one entry per category, and the canonical is
       // already in this list.

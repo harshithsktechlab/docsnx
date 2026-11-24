@@ -18,6 +18,8 @@ const writeAudit = vi.fn();
 /** Records what each query was scoped to, so the predicate can be asserted. */
 const capture: { tenantIds: string[]; wheres: any[]; selectWheres: any[] } =
   { tenantIds: [], wheres: [], selectWheres: [] };
+const inClient = vi.fn((clientId?: string | null) => (clientId ? { __clientFilter: clientId } : undefined));
+const resolveClientDocumentScope = vi.fn();
 const inCompany = vi.fn((companyId: string | null) => ({ __companyFilter: companyId ?? null }));
 
 vi.mock('@/lib/auth', () => ({
@@ -61,6 +63,10 @@ vi.mock('@/lib/records/handler', () => ({
   // into an opaque SQL chunk, so what the route ASKED FOR is the readable
   // signal. See the assertion below.
   inCompany: (companyId: string | null) => inCompany(companyId),
+  inClient: (clientId?: string | null) => inClient(clientId),
+}));
+vi.mock('@/lib/clients/clientDocumentScope', () => ({
+  resolveClientDocumentScope: (...a: any[]) => resolveClientDocumentScope(...a),
 }));
 vi.mock('@/lib/audit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/audit')>()),
@@ -141,6 +147,7 @@ beforeEach(() => {
   capture.wheres = [];
   capture.selectWheres = [];
   inCompany.mockClear();
+  inClient.mockClear();
   updateReturns = [];
   selectReturns = [];
   getUserFromRequest.mockResolvedValue(USER);
@@ -332,4 +339,43 @@ describe('both bulk routes carry the tenant predicate in source', () => {
       expect(src).toMatch(/visibleDocument\(\)/);
     });
   }
+});
+
+describe('?clientId= — one client\'s documents (the client page\'s table)', () => {
+  const CLIENT = '44444444-4444-4444-8444-444444444444';
+  const postClient = (body: unknown) =>
+    POST(new Request(`http://localhost/api/documents/bulk-delete?clientId=${CLIENT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+
+  it('without it, no client predicate is built and the scope is never consulted', async () => {
+    await post({ ids: [ID_1] });
+    expect(resolveClientDocumentScope).not.toHaveBeenCalled();
+    // `inClient(undefined)` is the "no filter" form — never a client id.
+    for (const call of inClient.mock.calls) expect(call[0]).toBeUndefined();
+  });
+
+  it('narrows BOTH the read and the update to that client, for the delete action', async () => {
+    resolveClientDocumentScope.mockResolvedValue({
+      clientId: CLIENT, clientName: 'Ram Das', type: 'individual',
+      keys: [{ moduleKey: 'biz_client_individual', documentKey: 'identity-pan_card' }],
+    });
+    await postClient({ ids: [ID_1] });
+
+    expect(resolveClientDocumentScope.mock.calls[0].slice(2)).toEqual([CLIENT, 'delete']);
+    expect(inClient.mock.calls.filter((c) => c[0] === CLIENT).length).toBeGreaterThanOrEqual(2);
+    // The company's own category list is not what scopes a client's batch.
+    expect(permittedCategories).not.toHaveBeenCalled();
+  });
+
+  it('answers the scope\'s refusal and deletes nothing', async () => {
+    const { NextResponse } = await import('next/server');
+    resolveClientDocumentScope.mockResolvedValue({ error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) });
+    const res = await postClient({ ids: [ID_1] });
+
+    expect(res.status).toBe(403);
+    expect(capture.wheres).toHaveLength(0);
+  });
 });

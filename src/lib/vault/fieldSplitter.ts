@@ -32,6 +32,7 @@ import {
   encryptedFieldsFor,
 } from '@/lib/documentCategoryFields';
 import { applyPolicyOverrides, loadFieldOverrides } from '@/lib/records/fieldOverrides';
+import { sourceKeyOf } from '@/lib/clientCategories';
 
 /** Anything that can run a select: the pooled `db` or a withTenant transaction. */
 export type PolicyExecutor = Pick<typeof db, 'select'>;
@@ -98,8 +99,10 @@ function withBaseline(fields: readonly string[]): string[] {
  */
 export async function loadEncryptionPolicy(
   executor: PolicyExecutor,
-  categoryKey: CategoryKey,
+  requestedKey: CategoryKey,
 ): Promise<string[]> {
+  // A client category is sealed like the category it derives from.
+  const categoryKey = sourceKeyOf(requestedKey);
   const [row] = await executor
     .select({ encryptedFields: documentCategoryFields.encryptedFields })
     .from(documentCategoryFields)

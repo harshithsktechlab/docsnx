@@ -60,6 +60,13 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
+// The derived client categories are synced after a taxonomy write
+// (src/lib/clients/syncClientCategories.ts, covered by its own test); here it
+// would issue its own inserts against the fake db and blur what is asserted.
+vi.mock('@/lib/clients/syncClientCategories', () => ({
+  syncClientCategoriesQuietly: vi.fn(async () => {}),
+}));
+
 vi.mock('@/lib/auth', () => ({
   getUserFromRequest: vi.fn(async () => (
     role ? { id: 'admin-1', tenantId: 't1', role } : null

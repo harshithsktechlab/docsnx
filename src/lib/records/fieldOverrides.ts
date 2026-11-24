@@ -32,6 +32,7 @@ import { and, eq } from 'drizzle-orm';
 import type { db as dbType } from '@/lib/db';
 import { documentCategories, documentCategoryFieldOverrides } from '@/db/schema';
 import type { CategoryKey } from '@/lib/documentCategories';
+import { sourceKeyOf } from '@/lib/clientCategories';
 import { normaliseAlertDays } from '@/lib/records/reminderPolicy';
 import {
   type FieldDataType,
@@ -164,8 +165,11 @@ function safeOptions(raw: unknown): readonly FieldOption[] | null {
  */
 export async function loadFieldOverrides(
   executor: OverrideExecutor,
-  categoryKey: CategoryKey,
+  requestedKey: CategoryKey,
 ): Promise<OverrideMap> {
+  // A client category (src/lib/clientCategories.ts) is configured through the
+  // category it derives from, so an operator's override applies to both.
+  const categoryKey = sourceKeyOf(requestedKey);
   const rows = await executor
     .select({
       fieldKey: documentCategoryFieldOverrides.fieldKey,

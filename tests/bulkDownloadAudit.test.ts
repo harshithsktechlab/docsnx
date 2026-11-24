@@ -51,6 +51,7 @@ vi.mock('@/lib/records/companyScope', async (importOriginal) => ({
 vi.mock('@/lib/records/handler', () => ({
   permittedCategories: vi.fn(async () => [{ moduleKey: 'identity', documentKey: 'pan_card' }]),
   categoryIdIn: () => ({ __categoryFilter: true }),
+  inClient: () => undefined,
 }));
 // Only `writeAudit` is stubbed — the sentence builder is pure, so these tests
 // assert the wording the app actually writes.

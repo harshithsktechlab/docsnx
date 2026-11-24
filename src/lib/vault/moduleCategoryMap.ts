@@ -1,3 +1,4 @@
+import { CLIENT_CATEGORY_SEED } from '@/lib/clientCategories';
 import {
   type CategoryKey,
   DOCUMENT_CATEGORY_SEED,
@@ -370,6 +371,16 @@ export const MODULE_CATEGORY: Record<string, ModuleCategoryPolicy> = {
     typeToKey: {},
     defaultKey: k('biz_other', 'uncategorized'),
   },
+  // Client Documents: each module's default IS its own catch-all, for the same
+  // reason `biz_other`'s is — a record with no explicit category has no better home.
+  biz_client_individual: {
+    typeToKey: {},
+    defaultKey: k('biz_client_individual', 'uncategorized'),
+  },
+  biz_client_company: {
+    typeToKey: {},
+    defaultKey: k('biz_client_company', 'uncategorized'),
+  },
 };
 
 /**
@@ -438,7 +449,8 @@ export function allMappedKeys(): CategoryKey[] {
  */
 export function taxonomyKeys(): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
-  for (const row of DOCUMENT_CATEGORY_SEED) {
+  // The shipped client rows (drizzle/0098) are part of what the build seeds.
+  for (const row of [...DOCUMENT_CATEGORY_SEED, ...CLIENT_CATEGORY_SEED]) {
     let bucket = map.get(row.moduleKey);
     if (!bucket) {
       bucket = new Set<string>();

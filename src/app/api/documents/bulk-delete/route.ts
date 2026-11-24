@@ -26,7 +26,8 @@ import { withTenant } from '@/lib/db';
 import { documents } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
-import { categoryIdIn, inCompany, memberNames, permittedCategories } from '@/lib/records/handler';
+import { categoryIdIn, inClient, inCompany, memberNames, permittedCategories } from '@/lib/records/handler';
+import { resolveClientDocumentScope } from '@/lib/clients/clientDocumentScope';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { keysForWorkspace } from '@/lib/documentCategories';
 import { writeAudit, ACTIONS, auditSentence, categoryPhrase } from '@/lib/audit';
@@ -65,7 +66,19 @@ export async function POST(req: Request) {
     // Narrowed to this workspace's taxonomy as well as by permission, so the
     // category filter and the company filter agree about which half of the
     // account this request is for.
-    const deletable = keysForWorkspace(await permittedCategories(user, 'delete'), companyId);
+    //
+    // `?clientId=` is the client page's table: the same bulk action, over THAT
+    // client's documents only (proven, and limited to the client type's categories —
+    // see clientDocumentScope.ts). Absent, this is the company's own list as ever.
+    const clientIdParam = new URL(req.url).searchParams.get('clientId');
+    let clientScope: Awaited<ReturnType<typeof resolveClientDocumentScope>> | null = null;
+    if (clientIdParam) {
+      clientScope = await resolveClientDocumentScope(user, companyId, clientIdParam, 'delete');
+      if ('error' in clientScope) return clientScope.error;
+    }
+    const deletable = clientScope
+      ? clientScope.keys
+      : keysForWorkspace(await permittedCategories(user, 'delete'), companyId);
     if (deletable.length === 0) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -98,6 +111,7 @@ export async function POST(req: Request) {
           // another workspace's records by id. The company is the proven one.
           inCompany(companyId),
           await categoryIdIn(deletable),
+          inClient(clientScope?.clientId),
           visibleDocument(),
         ));
 
@@ -110,6 +124,7 @@ export async function POST(req: Request) {
           // another workspace's records by id. The company is the proven one.
           inCompany(companyId),
           await categoryIdIn(deletable),
+          inClient(clientScope?.clientId),
           // Already-deleted rows are excluded so a double-submit does not
           // re-stamp `deleted_at` and log a second deletion.
           visibleDocument(),

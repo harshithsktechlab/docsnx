@@ -58,7 +58,14 @@ const tenantScopedTables = [
   // A company's own identity: legal name, CIN, registered address, and the
   // encrypted GST/PAN/TAN. It carries its own tenant_id precisely so it can
   // take this simple policy rather than the EXISTS shape below.
-  'company_profiles'
+  'company_profiles',
+  // The business's CLIENTS (people and companies it keeps documents for) and the
+  // per-company subcategory ticks. A client row holds names and sealed PAN/GST
+  // ciphertext, so a missing policy would let one tenant list another's clients.
+  'clients',
+  'client_subcategory_settings',
+  // Which kinds of client (individual / company / both) a company keeps.
+  'client_type_settings'
 ];
 
 /**

@@ -412,6 +412,8 @@ export async function resolveDuplicate(
         title: candidate.title,
         categoryId,
         fileName: candidate.fileName ?? null,
+        // A client's document is a duplicate only of the same client's.
+        clientId: ctx.clientId ?? null,
       },
       candidate.excludeId,
     );

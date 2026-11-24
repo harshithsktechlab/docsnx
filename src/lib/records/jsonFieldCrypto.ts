@@ -72,3 +72,13 @@ export const PROFILE_LEGAL_KEYS = ['panNumber', 'aadhaarNumber', 'passportNumber
  * nothing while making the field unsearchable.
  */
 export const COMPANY_TAX_KEYS = ['gstNumber', 'panNumber', 'tanNumber'] as const;
+
+/**
+ * The encrypted keys of `clients.details`.
+ *
+ * Like `COMPANY_TAX_KEYS`, only the government identifiers. A company client's
+ * CIN/LLPIN stays plaintext for the same reason `registrationNumber` does: it is
+ * a public register entry, and its blind index (`clients.cin_hash`) is what a
+ * scan matches on.
+ */
+export const CLIENT_SEALED_KEYS = ['panNumber', 'aadhaarNumber', 'gstNumber', 'tanNumber'] as const;

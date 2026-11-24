@@ -32,6 +32,7 @@ import {
   stampIdentifiers,
 } from '@/lib/documentCategoryFields';
 import { applyOverrides, loadFieldOverrides } from '@/lib/records/fieldOverrides';
+import { sourceKeyOf } from '@/lib/clientCategories';
 
 /** Anything that can run a select: the pooled `db` or a withTenant transaction. */
 export type SpecExecutor = Pick<typeof db, 'select'>;
@@ -62,8 +63,10 @@ function isUsable(entry: unknown): entry is FieldSpec {
  */
 export async function loadCategoryFieldSpec(
   executor: SpecExecutor,
-  categoryKey: CategoryKey,
+  requestedKey: CategoryKey,
 ): Promise<readonly FieldSpec[]> {
+  // A client category's form is its source category's (src/lib/clientCategories.ts).
+  const categoryKey = sourceKeyOf(requestedKey);
   const [row] = await executor
     .select({ fields: documentCategoryFields.fields })
     .from(documentCategoryFields)

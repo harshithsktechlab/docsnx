@@ -13,7 +13,10 @@ import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { driveReauthResponse, uploadTypeResponse, storageLimitResponse } from '@/lib/uploadErrors';
 import { requireDriveConnected } from '@/lib/vault/vaultMode';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
-import { keysForWorkspace } from '@/lib/documentCategories';
+import { isClientModule, keysForWorkspace } from '@/lib/documentCategories';
+import { contextForClient } from '@/lib/clients/clientScope';
+import { resolveClientDocumentScope } from '@/lib/clients/clientDocumentScope';
+import { homeScopeForModule } from '@/lib/records/registry';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -29,6 +32,8 @@ import {
   loadRecords,
   permittedCategories,
   inCompany,
+  inClient,
+  recordContextFor,
   RecordConflictError,
   resolveDuplicateForWrite,
 } from '@/lib/records/handler';
@@ -98,7 +103,23 @@ export async function GET(req: Request) {
     // permitted set spans both halves of the account, and leaving `biz_*`
     // categories in it here would make the module filter offer companies'
     // modules on the household's page.
-    const viewable = keysForWorkspace(await permittedCategories(user, 'view'), companyId);
+    //
+    // ── A CLIENT'S DOCUMENTS ──────────────────────────────────────────────
+    // `?clientId=` asks for one client's list (the client page's table). It is the
+    // ONLY way to see a client document here: the company's own list, below, never
+    // contains one. The client is proven against the database and the categories
+    // are that client type's — see clientDocumentScope.ts. Without the parameter
+    // this is exactly the company's own list, as it always was.
+    const clientIdParam = new URL(req.url).searchParams.get('clientId');
+    let clientScope: Awaited<ReturnType<typeof resolveClientDocumentScope>> | null = null;
+    if (clientIdParam) {
+      clientScope = await resolveClientDocumentScope(user, companyId, clientIdParam, 'view');
+      if ('error' in clientScope) return clientScope.error;
+    }
+
+    const viewable = clientScope
+      ? clientScope.keys
+      : keysForWorkspace(await permittedCategories(user, 'view'), companyId);
     if (viewable.length === 0) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -139,7 +160,23 @@ export async function GET(req: Request) {
       inCompany(companyId),
       visibleDocument(),
       await categoryIdIn(viewable),
+      // One client's documents, never another's — `undefined` (no filter) for the
+      // company's own list.
+      ...(clientScope ? [inClient(clientScope.clientId)] : []),
     ];
+
+    // The client page's Sub-category button: the derived document keys wanted, e.g.
+    // `identity-pan_card,uncategorized`. Only meaningful for a client's list (the
+    // company's own list filters by category id), and each key is shape-checked —
+    // it is compared as text against `category_document_key`, never built into SQL.
+    if (clientScope) {
+      const documentKeys = splitFilterValues(params.filters.documentKeys)
+        .filter((k) => /^[a-z0-9_-]{1,60}$/.test(k))
+        .slice(0, 150);
+      if (documentKeys.length > 0) {
+        baseConditions.push(inArray(documents.categoryDocumentKey, documentKeys));
+      }
+    }
 
     if (categoryIds.length > 0) {
       // Reject early: an unparseable UUID would make Postgres throw (a 500).
@@ -332,7 +369,12 @@ export async function GET(req: Request) {
         return {
           ...withDocMetadata(d, meta),
           holders,
-          display: documentDisplay({ ...d, holders }, meta, identifiersFor(d)),
+          display: {
+            ...documentDisplay({ ...d, holders }, meta, identifiersFor(d)),
+            // A client document belongs to its CLIENT, not to a member or to the
+            // company the Holder column would otherwise name.
+            ...(clientScope ? { holderName: clientScope.clientName } : {}),
+          },
           /**
            * The row's own fields, labelled — what Share, Print and the exported
            * PDF describe the document with.
@@ -448,13 +490,60 @@ export async function POST(req: Request) {
     // `createRecord` rather than filed somewhere the member cannot see it.
     const writeScope = await resolveUtilityCompany(req, user);
     if ('error' in writeScope) return writeScope.error;
-    const writeCtx = await documentManagerContext(user, requiredPermission, writeScope.companyId);
+    let writeCtx = await documentManagerContext(user, requiredPermission, writeScope.companyId);
     if (writeCtx.keys.length === 0) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const title = formData.get('title') as string;
     const categoryId = formData.get('categoryId') as string | null;
+
+    /**
+     * ── A CLIENT'S DOCUMENT ───────────────────────────────────────────────
+     * The form names a client when the document belongs to one of the company's
+     * clients (src/lib/clientCategories.ts). The Document Manager's own context
+     * deliberately excludes the client categories — it is the company's own
+     * documents — so a client document is written through the client scope
+     * instead: the client is proven to belong to this company, and the keys are
+     * narrowed to what the company has ticked (and refused outright while nothing
+     * is). Nothing else about the save changes.
+     *
+     * A client category with no client, or a client with a company category, is
+     * refused: `documents_client_ck` would reject the row anyway, and a 400 here
+     * says why.
+     */
+    const clientIdField = formData.get('clientId');
+    const wantsClient = typeof clientIdField === 'string' && clientIdField !== '';
+    if (wantsClient || categoryId) {
+      const chosen = categoryId && isUuid(categoryId)
+        ? await withTenant(user.tenantId, (tx) => resolveCategory(tx, categoryId, null))
+        : null;
+      const isClientCategory = Boolean(chosen && isClientModule(chosen.moduleKey));
+      if (wantsClient !== isClientCategory && (wantsClient || isClientCategory)) {
+        return NextResponse.json(
+          { error: wantsClient
+            ? 'A client can only own client documents — pick a client document type.'
+            : 'Choose which client this document belongs to.' },
+          { status: 400 },
+        );
+      }
+      if (wantsClient && chosen) {
+        if (!writeScope.companyId) {
+          return NextResponse.json({ error: 'Client documents belong to a company workspace.' }, { status: 400 });
+        }
+        const scope = homeScopeForModule(chosen.moduleKey);
+        if (!scope) return NextResponse.json({ error: 'Unknown document type' }, { status: 404 });
+        try {
+          const base = await recordContextFor(user, scope, requiredPermission, writeScope.companyId);
+          if (base.keys.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+          writeCtx = await contextForClient(user, base, clientIdField);
+        } catch (error: any) {
+          // `contextForClient` speaks in words the user can act on (configure
+          // first; that client is not available) — not a server fault.
+          return NextResponse.json({ error: error?.message || 'Could not use that client.' }, { status: 409 });
+        }
+      }
+    }
     // The member's label under Others (0068). Absent stays `undefined` so a
     // replace that did not send it keeps the stored one; createRecord drops it
     // for any category that is not a catch-all.
@@ -762,6 +851,8 @@ export async function POST(req: Request) {
             title: fileTitle,
             categoryId: resolvedCategory.id,
             fileName: file.name,
+            // A client's document revives only that CLIENT's deleted copy.
+            clientId: writeCtx.clientId ?? null,
           }),
         );
         if (twin) {

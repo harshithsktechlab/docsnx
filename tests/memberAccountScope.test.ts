@@ -85,9 +85,10 @@ describe('the two default grants divide the taxonomy', () => {
       (k: string) => !k.startsWith('biz_') && !SHARED_UTILITY_KEYS.includes(k)
         && !ACCOUNT_FEATURE_KEYS.includes(k));
     expect(unexpected, 'a business member reaching a personal category').toEqual([]);
-    // 15 business modules plus the `biz_other` catch-all (0067).
+    // 15 business modules plus the `biz_other` catch-all (0067), plus the two
+    // Client Documents keys (`biz_client_individual`, `biz_client_company`).
     expect(BUSINESS_PERMISSION_KEYS)
-      .toHaveLength(16 + SHARED_UTILITY_KEYS.length + ACCOUNT_FEATURE_KEYS.length);
+      .toHaveLength(18 + SHARED_UTILITY_KEYS.length + ACCOUNT_FEATURE_KEYS.length);
   });
 
   it('lets a new member of either account refresh an analysis', async () => {

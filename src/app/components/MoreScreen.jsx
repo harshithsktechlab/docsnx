@@ -7,7 +7,7 @@ import {
   ChevronRight,
   Bot,
 } from 'lucide-react';
-import { clientGetMe } from '@/lib/clientAuth';
+import { clientGetMe, clientCan } from '@/lib/clientAuth';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import {
@@ -125,6 +125,11 @@ export default function MoreScreen({ companyId = null }) {
   const overviewLinks = [
     { name: 'Document Manager', path: utilityNavPath('/documents', companyId) },
     { name: 'AI Analysis', path: utilityNavPath('/analysis', companyId) },
+    // Documents kept for the company's clients — business workspace only, the
+    // same entry the desktop rail carries.
+    ...(companyId && (clientCan(user, 'biz_client_individual', null, 'view') || clientCan(user, 'biz_client_company', null, 'view'))
+      ? [{ name: 'Client Documents', path: `/business/${companyId}/clients` }]
+      : []),
   ];
 
   const handleModuleClick = (path) => {

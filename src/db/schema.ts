@@ -700,6 +700,105 @@ export const companyProfiles = pgTable("company_profiles", {
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║   CLIENTS — the people and companies a business keeps documents FOR      ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ *
+ * An agent, adviser or consultant files their OWN company's paperwork under the
+ * `biz_*` modules and their clients' under the two client modules
+ * (src/lib/clientCategories.ts). A client belongs to ONE company workspace —
+ * `company_id` — and a document under a client module carries `documents.client_id`.
+ *
+ * Shaped like `company_profiles`: the basic info is a jsonb form payload, and
+ * the government identifiers inside it (`CLIENT_SEALED_KEYS`) are ciphertext.
+ * The three `*_hash` columns are keyed blind indexes of the same identifiers, so
+ * a scan can ask "which client has this PAN?" without decrypting anyone.
+ */
+export const clients = pgTable("clients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  companyId: uuid("company_id").references(() => companies.id, { onDelete: 'restrict' }).notNull(),
+  /** 'individual' | 'company' — CHECKed in drizzle/0097. */
+  clientType: varchar("client_type", { length: 16 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  details: jsonb("details"),
+  panHash: varchar("pan_hash", { length: 128 }),
+  gstinHash: varchar("gstin_hash", { length: 128 }),
+  cinHash: varchar("cin_hash", { length: 128 }),
+  nameNorm: varchar("name_norm", { length: 255 }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => {
+  return {
+    nameIdx: uniqueIndex("clients_company_type_name_uq")
+      .on(table.companyId, table.clientType, sql`lower(display_name)`)
+      .where(sql`deleted_at IS NULL`),
+    tenantCompanyIdx: index("clients_tenant_company_idx")
+      .on(table.tenantId, table.companyId)
+      .where(sql`deleted_at IS NULL`),
+  };
+});
+
+/**
+ * Which KINDS of client a company keeps documents for: individuals, companies or
+ * both (drizzle/0099). Chosen once on the Client Documents page by a workspace
+ * admin. NO live row means "not chosen yet" — nothing is inferred from earlier
+ * configuration — and until it is chosen no kind can have clients, subcategories
+ * or documents. A kind cannot be turned off while it has live clients.
+ */
+export const clientTypeSettings = pgTable("client_type_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  companyId: uuid("company_id").references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  individualEnabled: boolean("individual_enabled").default(false).notNull(),
+  companyEnabled: boolean("company_enabled").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => {
+  return {
+    companyIdx: uniqueIndex("client_type_settings_company_uq")
+      .on(table.companyId)
+      .where(sql`deleted_at IS NULL`),
+    tenantIdx: index("client_type_settings_tenant_idx")
+      .on(table.tenantId)
+      .where(sql`deleted_at IS NULL`),
+  };
+});
+
+/**
+ * Which client subcategories a company has TICKED, per client type.
+ *
+ * Presence of a live row means enabled; the default is none. `module_key` /
+ * `document_key` are the DERIVED pair (`biz_client_individual` /
+ * `identity-pan_card`). Disabling soft-deletes the row and never touches the
+ * documents already filed under it.
+ */
+export const clientSubcategorySettings = pgTable("client_subcategory_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+  companyId: uuid("company_id").references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  clientType: varchar("client_type", { length: 16 }).notNull(),
+  moduleKey: varchar("module_key", { length: 60 }).notNull(),
+  documentKey: varchar("document_key", { length: 60 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => {
+  return {
+    keyIdx: uniqueIndex("client_subcategory_settings_uq")
+      .on(table.companyId, table.clientType, table.moduleKey, table.documentKey)
+      .where(sql`deleted_at IS NULL`),
+    tenantIdx: index("client_subcategory_settings_tenant_idx")
+      .on(table.tenantId)
+      .where(sql`deleted_at IS NULL`),
+  };
+});
+
+/**
+ * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║   DOCUMENT CATEGORY MASTER — GLOBAL reference table (no tenant column)   ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
@@ -779,6 +878,13 @@ export const documents = pgTable("documents", {
    * its records are dealt with deliberately.
    */
   companyId: uuid("company_id").references(() => companies.id, { onDelete: 'restrict' }),
+  /**
+   * The CLIENT a document belongs to, for documents a business keeps for its
+   * clients (drizzle/0097). NULL for the company's own documents. CHECKed to be
+   * non-null exactly when the category is under a client module
+   * (src/lib/clientCategories.ts), and to imply a company.
+   */
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: 'restrict' }),
   /**
    * 'personal' | 'business'. Redundant with `company_id IS NULL`, deliberately.
    *

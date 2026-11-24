@@ -74,7 +74,8 @@ import {
   verifyRollbackToken,
   type BatchCandidate,
 } from '@/lib/records/scanBatch';
-import { isRecordScope, scopeForCategory } from '@/lib/records/registry';
+import { homeScopeForModule, isRecordScope, scopeForCategory } from '@/lib/records/registry';
+import { contextForClient } from '@/lib/clients/clientScope';
 import { vaultErrorResponse } from '@/lib/vault/vaultErrors';
 import { storageLimitResponse } from '@/lib/uploadErrors';
 import {
@@ -90,7 +91,7 @@ import {
 } from '@/lib/records/scanCategoryModule';
 import type { RecordContext } from '@/lib/records/handler';
 import type { ResolvedCategory } from '@/lib/documentCategoryResolver';
-import { belongsToWorkspace, categoryLabel } from '@/lib/documentCategories';
+import { belongsToWorkspace, categoryLabel, isClientModule } from '@/lib/documentCategories';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { serverError } from '@/lib/routeError';
 import { readCustomSubcategory } from '@/lib/records/customSubcategory';
@@ -216,7 +217,13 @@ export async function POST(req: Request) {
         },
       );
       if (!resolved) return { scope: '', resolved: null };
-      return { scope: scopeForCategory(resolved) ?? '', resolved };
+      // A client category (src/lib/clientCategories.ts) is not one of the seeded
+      // pairs `scopeForCategory` knows, but it IS a real, active row — that is
+      // what `resolveOnce` just proved — and its module has a home scope.
+      const scope = scopeForCategory(resolved)
+        ?? (isClientModule(resolved.moduleKey) ? homeScopeForModule(resolved.moduleKey) : undefined)
+        ?? '';
+      return { scope, resolved };
     }));
 
     // Asked once per distinct destination, for the same reason the categories
@@ -244,14 +251,22 @@ export async function POST(req: Request) {
      * same question 40 times for an answer that cannot change mid-request.
      */
     const contextCache = new Map<string, RecordContext>();
-    const contextForScope = async (scope: string): Promise<RecordContext> => {
+    const contextForScope = async (scope: string, clientId?: unknown): Promise<RecordContext> => {
       if (!contextCache.has(scope)) {
         // The company is what seals each record under the right AAD and sets
         // its `company_id`. Omitted, a company's whole scan would be written
         // into the household — rendering perfectly and telling no one.
         contextCache.set(scope, await recordContextFor(user, scope, 'add', companyId));
       }
-      return contextCache.get(scope)!;
+      const base = contextCache.get(scope)!;
+      // A client document names its CLIENT, per record. Proven here (the body is
+      // no more trusted for it than the URL is for a company), and the keys are
+      // narrowed to what the company has ticked for that client type. A client
+      // named on anything that is not a client document is refused rather than
+      // ignored, so a stale grid cannot file under the wrong owner in silence.
+      if (isClientModule(scope)) return contextForClient(user, base, clientId);
+      if (clientId) throw new Error('Only client documents can name a client.');
+      return base;
     };
 
     if (body?.mode === 'check') {
@@ -417,7 +432,7 @@ export async function POST(req: Request) {
           // inside `ctx.keys` by construction, and a record re-filed across
           // scopes is written — and permission-checked — in the scope it was
           // moved to.
-          await contextForScope(mod),
+          await contextForScope(mod, record.clientId),
           {
             title: titleFor(extracted, title, mod),
             // The member's label for a row left under Others (0068), typed on
@@ -650,7 +665,7 @@ async function checkBatch({
   files: any[];
   placements: Array<{ scope: string; resolved: ResolvedCategory | null }>;
   allowedScopes: Set<string>;
-  contextForScope: (scope: string) => Promise<RecordContext>;
+  contextForScope: (scope: string, clientId?: unknown) => Promise<RecordContext>;
 }) {
   const out: any[] = [];
   const candidates: Array<BatchCandidate | null> = [];
@@ -724,7 +739,7 @@ async function checkBatch({
         continue;
       }
 
-      const ctx = await contextForScope(mod);
+      const ctx = await contextForScope(mod, record?.clientId);
       const categoryKey = canonicalCategory({
         moduleKey: resolved.moduleKey, documentKey: resolved.documentKey,
       });

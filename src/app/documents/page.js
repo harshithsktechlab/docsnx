@@ -34,7 +34,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import OthersLabelInput from '@/app/components/OthersLabelInput';
-import { categoryDisplayName } from '@/lib/records/customSubcategory';
+import ClientDocPanel from '@/app/components/clients/ClientDocPanel';
+import { docCategoryName, docColors, docTaxonomyLabel } from '@/lib/records/documentRowFormat';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -46,7 +47,6 @@ import { DataTable, parseFilterValues, isInteractiveTarget } from '@/components/
 import DocumentDetailPanel from '@/components/records/DocumentDetailPanel';
 import { formatBytes } from '@/components/records/FilePreviewPane';
 import RowActionsMenu from '@/components/ui/row-actions-menu';
-import { MODULE_COLORS, DEFAULT_MODULE_COLOR } from '@/lib/documentCategories';
 import HolderSelect, {
   holderValues, unmatchedHolderError, HOLDER_REQUIRED_MESSAGE,
 } from '@/app/components/HolderSelect';
@@ -232,6 +232,19 @@ export default function DocumentsPage() {
    * names the document. Only a TYPED title is left alone.
    */
   const autoTitleRef = useRef('');
+  /**
+   * Client Documents. Set only when the read of the CURRENT file says it belongs to
+   * one of the company's clients (or is a personal document with no client chosen):
+   * `{ json, file }`. Then the lower half of the form is the client panel. Null for
+   * every other document — the form is exactly what it always was.
+   */
+  const [clientDoc, setClientDoc] = useState(null);
+  /** The reviewer chose "Own company": read the file again with no client matching. */
+  const skipOwnerRef = useRef(false);
+  // A different file (or none) makes the panel's read stale: it described the last one.
+  useEffect(() => {
+    setClientDoc((current) => (current && current.file !== file ? null : current));
+  }, [file]);
   /** The holder the last scan read, so a new sub-category can re-name it. */
   const scanHolderRef = useRef('');
   /** The scan's distinguishing detail ("HDFC Bank Oct 2025"), kept for the same reason. */
@@ -1010,6 +1023,7 @@ export default function DocumentsPage() {
       if (editingDoc?.id) formData.append('recordId', editingDoc.id);
       const pdfPassword = pdfPasswordFor(selectedFile);
       if (pdfPassword) formData.append('pdfPassword', pdfPassword);
+      if (skipOwnerRef.current) { formData.append('skipOwner', '1'); skipOwnerRef.current = false; }
 
       // ONE request: it classifies AND reads the fields, off one upload and one
       // rasterisation. This used to be `/api/ai/scan` followed by a second
@@ -1030,6 +1044,19 @@ export default function DocumentsPage() {
       // A locked PDF: ask for its password, then run this same read again.
       if (askForPdfPassword(json, () => handleAiScan())) return;
       rememberScanText(selectedFile, json);
+
+      // A CLIENT's document: the company ticked client document types, and the read
+      // matched the owner to one of its clients (or to none, for a personal
+      // document). The panel takes over from here. Never for the company's own
+      // documents — those fall through to the ordinary outcome below, untouched.
+      if (json?.success && json.category && json.clientOwner?.proposal
+        && json.clientOwner.proposal.owner !== 'own') {
+        setClientDoc({ json, file: selectedFile });
+        setAiError('');
+        setAiMessage('');
+        setHasScanned(true);
+        return;
+      }
 
       /**
        * ╔══════════════════════════════════════════════════════════════════╗
@@ -1518,6 +1545,8 @@ export default function DocumentsPage() {
   const busy = uploading || aiScanning;
 
   const resetAddForm = () => {
+    setClientDoc(null);
+    skipOwnerRef.current = false;
     setCategoryId('');
     setUploadLabel('');
     setFile(null);
@@ -2114,36 +2143,9 @@ export default function DocumentsPage() {
   // Search, category filtering and sorting are owned by <DataTable> (it keeps its
   // own state and drives the list through URL params) — see src/components/ui/data-table.jsx.
 
-  /**
-   * Display name / module for a document. `categoryRef` is hydrated by
-   * /api/documents; the fallbacks cover a row written by an older client.
-   */
-  const docCategoryName = (doc) =>
-    categoryDisplayName(doc.categoryRef, doc.customSubcategory) || doc.category || 'Uncategorized';
-  const docColors = (doc) => MODULE_COLORS[doc.categoryRef?.moduleKey] || DEFAULT_MODULE_COLOR;
-
-  /**
-   * The row's FULL taxonomy pair — 'Category - Sub-category', in the words the
-   * rest of the app uses for the two tiers (see CategorySelect's label pair).
-   *
-   * The list used to show one tier or the other and never both: the table named
-   * the module under the title, the mobile card named the sub-category under a
-   * heading that said "Category". Neither told you where a document actually
-   * sits, and the two views disagreed about what "Category" meant.
-   *
-   * A pre-vault row carries only the sub-category half (legacyShape builds a
-   * `categoryRef` with `documentName` alone), and an uncategorised row reads
-   * 'Uncategorized' on both halves — neither should render a hyphen with the
-   * same word on either side of it.
-   */
-  const docTaxonomyLabel = (doc) => {
-    const moduleName = doc.categoryRef?.moduleName || null;
-    // Under Others the member's own label (0068) is the sub-category to show:
-    // 'Others - Gym Membership'.
-    const subName = categoryDisplayName(doc.categoryRef, doc.customSubcategory) || doc.category || null;
-    if (moduleName && subName && moduleName !== subName) return `${moduleName} - ${subName}`;
-    return moduleName || subName || 'Uncategorized';
-  };
+  // `docCategoryName`, `docColors` and `docTaxonomyLabel` — how a row is named and
+  // coloured — live in src/lib/records/documentRowFormat.js, shared with the client
+  // page's table so the two read the same.
 
   /**
    * ╔════════════════════════════════════════════════════════════════════════╗
@@ -2593,6 +2595,23 @@ export default function DocumentsPage() {
               </div>
             </div>
 
+            {/* A client's document: the panel replaces everything below. The
+                ordinary controls stay mounted (hidden) so "Use the normal form"
+                gives back exactly what was there. */}
+            {clientDoc && (
+              <ClientDocPanel
+                key={clientDoc.file?.name + ':' + clientDoc.file?.size}
+                file={clientDoc.file}
+                scan={clientDoc.json}
+                title={clientDoc.json.title}
+                searchText={clientDoc.json.searchText}
+                usageIds={clientDoc.json.usageIds}
+                onSaved={() => { setClientDoc(null); closeAddForm(); fetchDocuments(); }}
+                onChooseOwn={() => { setClientDoc(null); skipOwnerRef.current = true; handleAiScan(); }}
+                onUseNormalForm={() => setClientDoc(null)}
+              />
+            )}
+            <div className={clientDoc ? 'hidden' : 'contents'}>
             {/* ── Step 2: where it is filed, and who it belongs to ─────────
                 These three are the ONLY controls this page hardcodes. The
                 category decides everything below it, so it comes first. */}
@@ -2731,6 +2750,7 @@ export default function DocumentsPage() {
                   </>
                 ) : 'Save Document'}
               </Button>
+            </div>
             </div>
           </form>
         </Card>

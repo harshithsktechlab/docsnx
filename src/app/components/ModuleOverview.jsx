@@ -31,7 +31,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/dateHelper';
 import { cn } from '@/lib/utils';
 import { ALL_NAV_MODULES, subCategoryPath } from '@/lib/moduleRegistry';
-import { MODULE_COLORS, DEFAULT_MODULE_COLOR } from '@/lib/documentCategories';
+import { MODULE_COLORS, DEFAULT_MODULE_COLOR, isClientModule } from '@/lib/documentCategories';
 import { moduleIcon } from '@/lib/moduleIcons';
 import { usePermittedCategories } from '@/lib/usePermittedCategories';
 import PageContainer from '@/app/components/PageContainer';
@@ -55,6 +55,13 @@ export default function ModuleOverview() {
   const router = useRouter();
   const { permitted, categories } = usePermittedCategories();
   const [counts, setCounts] = useState(null);
+
+  // The two client modules are not a page of their own: their documents belong to
+  // a client, so the only way in is through Client Documents. Reached by a typed
+  // or stale URL, send the user there rather than to an empty "no such module".
+  useEffect(() => {
+    if (companyId && isClientModule(moduleKey)) router.replace(`/business/${companyId}/clients`);
+  }, [moduleKey, companyId, router]);
 
   /** `?companyId=` on every request, or '' on the personal route. */
   const companyQuery = companyId ? `?companyId=${encodeURIComponent(companyId)}` : '';

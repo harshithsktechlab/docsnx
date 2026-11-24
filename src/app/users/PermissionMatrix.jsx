@@ -71,6 +71,10 @@ const MODULE_LABELS = {
   ...Object.fromEntries(ALL_NAV_MODULES.map((m) => [m.key, m.name])),
   ...Object.fromEntries(UTILITY_MODULES.filter((m) => m.key).map((m) => [m.key, m.name])),
   other: 'Others (unfiled scans)',
+  // Client Documents are two flat rows: what a company tracks per client is its
+  // own setting (Client Documents → Configure), not a per-member sub-category grant.
+  biz_client_individual: 'Client Documents — Individual clients',
+  biz_client_company: 'Client Documents — Company clients',
   audit_logs: 'Audit Logs',
   invoices: 'Invoices',
   ai_analysis: 'AI Analysis — refresh / generate',

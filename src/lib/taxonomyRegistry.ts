@@ -51,6 +51,7 @@ import {
   DOCUMENT_CATEGORY_SEED,
   categoryLabel,
   isBusinessModule,
+  isClientModule,
   renderAiCategoryList,
 } from '@/lib/documentCategories';
 
@@ -186,11 +187,17 @@ export interface TaxonomyModule {
   subCategories: { documentKey: string; documentName: string }[];
 }
 
-/** The active taxonomy grouped by module, in master-table order. */
+/** The active taxonomy grouped by module, in master-table order. Client modules excluded. */
 export async function taxonomyModules(): Promise<TaxonomyModule[]> {
   const rows = await taxonomyRows();
   const byModule = new Map<string, TaxonomyModule>();
   for (const row of rows) {
+    // The client modules are generated, per-company-configurable categories that
+    // live behind the Client Documents pages (src/lib/clientCategories.ts). This
+    // list feeds the AI prompt and every module picker, and none of those should
+    // be offered 200 client subcategories. `taxonomyRows` and `knownCategory`
+    // still answer for them — they ARE real categories.
+    if (isClientModule(row.moduleKey)) continue;
     let mod = byModule.get(row.moduleKey);
     if (!mod) {
       mod = {

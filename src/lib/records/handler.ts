@@ -45,7 +45,9 @@ import { decryptField } from '@/lib/fieldCrypto';
 import {
   homeScopeForModule, isRecordScope, recordScopeConfig, scopeForCategory,
 } from './registry';
-import { BUSINESS_MODULE_PREFIX, keysForWorkspace } from '@/lib/documentCategories';
+import { BUSINESS_MODULE_PREFIX, isClientModule, keysForWorkspace } from '@/lib/documentCategories';
+import { gateClientScope } from '@/lib/clients/clientScope';
+import { fillClientFromRecord } from '@/lib/clients/clientAutofill';
 import { resolveCategory } from '@/lib/documentCategoryResolver';
 import { resolveModuleCategory } from '@/lib/vault/moduleCategoryMap';
 import { toTaxonomyRecord, toTaxonomyRecordFromFields } from './normalize';
@@ -116,6 +118,13 @@ export interface RecordContext {
    * a request-supplied `tenantId` never is.
    */
   companyId: string | null;
+  /**
+   * The CLIENT this request is about — set only on the two client scopes
+   * (src/lib/clientCategories.ts), where `withRecordScope` has proven it belongs
+   * to `companyId`. Absent everywhere else. When set, every query below also
+   * filters on `documents.client_id`, and `createRecord` writes it.
+   */
+  clientId?: string | null;
 }
 
 /**
@@ -170,6 +179,18 @@ export interface RevealedRecord extends Omit<RecordIdentity, 'id'> {
  */
 export function inCompany(companyId: string | null | undefined) {
   return companyId ? eq(documents.companyId, companyId) : isNull(documents.companyId);
+}
+
+/**
+ * The client predicate — `undefined` (no filter) outside the client scopes.
+ *
+ * Beside `inCompany` on every query that carries `inCategories(keys)`. It is a
+ * no-op for the ordinary scopes, where the category set already keeps client
+ * documents out, and it is what keeps one client's list from showing another's
+ * inside a client scope. `and()` drops an undefined operand.
+ */
+export function inClient(clientId: string | null | undefined) {
+  return clientId ? eq(documents.clientId, clientId) : undefined;
 }
 
 export function inCategories(keys: readonly CategoryKey[]) {
@@ -351,6 +372,18 @@ export async function withRecordScope(
   const company = await gateCompany(req, user, scope);
   if ('error' in company) return company.error;
 
+  // The client scopes name a CLIENT as well as a company, proven the same way.
+  // For an add, `scopedKeys` is narrowed to what the company has ticked.
+  let scopedKeys: readonly CategoryKey[] = keys;
+  let clientId: string | null = null;
+  if (isClientModule(scope)) {
+    const client = await gateClientScope(req, user, scope, company.companyId!, action, keys);
+    if ('error' in client) return client.error;
+    clientId = client.clientId;
+    scopedKeys = client.keys;
+    if (scopedKeys.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   /**
    * ── THE PLAN GATE, AND WHY IT IS *HERE* ──────────────────────────────────
    *
@@ -391,8 +424,9 @@ export async function withRecordScope(
     user,
     scope,
     module: config.primaryModule,
-    keys,
+    keys: scopedKeys,
     companyId: company.companyId,
+    ...(clientId ? { clientId } : {}),
   });
 }
 
@@ -580,9 +614,17 @@ export async function canReachRecord(
 export async function permittedCategories(
   user: any,
   action: RecordAction = 'view',
+  /**
+   * The CLIENT modules (src/lib/clientCategories.ts) are left out unless asked
+   * for: every caller of this is a company-wide listing (documents, dashboard,
+   * bulk delete / download, scan gate) whose answer is the company's own
+   * documents, and ~200 extra permission checks per call buy it nothing.
+   */
+  opts: { includeClient?: boolean } = {},
 ): Promise<CategoryKey[]> {
   const out: CategoryKey[] = [];
   for (const row of await activeCategoryKeys()) {
+    if (!opts.includeClient && isClientModule(row.moduleKey)) continue;
     if (await hasPermission(user, row.moduleKey, action, row.documentKey)) {
       out.push({ moduleKey: row.moduleKey, documentKey: row.documentKey });
     }
@@ -1089,6 +1131,7 @@ export async function listRecords(
         // The scope's PERMITTED categories, not a single module: since 0023 a
         // page can span two, and since 0024 a member can be denied one of them.
         inCategories(keys),
+        inClient(ctx.clientId),
         ...columnFilters,
         visibleDocument(),
       ))
@@ -1187,6 +1230,7 @@ export async function getRecord(
         eq(documents.tenantId, user.tenantId),
         inCompany(companyId),
         inCategories(keys),
+        inClient(ctx.clientId),
         visibleDocument(),
       ))
       .limit(1),
@@ -1234,6 +1278,7 @@ export async function revealRecord(
         eq(documents.tenantId, user.tenantId),
         inCompany(companyId),
         inCategories(keys),
+        inClient(ctx.clientId),
         visibleDocument(),
       ))
       .limit(1),
@@ -1301,6 +1346,7 @@ export async function softDeleteRecord(
         eq(documents.tenantId, user.tenantId),
         inCompany(companyId),
         inCategories(keys),
+        inClient(ctx.clientId),
         visibleDocument(),
       ))
       .limit(1);
@@ -1313,6 +1359,7 @@ export async function softDeleteRecord(
         eq(documents.tenantId, user.tenantId),
         inCompany(companyId),
         inCategories(keys),
+        inClient(ctx.clientId),
         visibleDocument(),
       ));
     return target;
@@ -1366,6 +1413,7 @@ export async function findBySearchHash(
         eq(documents.tenantId, user.tenantId),
         inCompany(companyId),
         inCategories(keys),
+        inClient(ctx.clientId),
         // ── THE SAME KIND OF DOCUMENT, NOT MERELY THE SAME NUMBER ──────────
         // A shared identifier means a shared SUBJECT — one car, one account,
         // one person — and a subject is not a document. An RC, an insurance
@@ -1439,6 +1487,7 @@ export async function findBySourceHash(
         eq(documents.tenantId, user.tenantId),
         inCompany(companyId),
         inCategories(keys),
+        inClient(ctx.clientId),
         eq(documents.sourceHash, hash),
         // A deleted record must not be reported as a duplicate of the one being
         // written — the user cannot see it, so being blocked by it is
@@ -2036,6 +2085,14 @@ export async function createRecord(
   );
   if (!permitted) throw new ForbiddenCategoryError(categoryKey);
 
+  // A client document names its client, and nothing else does: `documents_client_ck`
+  // refuses the row either way (drizzle/0097), but a 403 here is the plan and the
+  // constraint is the backstop. `ctx.clientId` was proven by `withRecordScope`.
+  const clientId = ctx.clientId ?? null;
+  if (isClientModule(categoryKey.moduleKey) !== Boolean(clientId)) {
+    throw new ForbiddenCategoryError(categoryKey);
+  }
+
   // The member's label under Others (0068). Null for any other category — which
   // is also what clears it when a record is re-filed out of the catch-all —
   // and `undefined` (leave it alone) when a catch-all edit did not send one.
@@ -2239,6 +2296,23 @@ export async function createRecord(
   // A FORK is the exception: the match is left alone, so it contributes no id
   // and the write is an ordinary insert of a brand new record.
   const reusedId = input.replaceId || (forking ? null : duplicate?.id ?? null);
+
+  // A write onto an existing record must be onto one of THIS client's. The
+  // twin lookups are scoped to the client, but `replaceId` comes from the request,
+  // and the conflict update below deliberately never changes `client_id` — so a
+  // write onto another client's row would leave it under that client while this one
+  // reads back nothing ("Record vanished"), or overwrite another client's document.
+  if (reusedId) {
+    const [existing] = await withTenant(user.tenantId, (tx) =>
+      tx.select({ clientId: documents.clientId })
+        .from(documents)
+        .where(and(eq(documents.id, reusedId), eq(documents.tenantId, user.tenantId)))
+        .limit(1));
+    if (existing && (existing.clientId ?? null) !== (clientId ?? null)) {
+      throw new ForbiddenCategoryError(categoryKey);
+    }
+  }
+
   const recordId = reusedId || randomUUID();
   const overwroteExisting = Boolean(duplicate) && !forking && !input.replaceId;
   // One control decides both. Validated BEFORE anything is written, so a bad
@@ -2455,6 +2529,9 @@ export async function createRecord(
       // `documents_account_scope_ck` constraint refuses the row if they do,
       // which is the backstop, not the plan.
       companyId,
+      // Null for the company's own documents. Not in the conflict `set` below, so
+      // an edit can never move a document from one client to another.
+      clientId,
       accountScope: companyId ? 'business' : 'personal',
       isGlobal,
       title,
@@ -2541,6 +2618,13 @@ export async function createRecord(
     });
     await setDocumentHolders(tx as any, user.tenantId, recordId, holderIds);
   });
+
+  // A client's document states facts about the client — their PAN, date of birth,
+  // GSTIN — and copies those onto the client's basic info where it is still blank.
+  // After the write, best-effort and never fatal: see src/lib/clients/clientAutofill.ts.
+  if (clientId && companyId) {
+    await fillClientFromRecord(user, companyId, clientId, categoryKey, normalized.record);
+  }
 
   const created = await getRecord(ctx, recordId);
   if (!created) throw new Error('Record vanished immediately after creation');

@@ -27,7 +27,8 @@ import { withTenant } from '@/lib/db';
 import { documents, users } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
-import { categoryIdIn, permittedCategories } from '@/lib/records/handler';
+import { categoryIdIn, inClient, permittedCategories } from '@/lib/records/handler';
+import { resolveClientDocumentScope } from '@/lib/clients/clientDocumentScope';
 import { inCompanyOf, resolveUtilityCompany } from '@/lib/records/companyScope';
 import { keysForWorkspace } from '@/lib/documentCategories';
 import { openDocumentFile } from '@/lib/vault/vaultFiles';
@@ -104,7 +105,17 @@ export async function POST(req: Request) {
     if ('error' in scope) return scope.error;
     const { companyId } = scope;
 
-    const downloadable = keysForWorkspace(await permittedCategories(user, 'share'), companyId);
+    // `?clientId=` is the client page's table: the same export, over THAT client's
+    // documents only — see clientDocumentScope.ts. Absent: the company's own, as ever.
+    const clientIdParam = new URL(req.url).searchParams.get('clientId');
+    let clientScope: Awaited<ReturnType<typeof resolveClientDocumentScope>> | null = null;
+    if (clientIdParam) {
+      clientScope = await resolveClientDocumentScope(user, companyId, clientIdParam, 'share');
+      if ('error' in clientScope) return clientScope.error;
+    }
+    const downloadable = clientScope
+      ? clientScope.keys
+      : keysForWorkspace(await permittedCategories(user, 'share'), companyId);
     if (downloadable.length === 0) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -143,6 +154,7 @@ export async function POST(req: Request) {
           eq(documents.tenantId, user.tenantId),
           inCompanyOf(documents.companyId, companyId),
           downloadableFilter,
+          inClient(clientScope?.clientId),
           visibleDocument(),
         )),
     );

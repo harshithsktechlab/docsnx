@@ -14,6 +14,7 @@
  * property_legal). The scopes must PARTITION the taxonomy — every category owned
  * by exactly one page — or a record is either unreachable or listed twice.
  */
+import { CLIENT_CATEGORY_SEED } from '@/lib/clientCategories';
 import { describe, it, expect } from 'vitest';
 import {
   DOCUMENT_CATEGORY_MODULES,
@@ -60,6 +61,15 @@ const EXPECTED_BUSINESS = [
   'biz_other',
 ];
 
+/**
+ * The two CLIENT DOCUMENTS modules (src/lib/clientCategories.ts). Vault modules and
+ * record scopes, but deliberately NOT in DOCUMENT_CATEGORY_MODULES: their
+ * subcategories are derived from the personal / business ones and generated into
+ * `document_categories`, so the compiled taxonomy, the sidebar rail and the
+ * permission matrix do not list them as modules of their own.
+ */
+const EXPECTED_CLIENT_MODULES = ['biz_client_individual', 'biz_client_company'];
+
 const EXPECTED = [...EXPECTED_PERSONAL, ...EXPECTED_BUSINESS];
 
 /**
@@ -76,7 +86,7 @@ const EXPECTED_PERSONAL_SCOPES = [
   'rentals', 'utility_bills', 'employment_payroll', 'travel',
 ];
 
-const EXPECTED_SCOPES = [...EXPECTED_PERSONAL_SCOPES, ...EXPECTED_BUSINESS];
+const EXPECTED_SCOPES = [...EXPECTED_PERSONAL_SCOPES, ...EXPECTED_BUSINESS, ...EXPECTED_CLIENT_MODULES];
 
 describe('one module vocabulary', () => {
   it('the taxonomy declares exactly the master table plus the catch-all', () => {
@@ -114,9 +124,12 @@ describe('one module vocabulary', () => {
     expect(business).toEqual(Array.from({ length: 16 }, (_, i) => 101 + i));
   });
 
-  it('is the same set as VAULT_MODULES, apart from the passwords pseudo-module', () => {
-    const vault = new Set(VAULT_MODULES.filter((m) => m !== PASSWORD_MODULE_KEY));
+  it('is the same set as VAULT_MODULES, apart from the passwords pseudo-module and the client modules', () => {
+    const vault = new Set(VAULT_MODULES.filter(
+      (m) => m !== PASSWORD_MODULE_KEY && !EXPECTED_CLIENT_MODULES.includes(m)));
     expect(vault).toEqual(taxonomySet);
+    // ...and the client modules ARE vault modules, or nothing could be filed in them.
+    for (const m of EXPECTED_CLIENT_MODULES) expect(VAULT_MODULES).toContain(m);
   });
 
   it('is a subset of PERMISSION_MODULE_KEYS — a module nobody can be granted is unreachable', () => {
@@ -191,15 +204,23 @@ describe('record scopes partition the taxonomy', () => {
     // from any page; one owned by two appears on both, and a write from either
     // lands in the same store under two different legacy vocabularies.
     const owned = RECORD_SCOPE_KEYS.flatMap((s) => scopeCategories(s).map(categoryLabel));
-    const seeded = DOCUMENT_CATEGORY_SEED.map(categoryLabel);
+    // Plus the two client catch-alls: each client scope DECLARES its catch-all and
+    // takes the rest of its (generated) categories at runtime.
+    const seeded = [
+      ...DOCUMENT_CATEGORY_SEED.map(categoryLabel),
+      ...CLIENT_CATEGORY_SEED.filter((r) => r.documentKey === 'uncategorized').map(categoryLabel),
+    ];
 
     expect(new Set(owned).size, 'a category is owned by two scopes').toBe(owned.length);
     expect(owned.sort()).toEqual([...seeded].sort());
-    expect(owned).toHaveLength(201);
+    expect(owned).toHaveLength(203);
   });
 
   it("keeps each scope's primaryModule inside the modules it spans", () => {
     for (const [scope, config] of Object.entries(RECORD_SCOPES)) {
+      // The client scopes span a SET that is generated, not listed: their
+      // categories are attached at runtime by `scopeCategoriesLive`.
+      if (EXPECTED_CLIENT_MODULES.includes(scope)) continue;
       const spanned = new Set(config.categories.map((c) => c.moduleKey));
       expect(spanned.has(config.primaryModule), `${scope} defaults outside its own span`).toBe(true);
     }
@@ -287,7 +308,8 @@ describe('the realignment preserved the taxonomy', () => {
 
 describe('MODULE_CATEGORY never files a record outside its own scope', () => {
   it('resolves every mapped key to a real seeded category', () => {
-    const seeded = new Set(DOCUMENT_CATEGORY_SEED.map(categoryLabel));
+    // The client catch-alls are generated rows (drizzle/0098), not compiled seed.
+    const seeded = new Set([...DOCUMENT_CATEGORY_SEED, ...CLIENT_CATEGORY_SEED].map(categoryLabel));
     const unknown = allMappedKeys()
       .map(categoryLabel)
       .filter((k) => !seeded.has(k));

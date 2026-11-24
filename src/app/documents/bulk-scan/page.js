@@ -66,6 +66,10 @@ import PageContainer from '@/app/components/PageContainer';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
 import { acceptsCustomLabel, belongsToWorkspace } from '@/lib/documentCategories';
 import OthersLabelInput from '@/app/components/OthersLabelInput';
+import ScanOwnerSelect, { ClientCategorySelect } from '@/app/components/clients/ScanOwnerSelect';
+import ClientFormDialog from '@/app/components/clients/ClientFormDialog';
+import { mapPairForOwner, noteMessage } from '@/lib/clients/ownerCategory';
+import { sourceKeyOf } from '@/lib/clientCategories';
 import { utilityNavPath } from '@/lib/moduleRegistry';
 import { takePendingFiles, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
 import { chunkBySavePages } from '@/lib/records/saveChunks';
@@ -207,6 +211,16 @@ export default function BulkScanPage() {
   const [comparing, setComparing] = useState(null);
   const [proposedRecords, setProposedRecords] = useState([]);
   /**
+   * Client Documents (src/lib/clients/scanOwners.ts). `null` for a company that
+   * keeps none — and then none of the owner controls below render and the grid is
+   * exactly what it was. Otherwise `{ enabled, categoryNames }` from the scan, and
+   * `clientList` is the clients a row's owner picker offers (grown by "Add client").
+   */
+  const [clientOwners, setClientOwners] = useState(null);
+  const [clientList, setClientList] = useState([]);
+  /** The row an "Add client" dialog is open for: `{ rIdx, type, prefill }`. */
+  const [addClientFor, setAddClientFor] = useState(null);
+  /**
    * The field specs the scan response carried, keyed "moduleKey/documentKey".
    *
    * Seeds `useSpecCache` below so the grid renders every row's real fields with
@@ -342,6 +356,10 @@ export default function BulkScanPage() {
    * this the review screen would clear a record the save then refuses.
    */
   const recordAllowed = (record) => {
+    // A client document is permission-checked against its client module and its
+    // ticked subcategory by the save route; the scan categories this grid asks
+    // about are the company's own, and say nothing about it.
+    if (record?.ownerSel && record.ownerSel !== 'own') return true;
     if (!allowedCategories) return true;
     if (!allowedCategories.has(record?.category)) return false;
     // `todo` and `emergency_contact` own no sub-category to check.
@@ -379,7 +397,9 @@ export default function BulkScanPage() {
    */
   useEffect(() => {
     for (const record of proposedRecords) {
-      const { moduleKey, documentKey } = record?.extractedData || {};
+      // A client category's form IS its source category's, and the client routes
+      // need a client in the URL — so the spec is asked for by the SOURCE pair.
+      const { moduleKey, documentKey } = sourceKeyOf(record?.extractedData || {});
       if (moduleKey && documentKey) requestSpec(moduleKey, documentKey);
     }
   }, [proposedRecords, requestSpec]);
@@ -392,8 +412,7 @@ export default function BulkScanPage() {
    * is about to ask for it on this same commit.
    */
   const documentSpec = (extracted) => {
-    const moduleKey = extracted?.moduleKey;
-    const documentKey = extracted?.documentKey;
+    const { moduleKey, documentKey } = sourceKeyOf(extracted || {});
     const { fields, loading } = specFor(moduleKey, documentKey);
     return { spec: fields, loading: loading || (!fields && !!moduleKey && !!documentKey) };
   };
@@ -463,13 +482,26 @@ export default function BulkScanPage() {
   );
 
   /**
+   * Rows whose OWNER nobody has answered: a document the scan could not place, or
+   * one pointed at a kind of client with no client chosen. Like an unassigned
+   * holder, saving one is filing someone's papers under nobody in particular.
+   */
+  const ownerUnresolvedRecords = useMemo(
+    () => (clientOwners
+      ? proposedRecords.filter((r) => r.ownerProposal
+        && (!r.ownerConfirmed || (r.ownerSel !== 'own' && !r.clientId)))
+      : []),
+    [proposedRecords, clientOwners],
+  );
+
+  /**
    * Every row the save is waiting on, counted once however many things are
    * wrong with it — a record that is both blocked and unassigned is still one
    * record to fix, and a button offering to save "3 of 2" is a bug report.
    */
   const needAttention = useMemo(
-    () => [...new Set([...blockedRecords, ...unassignedRecords])],
-    [blockedRecords, unassignedRecords],
+    () => [...new Set([...blockedRecords, ...unassignedRecords, ...ownerUnresolvedRecords])],
+    [blockedRecords, unassignedRecords, ownerUnresolvedRecords],
   );
 
   /** Why the save is off, naming both reasons when both apply. */
@@ -481,8 +513,11 @@ export default function BulkScanPage() {
     if (unassignedRecords.length > 0) {
       reasons.push('Some records have no "Belongs to" — pick who each one belongs to.');
     }
+    if (ownerUnresolvedRecords.length > 0) {
+      reasons.push('Some documents have no owner yet — choose this company or a client for each.');
+    }
     return reasons.join(' ') || undefined;
-  }, [blockedRecords, unassignedRecords]);
+  }, [blockedRecords, unassignedRecords, ownerUnresolvedRecords]);
 
   // Ref
   const fileInputRef = useRef(null);
@@ -760,8 +795,19 @@ export default function BulkScanPage() {
           const records = (json.proposedRecords || []).map(r => ({
             ...r,
             fileIndices: r.fileIndices || [],
+            // Owner state, for a company that keeps client documents. A row the
+            // scan could not place is NOT confirmed — its picker reads "Choose
+            // owner…" and Save waits for an answer. See ScanOwnerSelect.
+            ...(r.ownerProposal ? {
+              ownerSel: r.ownerProposal.owner,
+              ownerConfirmed: !r.ownerProposal.attention,
+            } : {}),
           }));
           setProposedRecords(records);
+          setClientOwners(json.clientOwners
+            ? { enabled: json.clientOwners.enabled, categoryNames: json.clientOwners.categoryNames }
+            : null);
+          setClientList(json.clientOwners?.clients || []);
           // Every sub-category this batch landed in, already resolved server-side
           // with the operator's Field Configuration applied. See useSpecCache.
           setScanFieldSpecs(json.fieldSpecs || null);
@@ -922,6 +968,108 @@ export default function BulkScanPage() {
       const { _issue, replaceId, keepBoth, ...rest } = updated[index];
       updated[index] = { ...rest, ...answer };
       return updated;
+    });
+  };
+
+  /**
+   * The owner of one row was chosen (or confirmed): this company, or a client.
+   *
+   * Re-files the row under the category THAT owner's documents live under, using
+   * the same `mapPairForOwner` the server used for its proposal — starting from the
+   * row's SOURCE pair (what the document IS, whoever it belongs to), so changing
+   * the owner back and forth never compounds. A client row loses its "Belongs to":
+   * the client is who it belongs to.
+   *
+   * The values typed into the row are kept when the form behind the new category
+   * is the same one (a GST certificate is the same form for the company and for a
+   * company client) and reset to the title when it is not, for the reason the
+   * category picker's own change handler gives.
+   */
+  const applyOwner = (rIdx, { owner, clientId }) => {
+    if (!clientOwners) return;
+    const enabledSets = {
+      individual: new Set(clientOwners.enabled?.individual || []),
+      company: new Set(clientOwners.enabled?.company || []),
+    };
+    setProposedRecords((prev) => {
+      const rec = prev[rIdx];
+      if (!rec) return prev;
+      const source = rec.sourcePair || {
+        moduleKey: rec.extractedData?.moduleKey, documentKey: rec.extractedData?.documentKey,
+      };
+      const { pair, note } = mapPairForOwner(source, owner, enabledSets);
+      const own = owner === 'own';
+      const row = own
+        ? (addableRows || []).find((c) => c.moduleKey === pair.moduleKey && c.documentKey === pair.documentKey)
+        : null;
+      const categoryName = own
+        ? (row?.documentName || '')
+        : (clientOwners.categoryNames?.[`${pair.moduleKey}/${pair.documentKey}`] || '');
+
+      const before = sourceKeyOf(rec.extractedData || {});
+      const after = sourceKeyOf(pair);
+      const sameForm = before.moduleKey === after.moduleKey && before.documentKey === after.documentKey;
+
+      const next = {
+        ...withoutIssue(rec),
+        sourcePair: source,
+        ownerSel: owner,
+        ownerConfirmed: true,
+        clientId: own ? undefined : clientId,
+        clientType: own ? undefined : owner,
+        ownerProposal: {
+          ...rec.ownerProposal,
+          pairNote: note,
+          noteText: noteMessage(note, rec.ownerProposal?.sourceName || rec.extractedData?.categoryName || 'This document type', owner),
+        },
+        category: own ? (scanCategoryForKey(pair) || rec.category) : rec.category,
+        extractedData: {
+          ...rec.extractedData,
+          moduleKey: pair.moduleKey,
+          documentKey: pair.documentKey,
+          categoryId: row?.id || '',
+          categoryName,
+          customSubcategory: '',
+          ...(sameForm ? {} : {
+            fields: rec.title ? { [TITLE_KEY]: rec.title } : {},
+          }),
+        },
+      };
+      if (!own) {
+        // The client is who it belongs to.
+        next.holderIds = undefined;
+        next.holderId = undefined;
+        next.holderMatchedFromScan = false;
+        next.needsOwner = false;
+      }
+      return prev.map((r, i) => (i === rIdx ? next : r));
+    });
+  };
+
+  /** A client row's document type was changed to another of the ticked ones. */
+  const setClientCategory = (rIdx, picked) => {
+    setProposedRecords((prev) => {
+      const rec = prev[rIdx];
+      if (!rec) return prev;
+      const before = sourceKeyOf(rec.extractedData || {});
+      const after = sourceKeyOf(picked);
+      const sameForm = before.moduleKey === after.moduleKey && before.documentKey === after.documentKey;
+      return prev.map((r, i) => (i === rIdx ? {
+        ...withoutIssue(rec),
+        // What the document IS follows the choice, so a later change of owner
+        // starts from it. A catch-all has no source of its own to remember.
+        sourcePair: sourceKeyOf(picked),
+        ownerProposal: { ...rec.ownerProposal, noteText: '' },
+        extractedData: {
+          ...rec.extractedData,
+          moduleKey: picked.moduleKey,
+          documentKey: picked.documentKey,
+          categoryId: '',
+          categoryName: picked.documentName || '',
+          customSubcategory: '',
+          ...(sameForm ? {} : { fields: rec.title ? { [TITLE_KEY]: rec.title } : {} }),
+        },
+      } : r));
     });
   };
 
@@ -1094,6 +1242,10 @@ export default function BulkScanPage() {
     }
     if (unassignedRecords.length > 0) {
       toast.error('Some records have no "Belongs to" — pick who each one belongs to.');
+      return;
+    }
+    if (ownerUnresolvedRecords.length > 0) {
+      toast.error('Some documents have no owner yet — choose this company or a client for each.');
       return;
     }
 
@@ -1823,6 +1975,36 @@ export default function BulkScanPage() {
                       </div>
 
                       <div className="flex items-center gap-3 self-end sm:self-auto">
+                        {/* WHOSE document — only in a company that keeps client
+                            documents. A client row has no "Belongs to": the
+                            client is who it belongs to. */}
+                        {clientOwners && record.ownerProposal && (
+                          <div className="w-52">
+                            <ScanOwnerSelect
+                              id={`owner-${rIdx}`}
+                              record={record}
+                              clients={clientList}
+                              enabled={clientOwners.enabled}
+                              disabled={status === 'saving'}
+                              onChoose={(sel) => applyOwner(rIdx, sel)}
+                              onAddClient={(type) => {
+                                const read = record.ownerProposal?.read || {};
+                                const ids = read.ids || {};
+                                setAddClientFor({
+                                  rIdx,
+                                  type,
+                                  prefill: {
+                                    displayName: read.name || '',
+                                    details: type === 'company'
+                                      ? { panNumber: ids.pan, gstNumber: ids.gstin, registrationNumber: ids.cin, tanNumber: ids.tan }
+                                      : { panNumber: ids.pan },
+                                  },
+                                });
+                              }}
+                            />
+                          </div>
+                        )}
+                        {!(clientOwners && record.ownerSel && record.ownerSel !== 'own') && (
                         <div className="w-44">
                           <HolderSelect
                             id={`holder-${rIdx}`}
@@ -1872,6 +2054,7 @@ export default function BulkScanPage() {
                             </p>
                           )}
                         </div>
+                        )}
                         {/* The 17-option vault-category select that used to sit
                             here is gone. Since the master document table became
                             the module list, <CategorySelect> below IS the module
@@ -1938,6 +2121,16 @@ export default function BulkScanPage() {
                               the current value (CategorySelect keeps an
                               out-of-list value for display) and the warning
                               above says to change it. */}
+                          {clientOwners && record.ownerSel && record.ownerSel !== 'own' ? (
+                            <ClientCategorySelect
+                              id={`client-category-${rIdx}`}
+                              record={record}
+                              enabled={clientOwners.enabled}
+                              names={clientOwners.categoryNames}
+                              disabled={status === 'saving'}
+                              onChange={(picked) => setClientCategory(rIdx, picked)}
+                            />
+                          ) : (
                           <CategorySelect
                             id={`category-${rIdx}`}
                             label="Category"
@@ -1992,11 +2185,17 @@ export default function BulkScanPage() {
                                   ...rest,
                                   title: nextTitle,
                                   category: scanCategoryForKey(picked) || updated[rIdx].category,
+                                  // What the document IS follows the choice, so a
+                                  // later change of owner starts from it.
+                                  ...(updated[rIdx].ownerProposal && picked?.moduleKey
+                                    ? { sourcePair: { moduleKey: picked.moduleKey, documentKey: picked.documentKey } }
+                                    : {}),
                                 };
                                 return updated;
                               });
                             }}
                           />
+                          )}
                           {acceptsCustomLabel(extractedData) && (
                             <OthersLabelInput
                               id={`label-${rIdx}`}
@@ -2342,6 +2541,25 @@ export default function BulkScanPage() {
         </Card>
         );
       })()}
+
+      {/* "Add client" from a row's owner picker, pre-filled from what the scan
+          read. The new client becomes that row's owner at once. */}
+      {clientOwners && (
+        <ClientFormDialog
+          open={Boolean(addClientFor)}
+          onOpenChange={(open) => { if (!open) setAddClientFor(null); }}
+          type={addClientFor?.type || 'individual'}
+          prefill={addClientFor?.prefill || null}
+          onSaved={(client) => {
+            if (!client) return;
+            setClientList((prev) => (prev.some((c) => c.id === client.id)
+              ? prev
+              : [...prev, { id: client.id, clientType: client.clientType, displayName: client.displayName }]));
+            if (addClientFor) applyOwner(addClientFor.rIdx, { owner: client.clientType, clientId: client.id });
+            setAddClientFor(null);
+          }}
+        />
+      )}
 
     </PageContainer>
   );

@@ -63,6 +63,9 @@ import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { db, withTenant } from '@/lib/db';
 import {
   aiAnalysisCache,
+  clients,
+  clientSubcategorySettings,
+  clientTypeSettings,
   companies,
   companyAccess,
   deletedAccounts,
@@ -122,9 +125,10 @@ function emptyOutcome(): WorkspaceErasureOutcome {
  * `documents` is not special-cased despite holding every record module: the
  * module lives in `category_module_key`, not in a table of its own.
  *
- * Order matters only in that nothing here references anything else here — no FK
- * points at `documents` — so this is really an "any order" list written down in
- * one place so an eighth table cannot be added to the schema and forgotten here.
+ * Order matters in ONE place: `documents.client_id` is ON DELETE RESTRICT onto
+ * `clients`, so `clients` must come after `documents`. Everything else is an
+ * "any order" list written down in one place so another table cannot be added
+ * to the schema and forgotten here.
  */
 export const WORKSPACE_TABLES = [
   { name: 'documents', table: documents, column: documents.companyId, tenant: documents.tenantId },
@@ -163,6 +167,32 @@ export const WORKSPACE_TABLES = [
     table: notifications,
     column: notifications.companyId,
     tenant: notifications.tenantId,
+  },
+  /**
+   * The business's CLIENTS and the subcategories it ticked for them
+   * (src/lib/clientCategories.ts). AFTER `documents`, which holds an
+   * ON DELETE RESTRICT `client_id` onto `clients`: the company's own documents
+   * and its clients' go in the same pass, and the clients only once nothing
+   * points at them. The settings cascade from `companies` anyway, but they are
+   * tenant data keyed by company and are listed so the erasure counts them.
+   */
+  {
+    name: 'client_subcategory_settings',
+    table: clientSubcategorySettings,
+    column: clientSubcategorySettings.companyId,
+    tenant: clientSubcategorySettings.tenantId,
+  },
+  {
+    name: 'client_type_settings',
+    table: clientTypeSettings,
+    column: clientTypeSettings.companyId,
+    tenant: clientTypeSettings.tenantId,
+  },
+  {
+    name: 'clients',
+    table: clients,
+    column: clients.companyId,
+    tenant: clients.tenantId,
   },
 ] as const;
 

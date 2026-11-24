@@ -210,6 +210,16 @@ describe('a record is never its own duplicate', () => {
     expect(match).toBeNull();
   });
 
+  it("scopes the title and filename arms to the CLIENT's own documents, and to none for ordinary ones", async () => {
+    // Two clients can each hold "PAN Card - Ram Das". One is not a copy of the other.
+    await resolveDuplicate({ ...ctx('biz_client_individual'), clientId: 'client-1' }, base, noHashHit);
+    expect(findActiveTwin.mock.calls[0][2]).toMatchObject({ clientId: 'client-1' });
+
+    findActiveTwin.mockClear();
+    await resolveDuplicate(ctx('documents'), base, noHashHit);
+    expect(findActiveTwin.mock.calls[0][2]).toMatchObject({ clientId: null });
+  });
+
   it('passes the exclusion down to the title and filename arms', async () => {
     await resolveDuplicate(ctx('documents'), { ...base, excludeId: 'doc-self' }, noHashHit);
     expect(findActiveTwin).toHaveBeenCalledWith(

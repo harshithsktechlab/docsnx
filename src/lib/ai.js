@@ -341,7 +341,7 @@ export async function generateRecordAnalysis(recordCategory, recordData, tenantI
  * so no pair can resolve to them. They stay named directly, with the small
  * legacy schemas they have always had.
  */
-export async function scanMultipleFiles(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
+export async function scanMultipleFiles(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null, /** @type {{ stanza?: string, taskText?: string, schemaLines?: string, individualSourceKeys?: Set<string> } | null} */ owner = null) {
   // Built from the LIVE document_categories table, so a sub-category an operator
   // added is classifiable and one they retired is not offered. See
   // renderAiCategoryList() for the masking note.
@@ -351,6 +351,14 @@ export async function scanMultipleFiles(files, tenantId, userId, scope = 'person
   // a household pair in the first place. The default is 'personal', so every
   // caller that predates the business account behaves exactly as before.
   const categoryList = await buildLiveAiCategoryList(scope);
+  // Client Documents (src/lib/clients/scanOwners.ts). Absent for every company that
+  // keeps none, and then the prompt below is exactly what it always was. When
+  // present: a block that lets the model file an individual client's PERSONAL
+  // document at all, and a sixth task asking whose document each record is. The
+  // client list itself is never sent — matching happens on the server.
+  const ownerStanza = owner?.stanza ? `\n${owner.stanza}\n` : '';
+  const ownerTask = owner?.taskText ? `\n\n${owner.taskText}` : '';
+  const ownerSchema = owner?.schemaLines ? `\n${owner.schemaLines}` : '';
 
   const systemPrompt = `You are a scanning and record parsing AI assistant for a records vault and SaaS system called DocsNX.
 We have uploaded multiple files (images or PDFs). Some of these files represent individual single-page documents, while others might be multiple pages/images belonging to a single logical record (e.g. page 1 and page 2 of a single medical prescription, or page 1 and page 2 of a vehicle insurance policy).
@@ -377,9 +385,9 @@ Your tasks are:
 
 4. FOR EVERY RECORD, set "title": a clean concise name for it (e.g. exactly 'PAN Card' or 'Passport'). Do NOT append index suffixes like 'PAN Card - 1' or 'PAN Card 2'.
 
-5. FOR EVERY RECORD, set "holderName": the person the record is about, exactly as printed on the document — the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). It is the person the record BELONGS TO, never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
+5. FOR EVERY RECORD, set "holderName": the person the record is about, exactly as printed on the document — the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). It is the person the record BELONGS TO, never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.${ownerTask}
 
-${categoryList}
+${categoryList}${ownerStanza}
 
 You must return the result strictly in valid JSON format matching this schema:
 {
@@ -388,7 +396,7 @@ You must return the result strictly in valid JSON format matching this schema:
       "title": "Clean concise name/title for the record",
       "kind": "record" | "todo" | "emergency_contact",
       "candidates": [{ "moduleKey": "<a moduleKey from a module heading above>", "documentKey": "<a documentKey listed UNDER that same heading>" }],
-      "holderName": "<the person this record is about, as printed, or an empty string>",
+      "holderName": "<the person this record is about, as printed, or an empty string>",${ownerSchema}
       "fileIndices": [0, 1],
       "extractedData": {
         // ONLY for "todo": { "task": string, "dueDate": "YYYY-MM-DD", "status": "PENDING"|"COMPLETED" }
@@ -453,7 +461,7 @@ Return only the raw JSON. Do not wrap in markdown code blocks.`;
             continue;
           }
 
-          rec.category = await resolveScanCategory(rec, scope);
+          rec.category = await resolveScanCategory(rec, scope, owner?.individualSourceKeys ?? null);
         }
       }
 
@@ -526,7 +534,7 @@ function withKnownAlias(c) {
  * still not exist (`registration_certificate` is a real key under both
  * `vehicle` and `business`).
  */
-async function resolveScanCategory(rec, scope = 'personal') {
+async function resolveScanCategory(rec, scope = 'personal', /** @type {Set<string> | null} */ extraAllowed = null) {
   const proposals = [
     ...(Array.isArray(rec.candidates) ? rec.candidates : []),
     // The shape the prompt asked for until now, and the shape a model still
@@ -542,8 +550,12 @@ async function resolveScanCategory(rec, scope = 'personal') {
     }))
     .filter((c) => c.moduleKey || c.documentKey)
     // Wrong half of the account: discarded before the taxonomy is even asked,
-    // so a stray pair cannot win over a correct one listed after it.
-    .filter((c) => inTaxonomy(c.moduleKey, scope));
+    // so a stray pair cannot win over a correct one listed after it. The one
+    // exception is a PERSONAL pair the company ticked for its individual clients
+    // (`extraAllowed`, the pairs that stanza of the prompt actually offered): the
+    // scan route re-files it under the client category before anything is saved.
+    .filter((c) => inTaxonomy(c.moduleKey, scope)
+      || Boolean(extraAllowed && extraAllowed.has(categoryLabel(c))));
 
   // Sequential rather than `.find`, because the question is now asked of the
   // live taxonomy and is therefore async. The ORDER still matters — it is the
@@ -838,7 +850,7 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
  * Which is why the SAME document filed correctly through Power Scan and landed
  * in the catch-all here.
  */
-export async function classifyDocument(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null) {
+export async function classifyDocument(files, tenantId, userId, scope = 'personal', /** @type {string | null} */ companyId = null, /** @type {import('./aiKeyManager').AiUsageContext | null} */ usageContext = null, /** @type {{ stanza?: string, taskText?: string, individualSourceKeys?: Set<string> } | null} */ owner = null) {
   // Built from the LIVE document_categories table, so a sub-category an operator
   // added is classifiable and one they retired is not offered. See
   // renderAiCategoryList() for the masking note.
@@ -847,6 +859,15 @@ export async function classifyDocument(files, tenantId, userId, scope = 'persona
   // company's Document Manager must offer that company's taxonomy, not the
   // household's. Defaults to 'personal'.
   const categoryList = await buildLiveAiCategoryList(scope);
+  // Client Documents — the same additions `scanMultipleFiles` makes, for the
+  // single-upload path. Absent unless the company has ticked client document
+  // types, and then the prompt is exactly what it always was. The task text is
+  // numbered for the batch prompt (6.); this prompt's list ends at 3.
+  const ownerStanza = owner?.stanza ? `\n${owner.stanza}\n` : '';
+  const ownerTask = owner?.taskText ? `\n${owner.taskText.replace(/^6\./, '4.')}` : '';
+  const ownerSchema = owner?.taskText
+    ? ', "ownerName": "...", "ownerType": "individual" | "company" | "", "ownerIds": { "pan": "", "gstin": "", "cin": "", "tan": "" }'
+    : '';
 
   const systemPrompt = `You are a document filing assistant for DocsNX, a records vault.
 
@@ -859,13 +880,13 @@ File it by its PRIMARY PURPOSE. Ignore advertisements, promotional banners, offe
 Return:
 1. "candidates" — the master taxonomy pairs this document could be filed under, BEST FIRST, at most three. Each is { "moduleKey": "...", "documentKey": "..." }, where "moduleKey" is the value shown in a module heading below and "documentKey" is one of the quoted keys listed UNDER that same heading. The two MUST come from the same module. Copy both verbatim — do not invent, abbreviate, pluralise or reword them, and never pair a key with a module that does not list it. Give a second and third choice whenever the document could reasonably go elsewhere. Do not answer with the fallback because you are unsure BETWEEN two entries that both fit; answer with both. But pick an entry only when the document's primary purpose genuinely matches that entry's description — when none does, the FIRST candidate must be the fallback. The user files it themselves from there, and a wrong category is worse than the fallback: it hides the document where nobody will look for it.
 2. "title" — a clean, concise name for this document (e.g. exactly 'PAN Card' or 'Passport'). No index suffixes like 'PAN Card - 1'.
-3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). Never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.
+3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). Never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.${ownerTask}
 
-${categoryList}
+${categoryList}${ownerStanza}
    The fallback above is for pages that are blank or unreadable, and for any document whose purpose matches nothing on this list. Never stretch an entry to fit: a document is not a subscription because it shows a fee, nor a contract because it prints terms.
 
 Return ONLY raw JSON in exactly this shape, with no markdown fences and no commentary:
-{ "candidates": [{ "moduleKey": "...", "documentKey": "..." }], "title": "...", "holderName": "..." }`;
+{ "candidates": [{ "moduleKey": "...", "documentKey": "..." }], "title": "...", "holderName": "..."${ownerSchema} }`;
 
   /**
    * The same manifest `scanMultipleFiles` sends, for one document's pages.
@@ -928,8 +949,10 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
         }))
         .filter((c) => c.moduleKey || c.documentKey)
         // Same rule as `resolveScanCategory`: a pair from the other half of the
-        // account is not a near miss, it is unusable here.
-        .filter((c) => inTaxonomy(c.moduleKey, scope));
+        // account is not a near miss, it is unusable here — except a personal pair
+        // the company ticked for its individual clients, which the route re-files.
+        .filter((c) => inTaxonomy(c.moduleKey, scope)
+          || Boolean(owner?.individualSourceKeys && owner.individualSourceKeys.has(categoryLabel(c))));
 
       // Sequential for the same reason as resolveScanCategory: the live taxonomy
       // is asked asynchronously, and the model's ordering is its confidence.
@@ -1044,6 +1067,13 @@ Return ONLY raw JSON in exactly this shape, with no markdown fences and no comme
       alternatives,
       title: typeof out.parsed?.title === 'string' ? out.parsed.title.trim() : '',
       holderName: record.holderName || '',
+      // Whose document it is, for the Client Documents owner match. Only asked
+      // for when `owner` is given; empty otherwise.
+      ...(owner?.taskText ? {
+        ownerName: typeof out.parsed?.ownerName === 'string' ? out.parsed.ownerName.trim() : '',
+        ownerType: out.parsed?.ownerType === 'individual' || out.parsed?.ownerType === 'company' ? out.parsed.ownerType : '',
+        ownerIds: out.parsed?.ownerIds && typeof out.parsed.ownerIds === 'object' ? out.parsed.ownerIds : {},
+      } : {}),
       // Read by executeTenantWithRotation for per-tenant usage accounting —
       // both attempts' worth when there were two.
       promptTokens,

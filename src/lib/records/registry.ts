@@ -359,6 +359,25 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'biz_other',
     categories: k('biz_other', 'uncategorized'),
   },
+  // Client Documents (src/lib/clientCategories.ts). Only the catch-all is
+  // DECLARED here: every other client category's key is derived from a source
+  // pair and generated into `document_categories` (drizzle/0098 +
+  // syncClientCategories), and `scopeCategoriesLive` attaches the live rows of
+  // the module through `homeScopeForModule`. Which of them a company may actually
+  // use is its own setting (client_subcategory_settings), enforced in
+  // records/handler.ts. The catch-all is always usable.
+  biz_client_individual: {
+    ...DEFAULTS,
+    path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_client_individual`,
+    primaryModule: 'biz_client_individual',
+    categories: k('biz_client_individual', 'uncategorized'),
+  },
+  biz_client_company: {
+    ...DEFAULTS,
+    path: `${BUSINESS_BASE}/${COMPANY_SEGMENT}/modules/biz_client_company`,
+    primaryModule: 'biz_client_company',
+    categories: k('biz_client_company', 'uncategorized'),
+  },
 };
 
 export type RecordScope = keyof typeof RECORD_SCOPES;

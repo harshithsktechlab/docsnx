@@ -277,6 +277,45 @@ export const AI_PROFILES: Record<string, AIProfile> = {
     ],
     mandatoryDisclaimer: 'Informational travel and expense summary only.'
   },
+  // Client Documents (src/lib/clientCategories.ts). The documents are the
+  // CLIENT's, kept by the business, so the profile reads like a household /
+  // company document and carries the "not advice" disclaimer for both.
+  biz_client_individual: {
+    category: 'biz_client_individual',
+    name: 'Individual Client Documents',
+    extractionFields: [
+      'Client Name',
+      'Document Type',
+      'Document Number',
+      'Issue Date',
+      'Expiry or Due Date',
+      'Issuing Authority',
+    ],
+    analyticalCapabilities: [
+      'Documents on file per client',
+      'Upcoming expiry and renewal dates',
+      'Missing documents against what the adviser tracks',
+    ],
+    mandatoryDisclaimer: 'Informational client document summary only. Not financial, legal or tax advice.'
+  },
+  biz_client_company: {
+    category: 'biz_client_company',
+    name: 'Company Client Documents',
+    extractionFields: [
+      'Client Company Name',
+      'Document Type',
+      'Registration or Reference Number',
+      'Issue Date',
+      'Expiry or Due Date',
+      'Issuing Authority',
+    ],
+    analyticalCapabilities: [
+      'Documents on file per client company',
+      'Upcoming expiry, renewal and filing dates',
+      'Missing documents against what the adviser tracks',
+    ],
+    mandatoryDisclaimer: 'Informational client document summary only. Not financial, legal or tax advice.'
+  },
   // 0067: the company's catch-all. What it holds is unknown by definition, so
   // the profile asks only what any document answers.
   biz_other: {

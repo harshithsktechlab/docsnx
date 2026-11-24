@@ -95,6 +95,11 @@ export const VAULT_MODULES = [
   'biz_operations',
   'biz_travel',
   'biz_other',
+  // Client Documents (src/lib/clientCategories.ts): one module per client type,
+  // each subcategory derived from a personal / business one. Immutable, like the
+  // rest — each names a Drive folder and is bound into every ciphertext's AAD.
+  'biz_client_individual',
+  'biz_client_company',
   'passwords',
 ] as const;
 export type VaultModule = (typeof VAULT_MODULES)[number];
@@ -236,6 +241,8 @@ export const MODULE_FOLDER: Record<VaultModule, string> = {
   biz_operations: 'BizOperations',
   biz_travel: 'BizTravel',
   biz_other: 'BizOthers',
+  biz_client_individual: 'BizClientIndividual',
+  biz_client_company: 'BizClientCompany',
   passwords: 'Passwords',
 };
 

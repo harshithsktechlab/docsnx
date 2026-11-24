@@ -252,7 +252,14 @@ export interface Twin {
 export async function findTwin(
   tx: any,
   tenantId: string,
-  candidate: { title: string; categoryId: string; fileName?: string | null },
+  /**
+   * `clientId` scopes the match to ONE client's documents. A client document is a
+   * twin only of the same CLIENT's: two clients can each hold "PAN Card - Ram
+   * Das", and a re-created client must never revive — or be refused as a copy of —
+   * the documents of an earlier one. Absent for every document that is not a
+   * client's, which is every document before Client Documents existed.
+   */
+  candidate: { title: string; categoryId: string; fileName?: string | null; clientId?: string | null },
   options: { status: typeof ACTIVE | typeof DELETED; excludeId?: string | null },
 ): Promise<Twin | null> {
   const active = options.status === ACTIVE;
@@ -289,6 +296,7 @@ export async function findTwin(
       // does. A no-op for the deleted case, which wants the tombstones.
       ...(active ? [visibleDocument()] : []),
       eq(documents.categoryId, candidate.categoryId),
+      ...(candidate.clientId ? [eq(documents.clientId, candidate.clientId)] : []),
       // A record is never its own duplicate — an edit that leaves the title
       // alone would otherwise be refused as a copy of itself.
       ...(options.excludeId ? [ne(documents.id, options.excludeId)] : []),
@@ -314,7 +322,7 @@ export async function findTwin(
 export async function findDeletedTwin(
   tx: any,
   tenantId: string,
-  candidate: { title: string; categoryId: string; fileName?: string | null },
+  candidate: { title: string; categoryId: string; fileName?: string | null; clientId?: string | null },
 ): Promise<Twin | null> {
   return findTwin(tx, tenantId, candidate, { status: DELETED });
 }
@@ -323,7 +331,7 @@ export async function findDeletedTwin(
 export async function findActiveTwin(
   tx: any,
   tenantId: string,
-  candidate: { title: string; categoryId: string; fileName?: string | null },
+  candidate: { title: string; categoryId: string; fileName?: string | null; clientId?: string | null },
   excludeId?: string | null,
 ): Promise<Twin | null> {
   return findTwin(tx, tenantId, candidate, { status: ACTIVE, excludeId });

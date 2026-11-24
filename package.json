@@ -6,7 +6,7 @@
     "test-server": "next dev -p 3005",
     "dev": "next dev --turbo",
     "build": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build",
-    "migrate": "node scripts/check_migration_state.mjs && npx drizzle-kit migrate && npx tsx scripts/seed_document_category_fields.ts && node scripts/apply-rls.js",
+    "migrate": "node scripts/check_migration_state.mjs && npx drizzle-kit migrate && npx tsx scripts/seed_document_category_fields.ts && npx tsx scripts/sync_client_categories.ts --apply && node scripts/apply-rls.js",
     "release": "npm run build && npm run migrate && sudo systemctl restart docsnx",
     "start": "next start",
     "lint": "eslint",

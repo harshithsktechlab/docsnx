@@ -72,6 +72,7 @@ import {
   raisesReminder,
 } from './records/reminderPolicy';
 import { PREMIUM_FREQUENCY_OPTIONS } from './records/premiumFrequency';
+import { sourceKeyOf } from './clientCategories';
 
 /**
  * Mirrors document_category_fields.data_type.
@@ -3177,7 +3178,10 @@ export const parseFieldCsv = parseEncryptedFields;
  * a deploy; use this for seeding, tests, and as the fallback when no row exists.
  */
 export function encryptedFieldsFor(key: CategoryKey): string[] {
-  return [...(POLICY_BY_KEY.get(key.moduleKey)?.get(key.documentKey)?.encryptedFields ?? [])];
+  // A client category (src/lib/clientCategories.ts) is sealed exactly like the
+  // personal / business category it derives from.
+  const src = sourceKeyOf(key);
+  return [...(POLICY_BY_KEY.get(src.moduleKey)?.get(src.documentKey)?.encryptedFields ?? [])];
 }
 
 /**
@@ -3210,7 +3214,9 @@ const FIELDS_BY_KEY: ReadonlyMap<string, ReadonlyMap<string, readonly FieldSpec[
  * is how a value ends up under a name the policy does not seal.
  */
 export function fieldsFor(key: CategoryKey): readonly FieldSpec[] {
-  return FIELDS_BY_KEY.get(key.moduleKey)?.get(key.documentKey) ?? [];
+  // A client category's form is its source category's form.
+  const src = sourceKeyOf(key);
+  return FIELDS_BY_KEY.get(src.moduleKey)?.get(src.documentKey) ?? [];
 }
 
 /** The bare key names of `fieldsFor`, as a Set for membership tests. */

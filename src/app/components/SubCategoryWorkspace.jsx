@@ -63,6 +63,7 @@ import {
 } from '@/lib/sharePrintHelper';
 import { reportShareResult } from '@/lib/shareToast';
 import { apiRequest } from '@/lib/net/apiRequest';
+import { clientIdFromPath } from '@/lib/net/useWorkspaceApi';
 import { toastApiError } from '@/lib/net/toastApiError';
 import FilePreviewPane from '@/components/records/FilePreviewPane';
 import { CUSTOM_FIELDS_KEY } from '@/lib/records/fieldValidation';
@@ -135,8 +136,27 @@ function StatTile({ icon: Icon, label, value, tone = 'default', hint }) {
  * whether a company qualifies the request. `companyId` arrives through
  * `useParams`, so it is simply absent on the personal route.
  */
-export default function SubCategoryWorkspace() {
-  const { moduleKey, documentKey, companyId } = useParams();
+export default function SubCategoryWorkspace({
+  moduleKey: moduleKeyProp,
+  documentKey: documentKeyProp,
+  backHref,
+  backLabel,
+  addBlockedMessage,
+} = {}) {
+  const params = useParams();
+  const { companyId } = params;
+  // The two props are for the CLIENT pages (/business/<id>/clients/<clientId>/<d>),
+  // whose URL names a client and a document key but not a module — the module is
+  // the client type's. Everywhere else they are absent and the URL decides.
+  const moduleKey = moduleKeyProp ?? params.moduleKey;
+  const documentKey = documentKeyProp ?? params.documentKey;
+  /**
+   * The client these records belong to, on a client page; null everywhere else.
+   * Read from the path by the same helper `withCompany` uses, so the requests
+   * this page builds BY HAND below and the ones its child components build
+   * through `withCompany` cannot disagree about it.
+   */
+  const clientId = clientIdFromPath(typeof window === 'undefined' ? '' : window.location.pathname);
   /**
    * Appended to every request this page makes.
    *
@@ -144,7 +164,9 @@ export default function SubCategoryWorkspace() {
    * and a personal module with one are both 400s — so this is not a filter that
    * can be forgotten into a wrong-but-plausible result.
    */
-  const companyParam = companyId ? `companyId=${encodeURIComponent(companyId)}` : '';
+  const companyParam = companyId
+    ? `companyId=${encodeURIComponent(companyId)}${clientId ? `&clientId=${encodeURIComponent(clientId)}` : ''}`
+    : '';
   /** Prefix for every link out of this page. */
   const prefix = companyId ? `/business/${companyId}` : '';
   const router = useRouter();
@@ -190,7 +212,9 @@ export default function SubCategoryWorkspace() {
     [moduleKey, documentKey],
   );
 
-  const canAdd = clientCan(user, moduleKey, documentKey, 'add');
+  // A client page whose kind of client has nothing ticked yet: configuring comes
+  // first, so adding is off (the server refuses it too) and the page says why.
+  const canAdd = !addBlockedMessage && clientCan(user, moduleKey, documentKey, 'add');
   const canEdit = clientCan(user, moduleKey, documentKey, 'edit');
   const canDelete = clientCan(user, moduleKey, documentKey, 'delete');
   // Taking a copy out is what `share` governs — see the file route. A view-only
@@ -224,6 +248,7 @@ export default function SubCategoryWorkspace() {
       const qs = new URLSearchParams(window.location.search);
       qs.delete('tab');
       if (companyParam) qs.set('companyId', companyId);
+      if (clientId) qs.set('clientId', clientId);
       const outcome = await apiRequest(`/api/modules/${moduleKey}/${documentKey}?${qs.toString()}`);
       if (!outcome.ok) {
         // 403 and 404 are answered by the page itself — a permission wall and a
@@ -366,6 +391,20 @@ export default function SubCategoryWorkspace() {
     setFormHolder(holderId);
     setFormOpen(true);
   };
+
+  // `?add=1` opens the add form straight away: the client page's "Add document"
+  // picks a type and lands here, and a second click on "Add …" would be a pointless
+  // step. Once, and only when adding is possible; the parameter is then dropped so
+  // a refresh or a back-navigation does not reopen it.
+  useEffect(() => {
+    if (searchParams.get('add') !== '1' || !canAdd || !user) return;
+    openForm();
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('add');
+    const rest = params.toString();
+    router.replace(rest ? `?${rest}` : window.location.pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canAdd, user]);
 
   /**
    * Edit a record in the same generated form that added it.
@@ -635,10 +674,10 @@ export default function SubCategoryWorkspace() {
           </span>
           <div className="flex flex-col min-w-0">
             <button
-              onClick={() => router.push(`${prefix}${MODULE_BASE}/${moduleKey}`)}
+              onClick={() => router.push(backHref ?? `${prefix}${MODULE_BASE}/${moduleKey}`)}
               className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors w-fit"
             >
-              {moduleName}
+              {backLabel ?? moduleName}
               <ChevronRight size={11} />
             </button>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground capitalize truncate">
@@ -656,6 +695,9 @@ export default function SubCategoryWorkspace() {
           </div>
         </div>
 
+        {addBlockedMessage && (
+          <p role="status" className="text-xs text-warning-text max-w-xs">{addBlockedMessage}</p>
+        )}
         {canAdd && (
           <Button onClick={() => openForm()} className="gap-2 hidden sm:flex">
             <Plus size={15} /> Add {categoryName.toLowerCase()}

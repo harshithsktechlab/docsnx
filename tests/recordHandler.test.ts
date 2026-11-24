@@ -200,9 +200,10 @@ describe('the registry', () => {
   it('covers the personal and business record scopes', () => {
     // 15 personal pages + 16 business modules. `corporate_compliance` went with
     // the personal `business` module in 0050; `travel`/`biz_travel` came in 0065,
-    // and the `biz_other` catch-all in 0067.
-    expect(RECORD_SCOPE_KEYS).toHaveLength(31);
-    expect(RECORD_SCOPE_KEYS.filter((s) => s.startsWith('biz_'))).toHaveLength(16);
+    // and the `biz_other` catch-all in 0067. Client Documents adds two more
+    // `biz_` scopes (biz_client_individual, biz_client_company).
+    expect(RECORD_SCOPE_KEYS).toHaveLength(33);
+    expect(RECORD_SCOPE_KEYS.filter((s) => s.startsWith('biz_'))).toHaveLength(18);
     expect(isRecordScope('biz_tax')).toBe(true);
     expect(isRecordScope('corporate_compliance')).toBe(false);
     expect(isRecordScope('medical')).toBe(true);

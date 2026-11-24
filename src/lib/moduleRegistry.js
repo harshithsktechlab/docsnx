@@ -32,6 +32,7 @@
 import {
   BUSINESS_UNCATEGORIZED, DOCUMENT_CATEGORY_MODULES, UNCATEGORIZED, isBusinessModule,
 } from './documentCategories';
+import { CLIENT_INDIVIDUAL_MODULE, CLIENT_COMPANY_MODULE } from './clientCategories';
 import { RECORD_SCOPES, BUSINESS_BASE } from './records/registry';
 import { permissionsForLevel } from './permissionLevels';
 
@@ -250,6 +251,10 @@ export const PERMISSION_MODULE_KEYS = [...new Set([
   ...ALL_NAV_MODULES.map((m) => m.key),
   UNCATEGORIZED.moduleKey, // `other` — grantable, so an unfiled scan is reachable
   BUSINESS_UNCATEGORIZED.moduleKey, // `biz_other` — the same, for a company
+  // Client Documents: one grantable key per client type. They are not nav modules
+  // (the sidebar has a single "Client Documents" entry), so they are named here.
+  CLIENT_INDIVIDUAL_MODULE,
+  CLIENT_COMPANY_MODULE,
   ...UTILITY_MODULES.filter((m) => m.key !== null).map((m) => m.key),
   'audit_logs', // sidebar entry is TENANT_ADMIN-only (Account group in Shell.js);
                 // /api/audit-logs additionally hard-gates on role

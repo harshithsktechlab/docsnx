@@ -117,6 +117,23 @@ describe('business reminders', () => {
     expect(item.link).toBe(`/business/${COMPANY}/modules/biz_licenses/trade_license`);
   });
 
+  it("raises a client document's renewal and links it to the CLIENT's page", async () => {
+    // A client's policy renewing is the reminder an agent most needs. The client
+    // categories are generated rows, not part of the compiled seed, and were
+    // silently skipped — and `/modules/biz_client_*/...` has no client in the URL.
+    const CLIENT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const { row, record } = reminderIn('biz_client_individual', 'insurance-health_policies', 5);
+    rows.push({ ...row, companyId: COMPANY, clientId: CLIENT });
+    readJsonStore.mockResolvedValue({ store: { records: { [row.id]: record } } });
+
+    const items = await collectFollowUps(USER);
+    expect(items).toHaveLength(1);
+    expect(items[0].link).toBe(`/business/${COMPANY}/clients/${CLIENT}/insurance-health_policies`);
+    expect(readJsonStore.mock.calls[0][0].companyId).toBe(COMPANY);
+    // Permission is asked of the client module, not of anything the user did not name.
+    expect(hasPermission).toHaveBeenCalledWith(USER, 'biz_client_individual', 'view', 'insurance-health_policies');
+  });
+
   it('keeps a personal reminder on the personal path and vault', async () => {
     const { row, record } = reminderIn('insurance', 'life_policies', 5);
     rows.push(row);

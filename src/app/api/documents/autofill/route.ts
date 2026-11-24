@@ -40,11 +40,15 @@
 import { NextResponse } from 'next/server';
 import { subCategoryTitle, withoutReadTitle } from '@/lib/records/autoTitle';
 import { db } from '@/lib/db';
-import { getUserFromRequest } from '@/lib/auth';
+import { getUserFromRequest, hasPermission } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { documentManagerContext } from '@/lib/records/handler';
 import { resolveCategory } from '@/lib/documentCategoryResolver';
-import { isCatchAll } from '@/lib/documentCategories';
+import { isCatchAll, isClientModule } from '@/lib/documentCategories';
+import {
+  OWNER_PROMPT_TASK, applyScanOwners, clientCategoryIds, individualClientStanza,
+  individualSourceKeys, loadScanOwnerContext,
+} from '@/lib/clients/scanOwners';
 import { isAcceptedUpload, uploadTypeError } from '@/lib/records/uploadTypes';
 import { refreshUploadLimit } from '@/lib/records/uploadLimitLoader';
 import { classifyDocument } from '@/lib/ai';
@@ -126,11 +130,46 @@ export async function POST(req: Request) {
       }, { status: 422 });
     }
 
+    // Client Documents: `null` unless the company has ticked client document
+    // types — then this request is exactly what it always was. See scanOwners.ts.
+    // `skipOwner` is the form saying "this is the company's own document": the
+    // reviewer chose Own company on the client panel, and the read is run again as
+    // the ordinary, client-free one it always was.
+    const ownerCtx = companyId && form.get('skipOwner') !== '1'
+      ? await loadScanOwnerContext(user, companyId)
+      : null;
+    const ownerPrompt = ownerCtx
+      ? {
+        stanza: await individualClientStanza(ownerCtx),
+        taskText: OWNER_PROMPT_TASK,
+        individualSourceKeys: await individualSourceKeys(ownerCtx),
+      }
+      : null;
+
     // ── Pass 1: what is it? ───────────────────────────────────────────────
     const proposal = await classifyDocument(
       aiFiles, user.tenantId, user.id, companyId ? 'business' : 'personal', companyId,
       { fileCount: 1, pageCount: aiFiles.length },
+      ownerPrompt,
     );
+
+    // Whose is it? The same decision Power Scan makes, on one record: matches the
+    // owner the document names against the company and its clients, and re-files
+    // the pair under that owner's category. Mutates the record in place.
+    let clientOwner: Awaited<ReturnType<typeof applyScanOwners>> | null = null;
+    const ownerRecord: any = ownerCtx ? {
+      kind: 'record',
+      holderName: proposal.holderName,
+      ownerName: proposal.ownerName,
+      ownerType: proposal.ownerType,
+      ownerIds: proposal.ownerIds,
+      extractedData: { moduleKey: proposal.moduleKey, documentKey: proposal.documentKey },
+    } : null;
+    if (ownerCtx && ownerRecord) clientOwner = await applyScanOwners([ownerRecord], ownerCtx);
+    const filed = ownerRecord
+      ? { moduleKey: ownerRecord.extractedData.moduleKey as string, documentKey: ownerRecord.extractedData.documentKey as string }
+      : { moduleKey: proposal.moduleKey, documentKey: proposal.documentKey };
+    const forClient = isClientModule(filed.moduleKey);
     // Usage rows this request wrote, handed back so the save can link them to
     // the record that is created. See src/lib/aiUsageLink.ts.
     const usageIds = proposal.usageId ? [proposal.usageId] : [];
@@ -148,10 +187,7 @@ export async function POST(req: Request) {
     // does not fit. This resolves it to the row id the picker is keyed on; an
     // empty pair falls through to the 422 below, which asks the member to
     // choose. That is the honest answer, not a failure.
-    const category = await resolveCategory(db, null, {
-      moduleKey: proposal.moduleKey,
-      documentKey: proposal.documentKey,
-    });
+    const category = await resolveCategory(db, null, filed);
     if (!category) {
       // Every seeded pair has an active row, so this means the taxonomy and the
       // master list have drifted. Honest answer: the user picks a category.
@@ -161,11 +197,17 @@ export async function POST(req: Request) {
     }
 
     const categoryKey = { moduleKey: category.moduleKey, documentKey: category.documentKey };
-    const permitted = ctx.keys.some(
-      (k) => k.moduleKey === categoryKey.moduleKey && k.documentKey === categoryKey.documentKey,
-    );
+    // A client category is not in the Document Manager's own key set (that is the
+    // company's documents); it is gated by the client module's permission instead.
+    // The save re-checks the client, the ticked type and the permission regardless.
+    const permitted = forClient
+      ? await hasPermission(user, categoryKey.moduleKey, 'add', categoryKey.documentKey)
+      : ctx.keys.some(
+        (k) => k.moduleKey === categoryKey.moduleKey && k.documentKey === categoryKey.documentKey,
+      );
 
-    const holderId = await matchHolderByName(proposal.holderName, user.tenantId, companyId);
+    // A client document belongs to its client, not to a member of the workspace.
+    const holderId = forClient ? '' : await matchHolderByName(proposal.holderName, user.tenantId, companyId);
     // The catch-all is not a name: "Uncategorized - Ravi Kumar" says nothing.
     const unclassified = isCatchAll(category);
     const base = {
@@ -196,6 +238,18 @@ export async function POST(req: Request) {
       pagesRead: aiFiles.length,
       pagesTotal,
       usageIds,
+      // Present only for a company that keeps client documents: the owner the
+      // document was matched to (or why it could not be), the clients and ticked
+      // document types the form may offer, and the pair as the classifier named it.
+      ...(clientOwner && ownerRecord ? {
+        clientOwner: {
+          proposal: ownerRecord.ownerProposal,
+          clientId: ownerRecord.clientId ?? null,
+          sourcePair: ownerRecord.sourcePair ?? null,
+          categoryIds: ownerCtx ? await clientCategoryIds(ownerCtx) : {},
+          ...clientOwner,
+        },
+      } : {}),
     };
 
     /**
@@ -241,7 +295,7 @@ export async function POST(req: Request) {
     // looking at the field the category declares for it rather than at a
     // generic instruction. Preferred when pass 1 read nothing — and then the
     // title names that holder too.
-    const readHolder = holderId || !result.holderName ? null : {
+    const readHolder = forClient || holderId || !result.holderName ? null : {
       holderId: await matchHolderByName(result.holderName, user.tenantId, companyId),
       holderName: result.holderName,
       title: subCategoryTitle(category.documentName, result.holderName) || base.title,

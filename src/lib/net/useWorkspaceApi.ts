@@ -49,7 +49,33 @@ export function withCompany(url: string, companyId: string | null): string {
   if (!companyId) return url;
   const [path, hash] = url.split('#');
   const joiner = path.includes('?') ? '&' : '?';
-  return `${path}${joiner}companyId=${encodeURIComponent(companyId)}${hash ? `#${hash}` : ''}`;
+  // A client page names its client in the path too, and every record request it
+  // makes must carry it — see `clientIdFromPath`.
+  const clientId = clientIdFromPath(typeof window === 'undefined' ? '' : window.location.pathname);
+  const client = clientId && !/[?&]clientId=/.test(path) ? `&clientId=${encodeURIComponent(clientId)}` : '';
+  return `${path}${joiner}companyId=${encodeURIComponent(companyId)}${client}${hash ? `#${hash}` : ''}`;
+}
+
+/**
+ * The client a Client Documents page is about, read off the URL.
+ *
+ * `/business/<companyId>/clients/<clientId>[/…]` names a client in the PATH, the
+ * same way `/business/<companyId>/…` names a company, and for the same reasons:
+ * two clients can be open in two tabs and a refresh lands where the user was.
+ * It is read from the path here, rather than threaded as an argument, because
+ * `withCompany` is the ONE place every workspace-bound request in the record UI
+ * passes through (CategoryRecordForm, useCategoryFields, useLinkedRecords, …) —
+ * the same "fifteenth call site" argument that made the company a single bind.
+ *
+ * Returns null anywhere else, including `/clients` and `/clients/configure`, so
+ * nothing outside a client's own pages gains a `clientId`. Not a permission: the
+ * server proves the client belongs to the company on every request.
+ */
+const CLIENT_PATH_RE = /^\/business\/[^/]+\/clients\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
+
+export function clientIdFromPath(pathname: string): string | null {
+  const match = CLIENT_PATH_RE.exec(pathname || '');
+  return match ? match[1].toLowerCase() : null;
 }
 
 export interface WorkspaceApi {

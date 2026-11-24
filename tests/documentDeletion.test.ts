@@ -274,6 +274,24 @@ describe('findDeletedTwin', () => {
     });
   });
 
+  it("is scoped to ONE client's documents when given a client — a re-created client never revives an earlier one's", async () => {
+    // Ram Das is deleted and added again. His new PAN card has the very title the old
+    // one had; without this it revived the old row IN PLACE, still under the old
+    // client, and the new client then read back nothing ("Record vanished").
+    const { findDeletedTwin } = await import('@/lib/records/documentVisibility');
+    const CLIENT = '6f800ebb-84e6-4e96-ad13-ca84db000001';
+    const scoped = fakeTx([]);
+    await findDeletedTwin(scoped.tx, 't1', { ...candidate, clientId: CLIENT });
+    expect(boundValues(scoped.calls.where)).toContain(CLIENT);
+
+    // Not given a client — every document that is not a client's — the predicate is
+    // exactly what it always was.
+    const plain = fakeTx([]);
+    await findDeletedTwin(plain.tx, 't1', candidate);
+    expect(boundValues(plain.calls.where)).not.toContain(CLIENT);
+    expect(boundValues(plain.calls.where).length).toBeLessThan(boundValues(scoped.calls.where).length);
+  });
+
   it('returns null rather than undefined when nothing matches', async () => {
     const { findDeletedTwin } = await import('@/lib/records/documentVisibility');
     const { tx } = fakeTx([]);

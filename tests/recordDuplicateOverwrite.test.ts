@@ -65,6 +65,9 @@ const READ_BACK = {
  * `.limit()` resolves the category lookup and the read-back; `.insert()`
  * records what was written, which is where assertions 1–3 are actually made.
  */
+/** Whose client the record being overwritten belongs to (null: nobody's). */
+let existingClientId: string | null = null;
+
 function makeTx() {
   const chain: any = {
     select: (cols: any) => { chain._cols = cols; return chain; },
@@ -73,6 +76,11 @@ function makeTx() {
     where: () => chain,
     orderBy: () => chain,
     limit: async () => {
+      // The guard that a write onto an existing record is onto one of THIS client's
+      // asks for the existing row's `clientId` and nothing else.
+      if (chain._cols && Object.keys(chain._cols).length === 1 && 'clientId' in chain._cols) {
+        return [{ clientId: existingClientId }];
+      }
       // The read-back asks for `title`; the category lookup asks only for `id`.
       if (chain._cols && 'title' in chain._cols) {
         return [{ ...READ_BACK, id: insertedRows.at(-1)?.id ?? 'unknown' }];
@@ -137,6 +145,10 @@ vi.mock('@/lib/documentCategoryFields', () => ({
   identifierFields: vi.fn(() => []),
   dedupeIdentifierFields: vi.fn(() => []),
 }));
+// A client's details are filled from a saved client document. Nothing here is a
+// client's, so it is never reached; mocked so it does not drag the client form's
+// validators into a suite that fakes `documentCategoryFields`.
+vi.mock('@/lib/clients/clientAutofill', () => ({ fillClientFromRecord: vi.fn(async () => []) }));
 vi.mock('@/lib/vault/fieldSplitter', () => ({
   loadEncryptionPolicy: vi.fn(async () => ({})),
   splitRecordFields: vi.fn(() => ({ open: {}, sealed: {} })),
@@ -172,6 +184,7 @@ const EXISTING = 'aaaaaaaa-1111-2222-3333-444444444444';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  existingClientId = null;
   insertedRows.length = 0;
   conflictUpdates.length = 0;
   hasPermission.mockResolvedValue(true);
@@ -531,5 +544,54 @@ describe('the label under Others (0068)', () => {
 
     expect(insertedRows[0].customSubcategory).toBeNull();
     expect(conflictUpdates[0].set).not.toHaveProperty('customSubcategory');
+  });
+});
+
+describe("a client's document is only ever written onto THAT client's record", () => {
+  const CLIENT_PAIR = { moduleKey: 'biz_client_individual', documentKey: 'identity-pan_card' };
+  const clientCtx = (clientId: string) => ({
+    user: { id: 'u1', tenantId: 't1', tenant: { id: 't1' } },
+    scope: 'biz_client_individual', module: 'biz_client_individual', companyId: 'co-1', clientId,
+    keys: [CLIENT_PAIR],
+  }) as any;
+
+  beforeEach(async () => {
+    const { resolveCategory } = await import('@/lib/documentCategoryResolver');
+    (resolveCategory as any).mockResolvedValue({ id: 'cat-client', ...CLIENT_PAIR, documentName: 'PAN Card' });
+    storeRecordInVault.mockResolvedValue({
+      categoryModuleKey: CLIENT_PAIR.moduleKey, categoryDocumentKey: CLIENT_PAIR.documentKey,
+      filePath: '', fileDriveId: '', jsonDriveId: 'json-1', keyVersion: 1,
+      contentHash: '', encryptedSize: 0, pageCount: 0, status: 'active',
+    });
+    resolveDuplicate.mockResolvedValue({
+      id: EXISTING, reason: 'title', detail: 'this title, in this category',
+      title: 'PAN Card - Ram Das', moduleKey: CLIENT_PAIR.moduleKey, documentKey: CLIENT_PAIR.documentKey,
+    });
+  });
+
+  it('refuses to overwrite a record that belongs to a DIFFERENT client — nothing is stored or written', async () => {
+    // The bug this pins: a re-created client's upload was written onto the earlier
+    // client's row. The row kept the old client, so the new one read back nothing
+    // and the save failed with "Record vanished immediately after creation".
+    existingClientId = 'client-OLD';
+    await expect(createRecord(clientCtx('client-NEW'), input, { overwrite: true }))
+      .rejects.toBeInstanceOf(ForbiddenCategoryError);
+    expect(storeRecordInVault).not.toHaveBeenCalled();
+    expect(insertedRows).toHaveLength(0);
+  });
+
+  it("refuses a client's write onto a record that belongs to no client at all", async () => {
+    existingClientId = null;
+    await expect(createRecord(clientCtx('client-NEW'), input, { overwrite: true }))
+      .rejects.toBeInstanceOf(ForbiddenCategoryError);
+    expect(insertedRows).toHaveLength(0);
+  });
+
+  it("allows overwriting the SAME client's own record", async () => {
+    existingClientId = 'client-NEW';
+    await createRecord(clientCtx('client-NEW'), input, { overwrite: true });
+    expect(insertedRows).toHaveLength(1);
+    expect(insertedRows[0].id).toBe(EXISTING);
+    expect(insertedRows[0].clientId).toBe('client-NEW');
   });
 });

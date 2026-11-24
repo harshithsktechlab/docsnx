@@ -55,6 +55,8 @@ import { writeAudit, ACTIONS, auditSentence, categoryPhrase } from '@/lib/audit'
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { categoryLabel } from '@/lib/documentCategories';
 import { invalidateTaxonomy } from '@/lib/taxonomyRegistry';
+import { isClientModule } from '@/lib/documentCategories';
+import { syncClientCategoriesQuietly } from '@/lib/clients/syncClientCategories';
 import { baselineSpecFor } from '@/lib/documentCategoryFields';
 import { labelError, taxonomyKeyFrom } from '@/lib/records/taxonomyKey';
 import { homeScopeForModule } from '@/lib/records/registry';
@@ -169,7 +171,10 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
-      categories: rows.map((r) => ({ ...r, recordCount: counts.get(categoryLabel(r)) ?? 0 })),
+      // The Client Documents categories are GENERATED from the rows above
+      // (src/lib/clients/syncClientCategories.ts) and follow them; listing 200
+      // derived rows here would invite edits that the next sync reverts.
+      categories: rows.filter((r) => !isClientModule(r.moduleKey)).map((r) => ({ ...r, recordCount: counts.get(categoryLabel(r)) ?? 0 })),
     });
   } catch (error) {
     return serverError(error, 'loading document categories');
@@ -212,6 +217,12 @@ export async function POST(req: Request) {
       );
     }
     const { moduleKey, documentName } = parsed.data;
+    if (isClientModule(moduleKey)) {
+      return NextResponse.json(
+        { error: 'Client Documents categories follow the personal and business ones. Add the document type there.' },
+        { status: 400 },
+      );
+    }
 
     const message = labelError(documentName);
     if (message) return NextResponse.json({ error: message }, { status: 400 });
@@ -307,6 +318,8 @@ export async function POST(req: Request) {
       return row.id;
     });
 
+    // The client categories are derived from these rows — see syncClientCategories.ts.
+    await syncClientCategoriesQuietly();
     invalidateTaxonomy();
 
     await writeAudit({
@@ -356,6 +369,12 @@ export async function PATCH(req: Request) {
       );
     }
     const { moduleKey, documentKey, documentName, moduleName, isActive, sortOrder } = parsed.data;
+    if (isClientModule(moduleKey)) {
+      return NextResponse.json(
+        { error: 'Client Documents categories follow the personal and business ones; change the source document type instead.' },
+        { status: 400 },
+      );
+    }
     const categoryKey = { moduleKey, documentKey };
 
     for (const name of [documentName, moduleName]) {
@@ -433,6 +452,8 @@ export async function PATCH(req: Request) {
       }
     });
 
+    // The client categories are derived from these rows — see syncClientCategories.ts.
+    await syncClientCategoriesQuietly();
     invalidateTaxonomy();
 
     await writeAudit({

@@ -4,6 +4,11 @@ import { requireActivePlan } from '@/lib/planGate';
 import { canAnyInScope, permittedCategories } from '@/lib/records/handler';
 import { resolveUtilityCompany } from '@/lib/records/companyScope';
 import { isBusinessModule } from '@/lib/documentCategories';
+import { sourceKeyOf } from '@/lib/clientCategories';
+import {
+  OWNER_PROMPT_TASK, OWNER_SCHEMA_LINES, applyScanOwners, individualClientStanza,
+  individualSourceKeys, loadScanOwnerContext,
+} from '@/lib/clients/scanOwners';
 import { processUpload, sweepStaleScanDirs } from '@/lib/documentProcessor';
 import { scanMultipleFiles } from '@/lib/ai';
 import { splitMixedSingleDocuments } from '@/lib/records/scanGrouping';
@@ -108,7 +113,11 @@ async function attachCategoryIds(records) {
  * Mutates `records` in place; the review UI can override any of it.
  */
 async function attachHolderIds(records, user, companyId = null) {
-  const candidates = (records || []).filter(Boolean);
+  // A client document belongs to its CLIENT, not to a member of the workspace —
+  // the review grid replaces the "Belongs to" picker with the owner picker.
+  const candidates = (records || []).filter(
+    (r) => Boolean(r) && !(r.ownerProposal && r.ownerProposal.owner !== 'own'),
+  );
   if (candidates.length === 0) return;
 
   // id and name only. A scan response is not a place any other user column
@@ -346,7 +355,9 @@ export async function POST(req) {
      * is writable.
      */
     const allowed = companyId
-      ? (await permittedCategories(user, 'add')).some((k) => isBusinessModule(k.moduleKey))
+      // `includeClient`: a member granted only Client Documents may still scan —
+      // the per-record check on save asks about the exact category either way.
+      ? (await permittedCategories(user, 'add', { includeClient: true })).some((k) => isBusinessModule(k.moduleKey))
       : await canAnyInScope(user, 'documents', 'add');
     if (!allowed) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -527,11 +538,25 @@ export async function POST(req) {
     // One id for this whole request: stamped on the pass-1 row and every
     // pass-2 row, so the super admin AI Usage page can show a scan as one batch.
     const batchId = randomUUID();
+
+    // Client Documents: who the company's clients are and which of their document
+    // types it ticked. `null` for a company with neither — then nothing below
+    // changes, prompt included. See src/lib/clients/scanOwners.ts.
+    const ownerCtx = companyId ? await loadScanOwnerContext(user, companyId) : null;
+    const ownerPrompt = ownerCtx
+      ? {
+        stanza: await individualClientStanza(ownerCtx),
+        taskText: OWNER_PROMPT_TASK,
+        schemaLines: OWNER_SCHEMA_LINES,
+        individualSourceKeys: await individualSourceKeys(ownerCtx),
+      }
+      : null;
+
     const result = await scanMultipleFiles(aiFiles, user.tenantId, user.id, taxonomy, companyId, {
       batchId,
       fileCount: files.length,
       pageCount: aiFiles.length,
-    });
+    }, ownerPrompt);
 
     // 3b. Check the model's grouping. A single-document category (a PAN card)
     //     that came back holding pages from more than one uploaded file is split
@@ -548,7 +573,7 @@ export async function POST(req) {
           ...scanUsage,
           fileCount: new Set(subset.map((p) => p.originalName || p.fileName)).size,
           pageCount: subset.length,
-        });
+        }, ownerPrompt);
         // The sub-call numbers its pages 0..n-1; put them back on the batch's.
         return (again.proposedRecords || []).map((r) => ({
           ...r,
@@ -559,6 +584,11 @@ export async function POST(req) {
       },
     );
 
+    // 3c. Whose is each document? Decides the owner and re-files the record under
+    //     that owner's category BEFORE the category ids and field specs are
+    //     resolved, so those are for the category it will really be saved under.
+    const clientOwners = ownerCtx ? await applyScanOwners(result.proposedRecords, ownerCtx) : null;
+
     // 4. Resolve the AI's master category codes to ids for the review UI.
     await attachCategoryIds(result.proposedRecords);
 
@@ -566,7 +596,15 @@ export async function POST(req) {
     //    under — the pass that makes the Field Configuration mean something
     //    here. BEFORE the holder match, because it can read a name pass 1
     //    missed and that name deserves the same matching as any other.
-    const fieldSpecs = await attachCategoryFields(result.proposedRecords, aiFiles, user, companyId, batchId);
+    const rawSpecs = await attachCategoryFields(result.proposedRecords, aiFiles, user, companyId, batchId);
+    // A client category's form IS its source category's, and the grid looks specs
+    // up by the SOURCE pair (it can only fetch those — the client routes need a
+    // client in the URL). Keyed that way here so both agree.
+    const fieldSpecs = Object.fromEntries(Object.entries(rawSpecs || {}).map(([label, spec]) => {
+      const [moduleKey, ...rest] = label.split('/');
+      const source = sourceKeyOf({ moduleKey, documentKey: rest.join('/') });
+      return [categoryLabel(source), spec];
+    }));
 
     // 6. Resolve the name the OCR read to a member, so "Belongs to"
     //    arrives pre-selected instead of defaulting for every record.
@@ -576,6 +614,10 @@ export async function POST(req) {
       success: true,
       files: uploadedFiles,
       proposedRecords: result.proposedRecords,
+      // Present only for a company that keeps client documents: the clients the
+      // grid may offer as an owner, the document types ticked for each kind, and
+      // what to call the client categories. See scanOwners.ts.
+      ...(clientOwners ? { clientOwners } : {}),
       /**
        * The field spec of every sub-category this batch landed in, keyed
        * "<moduleKey>/<documentKey>". The review grid renders its inputs from

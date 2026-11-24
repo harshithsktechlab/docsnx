@@ -22,9 +22,9 @@
  * account.
  */
 import { NextResponse } from 'next/server';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { withTenant } from '@/lib/db';
-import { documents, documentCategories, documentHolders, passwords, users } from '@/db/schema';
+import { clients, documents, documentCategories, documentHolders, passwords, users } from '@/db/schema';
 import { getUserFromRequest, hasCompanyAccess, hasPermission, hasPersonalAccess } from '@/lib/auth';
 import { requireActivePlan } from '@/lib/planGate';
 import { requireOnboarded } from '@/lib/onboardingGate';
@@ -32,7 +32,7 @@ import { blindIndex } from '@/lib/fieldCrypto';
 import { readJsonStore } from '@/lib/vault/vaultRecords';
 import { pathForCategory } from '@/lib/records/registry';
 import { utilityNavPath } from '@/lib/moduleRegistry';
-import { type CategoryKey, categoryLabel } from '@/lib/documentCategories';
+import { type CategoryKey, categoryLabel, isClientModule } from '@/lib/documentCategories';
 import { activeCategoryKeys, moduleNames } from '@/lib/taxonomyRegistry';
 import { visibleDocument } from '@/lib/records/documentVisibility';
 import { dateTokens, hashSearchToken, parseQuery, textTokens } from '@/lib/search/tokens';
@@ -171,9 +171,13 @@ function valuesText(value: unknown): string {
  * `/modules/...` would open a route that 400s — a business module addressed
  * with no company.
  */
-const linkFor = (key: CategoryKey, companyId?: string | null) => (
+const linkFor = (key: CategoryKey, companyId?: string | null, clientId?: string | null) => (
   companyId
-    ? `/business/${companyId}/modules/${key.moduleKey}/${key.documentKey}`
+    // A client document opens on its CLIENT's page: a client category addressed
+    // through `/modules/...` has no client in the URL and would 400.
+    ? (clientId && isClientModule(key.moduleKey)
+      ? `/business/${companyId}/clients/${clientId}/${key.documentKey}`
+      : `/business/${companyId}/modules/${key.moduleKey}/${key.documentKey}`)
     : pathForCategory(key) ?? '/documents'
 );
 
@@ -239,6 +243,8 @@ export async function GET(req: Request) {
         // Which vault holds this record's contents, and which workspace its
         // link has to open.
         companyId: documents.companyId,
+        // A client document's owner: routes its link, and names the hit below.
+        clientId: documents.clientId,
       })
         .from(documents)
         .leftJoin(documentCategories, eq(documentCategories.id, documents.categoryId))
@@ -295,6 +301,23 @@ export async function GET(req: Request) {
     const visible = [];
     for (const r of withCategory) {
       if (await mayReach(r.companyId ?? null)) visible.push(r);
+    }
+
+    // The owners' names, for the client documents among the hits. A separate query
+    // rather than a second join, and one that does not run at all for the common
+    // case of a search that matches no client document.
+    const clientIds = [...new Set(visible.map((r) => r.clientId).filter((id): id is string => Boolean(id)))];
+    const clientNames = new Map<string, string>();
+    if (clientIds.length > 0) {
+      const named = await withTenant(user.tenantId, (tx) => tx
+        .select({ id: clients.id, displayName: clients.displayName })
+        .from(clients)
+        .where(and(
+          eq(clients.tenantId, user.tenantId),
+          inArray(clients.id, clientIds),
+          isNull(clients.deletedAt),
+        )));
+      for (const c of named) clientNames.set(c.id, c.displayName);
     }
 
     // One store read per (COMPANY, module, category) actually present. The
@@ -393,7 +416,7 @@ export async function GET(req: Request) {
             id: `${mod}-${row.id}`,
             documentId: row.id,
             title: record?.name ?? row.title,
-            subtitle: [row.categoryName, record?.issuer].filter(Boolean).join(' — ')
+            subtitle: [row.clientId ? clientNames.get(row.clientId) : null, row.categoryName, record?.issuer].filter(Boolean).join(' — ')
               || LABELS.get(mod) || mod,
             // Into the workspace the record actually lives in. A business hit
             // linked at `/modules/...` would open a route that 400s.
@@ -401,7 +424,7 @@ export async function GET(req: Request) {
             // Filtered by the record's own TITLE, not the query: the list page's
             // filter is one substring match, so a multi-word query such as
             // "april bank statement" would land on an empty list.
-            link: `${linkFor(key, companyId)}?search=${encodeURIComponent(record?.name ?? row.title ?? query)}`,
+            link: `${linkFor(key, companyId, row.clientId)}?search=${encodeURIComponent(record?.name ?? row.title ?? query)}`,
             module: LABELS.get(mod) || mod,
           },
         });

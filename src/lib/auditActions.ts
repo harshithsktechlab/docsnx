@@ -92,6 +92,8 @@ export const ACTIONS = {
   biz_operations: crud('biz_operations'),
   biz_travel: crud('biz_travel'),
   biz_other: crud('biz_other'),
+  biz_client_individual: crud('biz_client_individual'),
+  biz_client_company: crud('biz_client_company'),
 
   // Not record modules — their own tables, their own actions.
   company: crud('company'),
@@ -489,6 +491,8 @@ const ENTITY_LABELS: Record<string, string> = {
   biz_operations: 'Operations & Assets',
   biz_travel: 'Travel & Expenses',
   biz_other: 'Others',
+  biz_client_individual: 'Client Documents — Individual',
+  biz_client_company: 'Client Documents — Company',
   password: 'Passwords',
   emergency_contact: 'Important Contact',
   todo: 'To-Do',

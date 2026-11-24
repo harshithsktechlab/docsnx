@@ -37,7 +37,8 @@ import {
   SlidersHorizontal,
   Building2,
   Plus,
-  BarChart3
+  BarChart3,
+  Contact
 } from 'lucide-react';
 
 import { toast } from 'sonner';
@@ -868,6 +869,13 @@ export default function Shell({ children }) {
         { name: 'Document Manager', path: utilityNavPath('/documents', activeCompanyId), icon: FolderOpen      },
         { name: 'Follow Up',        path: utilityNavPath('/follow-up', activeCompanyId), icon: CheckCircle2, count: followUpCount },
         { name: 'AI Analysis',      path: utilityNavPath('/analysis',  activeCompanyId), icon: Sparkles       },
+        // Documents kept for the company's CLIENTS rather than for the company
+        // itself (src/lib/clientCategories.ts). One entry, not the two client
+        // modules: they are reached through the Individual / Company tabs inside.
+        // Courtesy only — the page and its API re-prove access.
+        ...(clientCan(user, 'biz_client_individual', null, 'view') || clientCan(user, 'biz_client_company', null, 'view')
+          ? [{ name: 'Client Documents', path: `/business/${activeCompanyId}/clients`, icon: Contact }]
+          : []),
       ] : [
         { name: 'Dashboard',   path: '/dashboard',           icon: LayoutDashboard                  },
         // The document manager is a page in its own right, not a module: it is

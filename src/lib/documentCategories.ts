@@ -705,6 +705,27 @@ export const DOCUMENT_CATEGORY_SEED: readonly SeedCategoryRow[] =
  */
 export const BUSINESS_MODULE_PREFIX = 'biz_';
 
+/**
+ * The two CLIENT DOCUMENTS modules — see src/lib/clientCategories.ts.
+ *
+ * Defined HERE, in the leaf, because `keysForWorkspace` below must be able to
+ * leave them out and clientCategories.ts imports THIS file, not the reverse.
+ * They are `biz_` modules (so every scope rule applies to them), but they are
+ * not part of a plain company workspace: a client document needs a client.
+ */
+export const CLIENT_INDIVIDUAL_MODULE = 'biz_client_individual';
+export const CLIENT_COMPANY_MODULE = 'biz_client_company';
+
+export function isClientModule(moduleKey: unknown): boolean {
+  return moduleKey === CLIENT_INDIVIDUAL_MODULE || moduleKey === CLIENT_COMPANY_MODULE;
+}
+
+/** Module number and display name of each client module — one definition, read by clientCategories.ts. */
+export const CLIENT_MODULE_DISPLAY = {
+  [CLIENT_INDIVIDUAL_MODULE]: { moduleNo: 117, moduleName: 'Client Documents — Individual' },
+  [CLIENT_COMPANY_MODULE]: { moduleNo: 118, moduleName: 'Client Documents — Company' },
+} as const;
+
 /** Which taxonomy a module belongs to. Not a permission and not an account type. */
 export type TaxonomyScope = 'personal' | 'business';
 
@@ -749,7 +770,12 @@ export function keysForWorkspace<T extends { moduleKey: string }>(
   keys: readonly T[],
   companyId: string | null | undefined,
 ): T[] {
-  return keys.filter((k) => belongsToWorkspace(k.moduleKey, companyId));
+  // The client modules are `biz_`, so `belongsToWorkspace` would admit them — and
+  // a plain company workspace must NOT offer them: the Document Manager's picker,
+  // list, dashboard and bulk routes are the company's OWN documents, and a client
+  // document there would have no client to belong to. They are reached through
+  // the Client Documents pages, which name the client.
+  return keys.filter((k) => belongsToWorkspace(k.moduleKey, companyId) && !isClientModule(k.moduleKey));
 }
 
 /** The personal modules, catch-all included. */
@@ -859,6 +885,18 @@ export function categoryLabel(key: CategoryKey): string {
 export function categoryDisplay(
   key: CategoryKey,
 ): { moduleName: string; documentName: string; moduleNo: number } | undefined {
+  // A client category is named for what it derives from: `identity-pan_card` under
+  // Client Documents reads "PAN Card". The separator is the one clientCategories.ts
+  // defines; it is spelled out here because that file imports this one.
+  if (isClientModule(key.moduleKey)) {
+    const display = CLIENT_MODULE_DISPLAY[key.moduleKey as keyof typeof CLIENT_MODULE_DISPLAY];
+    if (key.documentKey === 'uncategorized') return { ...display, documentName: 'Others' };
+    const at = key.documentKey.indexOf('-');
+    const source = at > 0
+      ? DOCUMENT_CATEGORY_SEED.find((r) => r.moduleKey === key.documentKey.slice(0, at) && r.documentKey === key.documentKey.slice(at + 1))
+      : undefined;
+    return source ? { ...display, documentName: source.documentName } : undefined;
+  }
   const row = DOCUMENT_CATEGORY_SEED.find(
     (r) => r.moduleKey === key.moduleKey && r.documentKey === key.documentKey,
   );

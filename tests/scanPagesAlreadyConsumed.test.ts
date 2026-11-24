@@ -132,6 +132,10 @@ vi.mock('@/lib/documentCategoryFields', () => ({
   identifierFields: vi.fn(() => []),
   dedupeIdentifierFields: vi.fn(() => []),
 }));
+// A client's details are filled from a saved client document; nothing here is a
+// client's. Mocked so it does not drag the client form's validators into a suite
+// that fakes `documentCategoryFields`.
+vi.mock('@/lib/clients/clientAutofill', () => ({ fillClientFromRecord: vi.fn(async () => []) }));
 vi.mock('@/lib/vault/fieldSplitter', () => ({
   loadEncryptionPolicy: vi.fn(async () => ({})),
   splitRecordFields: vi.fn(() => ({ open: {}, sealed: {} })),

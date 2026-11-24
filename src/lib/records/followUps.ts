@@ -25,7 +25,8 @@ import { db, withTenant } from '@/lib/db';
 import { hasCompanyAccess, hasPermission } from '@/lib/auth';
 import { documents } from '@/db/schema';
 import { readJsonStore } from '@/lib/vault/vaultRecords';
-import { type CategoryKey, isSeededCategory } from '@/lib/documentCategories';
+import { type CategoryKey, isClientModule, isSeededCategory } from '@/lib/documentCategories';
+import { sourceKeyOf } from '@/lib/clientCategories';
 import { loadCategoryFieldSpec } from './categorySpec';
 import { DEFAULT_ALERT_DAYS, recordAlertLeadDays } from './reminderPolicy';
 import { renewalAction, renewalActionLabel } from './followUpActions';
@@ -145,7 +146,13 @@ function severityFor(days: number, window: number): FollowUpItem['severity'] {
  * modules whose key happened to match a page. `/modules/:moduleKey/:documentKey`
  * is derived from the record's own category and always resolves.
  */
-function linkFor(key: CategoryKey, companyId?: string | null): string {
+function linkFor(key: CategoryKey, companyId?: string | null, clientId?: string | null): string {
+  // A client's document opens on the CLIENT's page: a client category addressed
+  // through `/modules/...` carries no client and would 400. Renewals on a client's
+  // policies are the reminders an agent most needs, so they must be reachable.
+  if (companyId && clientId && isClientModule(key.moduleKey)) {
+    return `/business/${companyId}/clients/${clientId}/${key.documentKey}`;
+  }
   // A business reminder must open the COMPANY's workspace. Linking a company's
   // expiring licence to `/modules/biz_licenses/...` would land on a route that
   // 400s — a business module addressed with no company — so the reminder would
@@ -179,7 +186,7 @@ export async function remindersForCategory(
    */
   ctx: { tenant: any; tenantId: string; userId: string; companyId?: string | null },
   key: CategoryKey,
-  rows: ReadonlyArray<{ id: string; title: string | null }>,
+  rows: ReadonlyArray<{ id: string; title: string | null; clientId?: string | null }>,
   options: { thresholdDays?: number; strict?: boolean } = {},
 ): Promise<FollowUpItem[]> {
   const threshold = options.thresholdDays ?? ALERT_THRESHOLD_DAYS;
@@ -254,7 +261,10 @@ export async function remindersForCategory(
       if (days > window) continue;
 
       const name = record?.name ?? row.title ?? 'Untitled record';
-      const action = renewalAction(key.moduleKey, key.documentKey);
+      // The recommended action follows the category a client document derives
+      // from: a client's health policy renews like anyone's.
+      const source = sourceKeyOf(key);
+      const action = renewalAction(source.moduleKey, source.documentKey);
       items.push({
         /**
          * ── UNIQUE PER REMINDER, NOT PER FIELD ─────────────────────────────
@@ -279,7 +289,7 @@ export async function remindersForCategory(
           : `${name}: ${reminder.label.toLowerCase()} is due in ${days} day${days === 1 ? '' : 's'}.`,
         dueDate: reminder.date,
         daysLeft: days,
-        link: linkFor(key, ctx.companyId),
+        link: linkFor(key, ctx.companyId, row.clientId),
         category: 'renewals',
         severity: severityFor(days, window),
         module: key.moduleKey,
@@ -289,7 +299,7 @@ export async function remindersForCategory(
         fieldKey: reminder.key,
         fieldLabel: reminder.label,
         documentKey: key.documentKey,
-        actionLabel: renewalActionLabel(key.moduleKey, key.documentKey, days),
+        actionLabel: renewalActionLabel(source.moduleKey, source.documentKey, days),
         recommendedAction: action.how,
       });
     }
@@ -398,6 +408,8 @@ export async function collectFollowUps(
       // dropped before anything read them. Silently, which is the worst way for
       // a reminder feature to fail.
       companyId: documents.companyId,
+      // A client document's owner, so its reminder links to the client's page.
+      clientId: documents.clientId,
     })
       .from(documents)
       .where(and(
@@ -424,7 +436,11 @@ export async function collectFollowUps(
   const byStore = new Map<string, { key: CategoryKey; companyId: string | null; rows: any[] }>();
   for (const row of rows) {
     if (!row.categoryModuleKey || !row.categoryDocumentKey) continue;
-    if (!isSeededCategory(row.categoryModuleKey, row.categoryDocumentKey)) continue;
+    // A client category is not in the compiled seed (it is generated, drizzle/0098)
+    // but it is a real category: skipping it dropped every reminder on a client's
+    // documents, silently.
+    if (!isSeededCategory(row.categoryModuleKey, row.categoryDocumentKey)
+      && !isClientModule(row.categoryModuleKey)) continue;
     const companyId = row.companyId ?? null;
     const k = `${companyId ?? ''}|${row.categoryModuleKey}/${row.categoryDocumentKey}`;
     const entry = byStore.get(k);

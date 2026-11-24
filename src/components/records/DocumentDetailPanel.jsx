@@ -173,6 +173,14 @@ export default function DocumentDetailPanel({
   onExpandPreview,
   onRotate,
   categoryOptions = [],
+  /**
+   * Set ONLY for a CLIENT's document (the client page's table). Such a document is
+   * filed under a client, not under a category the member re-files or a member who
+   * holds it, so the Filing section is read-only — the client and the document type —
+   * and the Holder editor is not offered. Absent for every document the Document
+   * Manager lists, which renders exactly as before.
+   */
+  clientName = null,
 }) {
   // The category the record's BODY is sealed under. Re-filing moves only the
   // row's FK (the PUT leaves categoryModuleKey/DocumentKey alone), so the spec
@@ -410,7 +418,8 @@ export default function DocumentDetailPanel({
               <Button size="sm" variant="outline" onClick={onDownload} className="gap-1.5"><Download size={13} />Download</Button>
             )}
             <Button size="sm" variant="outline" onClick={onPrint} className="gap-1.5"><Printer size={13} />Print</Button>
-            {canEdit && (
+            {/* Only where the caller can open the full Edit form: the client page's table has none. */}
+            {canEdit && onEditAll && (
               <Button size="sm" variant="outline" onClick={onEditAll} className="gap-1.5" title="Replace the file or fill blanks from a new scan">
                 <Pencil size={13} />Replace file…
               </Button>
@@ -478,6 +487,14 @@ export default function DocumentDetailPanel({
             )}
 
             {/* Filing + holders — columns on the row, not part of the body. */}
+            {clientName ? (
+              <Section title="Filing">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pr-6">
+                  <Row label="Client">{clientName}</Row>
+                  <Row label="Document type">{taxonomyLabel || '—'}</Row>
+                </div>
+              </Section>
+            ) : (
             <Section title="Filing">
               <EditableBlock
                 block={FILING} open={open} canEdit={canEdit && !loading} busy={saving}
@@ -510,6 +527,7 @@ export default function DocumentDetailPanel({
                 <Row label="Belongs to" className="pr-6">{holderNames}</Row>
               </EditableBlock>
             </Section>
+            )}
 
             {/* The category's own fields. */}
             <Section title={`${fields.spec?.category?.documentName || 'Document'} details`}>
