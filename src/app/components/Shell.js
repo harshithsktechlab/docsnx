@@ -59,6 +59,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PWABanner } from '@/components/PWABanner';
+import DriveConnectPrompt from '@/app/components/DriveConnectPrompt';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { FontSizeToggle } from '@/components/FontSizeToggle';
 import { ThemeToggle, useAppTheme } from '@/components/ThemeToggle';
@@ -1931,6 +1932,7 @@ export default function Shell({ children }) {
       />
 
       <PWABanner />
+      <DriveConnectPrompt isAdmin={user?.role === 'TENANT_ADMIN'} />
     </div>
   );
 }

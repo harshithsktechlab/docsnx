@@ -41,9 +41,12 @@ export function usesVault(tenant: VaultModeTenant | null | undefined): boolean {
 /**
  * Gate for any route that stores a file.
  *
- * Google Drive is mandatory: DocsNX holds metadata and nothing else, so without
- * a grant there is genuinely nowhere for the bytes to go. Returns a response to
- * return directly, or null to proceed.
+ * Storing needs Google Drive: DocsNX holds metadata and nothing else, so without
+ * a grant there is genuinely nowhere for the bytes to go. Drive is optional at
+ * sign-up, so this is where a skipped workspace is told — the client turns the
+ * `DRIVE_NOT_CONNECTED` body into a "Connect Google Drive" prompt
+ * (src/lib/driveConnectPrompt.ts). Returns a response to return directly, or
+ * null to proceed.
  *
  *   const blocked = requireDriveConnected(user.tenant);
  *   if (blocked) return blocked;

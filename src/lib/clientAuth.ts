@@ -42,16 +42,10 @@ export async function clientLogin(identifier: string, password: string): Promise
         // An invited member who has not chosen a password yet (0071).
         return { success: false, requireActivation: true, error: data.error };
       }
-      if (data.accountErased) {
-        // 410: the account existed and was erased. The page shows the date
-        // and a way to start over instead of a "check your password" toast.
-        return {
-          success: false,
-          accountErased: true,
-          erasedAt: data.erasedAt,
-          role: data.role,
-          error: data.error,
-        };
+      if (data.accountNotFound) {
+        // 404: no such account (never registered, or deleted). The page shows
+        // a sign-up link instead of a "check your password" toast.
+        return { success: false, accountNotFound: true, error: data.error };
       }
       return { success: false, error: data.error || 'Login failed', reference: data.reference };
     }

@@ -3,10 +3,11 @@
  * ║   onboardingGate — one answer to "has this workspace been set up yet?"   ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * A tenant that has not finished the wizard has no Google Drive grant, and Drive
- * is where every file in DocsNX lives — Postgres keeps the metadata and nothing
- * else. So the app before setup is not a smaller app, it is one where every
- * upload fails and no screen can say why.
+ * A tenant that has not finished the wizard has not named its workspace, added
+ * its companies or members — the app before setup is not a smaller app, it is
+ * one where nothing is scoped yet and no screen can say why. (Google Drive is
+ * NOT part of "set up": it can be skipped in the wizard and connected at the
+ * first save. Writes still refuse with DRIVE_NOT_CONNECTED until it is.)
  *
  * The browser has bounced such a tenant to `/onboarding` for a long time
  * (`Shell.js`), but that was the whole enforcement: a direct call to
@@ -47,7 +48,7 @@
 export const ONBOARDING_INCOMPLETE_CODE = 'ONBOARDING_INCOMPLETE';
 
 export const ONBOARDING_INCOMPLETE_MESSAGE =
-  'Finish setting up your workspace before using DocsNX. Connecting your Google Drive is the last step — it is where your files are stored.';
+  'Finish setting up your workspace before using DocsNX.';
 
 /** Where the client should send the user to fix it. */
 export const ONBOARDING_PATH = '/onboarding';

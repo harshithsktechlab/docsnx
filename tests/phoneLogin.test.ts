@@ -154,9 +154,9 @@ describe('POST /api/auth/login — the identifier survives validation', () => {
     const res = await login(loginRequest({ identifier: '+919876543210', password: 'hunter2' }));
     const body = await res.json();
 
-    // 401 (no such account) is the RIGHT answer here. 400 "Invalid input" is
+    // 404 (no such account) is the RIGHT answer here. 400 "Invalid input" is
     // the bug: it means the number never reached the lookup.
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
     expect(body.error).not.toBe('Invalid input');
     expect(lastWhere).toEqual({ column: 'phone_dial', value: '919876543210' });
   });
@@ -172,7 +172,7 @@ describe('POST /api/auth/login — the identifier survives validation', () => {
       password: 'hunter2',
     }));
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
     expect((await res.json()).error).not.toBe('Invalid input');
   });
 

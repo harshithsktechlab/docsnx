@@ -51,6 +51,7 @@ import { formatDate } from '@/lib/dateHelper';
 import { docCustomFields, docField } from '@/lib/records/docFieldsClient';
 import { docCategoryName, docColors, docTaxonomyLabel } from '@/lib/records/documentRowFormat';
 import { apiDownload } from '@/lib/net/apiRequest';
+import { applyRotation, fromWorkspaceApi } from '@/lib/records/applyRotation';
 import { toastStorageError } from '@/lib/storageToast';
 import { toastApiError } from '@/lib/net/toastApiError';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
@@ -217,14 +218,15 @@ export default function ClientDocuments({ client, user, onChanged }) {
   });
 
   const saveRotation = async (docId, degrees) => {
-    const { json } = await api(`/api/documents/${docId}/rotation`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rotation: degrees }),
-    });
-    if (!json?.success) throw new Error(json?.error || 'Could not save the rotation');
-    setDocuments((prev) => prev.map((d) => (d.id === docId ? { ...d, rotation: degrees } : d)));
-    setPreviewDoc((prev) => (prev && prev.id === docId ? { ...prev, rotation: degrees } : prev));
+    // Rewrites the stored file (rotation → 0, new size) — or, for a type that
+    // cannot be rewritten, keeps only the display preference.
+    const outcome = await applyRotation(fromWorkspaceApi(api), docId, degrees);
+    const patch = outcome.mode === 'file'
+      ? { rotation: 0, ...(outcome.fileSize ? { fileSize: outcome.fileSize } : {}) }
+      : { rotation: outcome.rotation };
+    setDocuments((prev) => prev.map((d) => (d.id === docId ? { ...d, ...patch } : d)));
+    setPreviewDoc((prev) => (prev && prev.id === docId ? { ...prev, ...patch } : prev));
+    return outcome;
   };
 
   // ── Bulk actions on the current selection ───────────────────────────────
@@ -528,14 +530,14 @@ export default function ClientDocuments({ client, user, onChanged }) {
           onPrint={() => handlePrint(detailDoc)}
           onDelete={async () => { if (await handleDelete(detailDoc.id)) setDetailDoc(null); }}
           onExpandPreview={() => { const d = detailDoc; setDetailDoc(null); openPreview(d); }}
-          onRotate={(deg) => saveRotation(detailDoc.id, deg)}
+          onSaveRotation={(deg) => saveRotation(detailDoc.id, deg)}
         />
       )}
 
       {/* Preview */}
       <Dialog open={!!previewDoc} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
         {previewDoc && (
-          <DialogContent aria-describedby={undefined} className="max-w-[800px] border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
+          <DialogContent aria-describedby={undefined} className="max-w-4xl border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
             <DialogHeader className="border-b border-border pb-3">
               <DialogTitle className="text-base font-bold truncate">Preview: {previewDoc.title}</DialogTitle>
               {previewDoc.fileName && (
@@ -551,8 +553,9 @@ export default function ClientDocuments({ client, user, onChanged }) {
             <FilePreviewPane
               className="min-h-[350px] max-h-[70vh] flex-1"
               source={{ kind: 'record', filePath: previewDoc.filePath, mimeType: previewDoc.mimeType, name: previewDoc.title, pageCount: previewDoc.pageCount }}
+              tall
               rotation={previewDoc.rotation}
-              onRotate={may(previewDoc, 'edit') ? (deg) => saveRotation(previewDoc.id, deg) : null}
+              onSaveRotation={may(previewDoc, 'edit') ? (deg) => saveRotation(previewDoc.id, deg) : null}
               emptyMessage={`No preview available for ${previewDoc.title}`}
               fallbackAction={may(previewDoc, 'share') ? (
                 <Button className="mt-4 gap-1.5" onClick={() => handleDownload(previewDoc)}>

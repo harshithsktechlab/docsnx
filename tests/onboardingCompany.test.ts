@@ -141,17 +141,25 @@ describe('finishing onboarding', () => {
     expect(updates[0].hasCompletedOnboarding).toBe(true);
   });
 
-  it('still refuses without Drive, whatever the account type', async () => {
-    // The pre-existing rule, asserted here so the company check cannot be
-    // reordered ahead of it and let a Drive-less account through.
+  it('lets a business account finish with Drive skipped, once a company exists', async () => {
+    // Drive is optional at sign-up — it is connected at the first save instead.
+    // With no grant at all there is nothing to verify, so Google is not called.
     tenantRow = { id: 't1', googleDriveEnabled: false, googleDriveTokens: null, accountType: 'business' };
     companyRows = [{ id: 'c1' }];
     const res = await complete();
-    expect(res.status).toBe(400);
-    expect((await res.json()).status).toBe('DRIVE_NOT_CONNECTED');
-    expect(updates).toHaveLength(0);
-    // Not even worth a call to Google: the columns already say no.
+    expect(res.status).toBe(200);
+    expect(updates[0].hasCompletedOnboarding).toBe(true);
     expect(getTenantDriveContext).not.toHaveBeenCalled();
+  });
+
+  it('still needs a company when Drive is skipped', async () => {
+    // Skipping Drive must not open a way round the company rule.
+    tenantRow = { id: 't1', googleDriveEnabled: false, googleDriveTokens: null, accountType: 'business' };
+    companyRows = [];
+    const res = await complete();
+    expect(res.status).toBe(400);
+    expect((await res.json()).status).toBe('NO_COMPANY');
+    expect(updates).toHaveLength(0);
   });
 
   it('audits the completion', async () => {

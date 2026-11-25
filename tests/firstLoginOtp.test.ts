@@ -491,7 +491,7 @@ describe('nothing is sent to someone who did not prove who they are', () => {
     foundUser = null;
     const res = await login(loginRequest(CREDENTIALS));
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
     expect(sendVerificationOtpEmail).not.toHaveBeenCalled();
     expect(sendVerificationOtpWhatsApp).not.toHaveBeenCalled();
   });

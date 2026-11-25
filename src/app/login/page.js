@@ -28,10 +28,10 @@ function LoginContent() {
   const [identifier, setIdentifier] = useState(() => (searchParams.get('identifier') || '').trim());
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  // The sentence for an account that no longer exists — "deleted on <date>".
-  // Kept on screen under the form rather than only in a toast: the next thing
-  // this person does is read it twice and then look for the Register link.
-  const [erased, setErased] = useState('');
+  // The sentence for an account that does not exist (never registered or
+  // deleted). Kept on screen above the form rather than in a toast: the next
+  // thing this person does is look for the sign-up link.
+  const [notFound, setNotFound] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -41,7 +41,7 @@ function LoginContent() {
       return;
     }
     setError('');
-    setErased('');
+    setNotFound('');
     setLoading(true);
     const typed = identifier.trim();
     const res = await clientLogin(typed, password);
@@ -88,18 +88,14 @@ function LoginContent() {
       if (res.needsEmailCode) query.set('needsEmailCode', 'true');
       if (res.needsPhoneCode) query.set('needsPhoneCode', 'true');
       router.push(`/verify-email?${query.toString()}`);
-    } else if (res.accountErased) {
-      // 410 from the route: no live account, but the retention table says
-      // there was one. Not "Invalid credentials" — the password is not the
-      // problem and no amount of retyping it will help. The register link is
-      // the only useful next step, so it is right under the sentence.
-      setErased(res.error || 'This account was permanently deleted.');
-      toast.error(res.error || 'This account was permanently deleted.', {
-        id: 'login-failed',
-        duration: 8000,
-      });
+    } else if (res.accountNotFound) {
+      // 404 from the route: no such account (never registered, or deleted). The
+      // password is not the problem; the sign-up link is the useful next step,
+      // so it sits right under the sentence. Inline only — no toast, which
+      // used to show the same sentence a second time.
+      setNotFound(res.error || 'This account does not exist. Please sign up first.');
     } else {
-      const errorMsg = res.error || 'Invalid credentials';
+      const errorMsg = res.error || 'Incorrect username or password.';
       if (res.reference) {
         toast.error(errorMsg, {
           id: 'login-failed',
@@ -142,20 +138,20 @@ function LoginContent() {
 
 
 
-            {erased && (
+            {notFound && (
               <div
                 role="alert"
                 className="mb-5 flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3.5 text-sm"
               >
                 <AlertCircle size={18} className="mt-0.5 shrink-0 text-destructive" />
                 <div className="flex flex-col gap-2">
-                  <p className="text-foreground">{erased}</p>
+                  <p className="text-foreground">{notFound}</p>
                   <button
                     type="button"
                     onClick={() => router.push('/register')}
                     className="self-start text-primary font-semibold hover:underline underline-offset-4 bg-transparent border-none cursor-pointer p-0"
                   >
-                    Create a new account →
+                    Sign up →
                   </button>
                 </div>
               </div>
@@ -174,7 +170,7 @@ function LoginContent() {
                     type="text"
                     placeholder="you@example.com or 9876543210"
                     value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
+                    onChange={(e) => { setIdentifier(e.target.value); if (notFound) setNotFound(''); }}
                     disabled={loading}
                     className="pl-10"
                     autoComplete="username"

@@ -56,6 +56,6 @@ test.describe.serial('Authentication and Onboarding Flows', () => {
     
     await page.click('button[type="submit"]');
 
-    await expect(page.getByText('Invalid credentials')).toBeVisible();
+    await expect(page.getByText('Incorrect username or password.')).toBeVisible();
   });
 });

@@ -60,7 +60,7 @@ export function getFileUrl(filePath) {
  *
  * @param {string} filePath - `filePath` as stored on the record
  * @param {{page?: number, render?: boolean, asImage?: boolean}} [options]
- * @returns {Promise<{mimeType: string, url?: string, text?: string, pageCount?: number}>}
+ * @returns {Promise<{mimeType: string, url?: string, blob?: Blob, text?: string, pageCount?: number}>}
  */
 export async function fetchRecordBlob(filePath, options = {}) {
   const { page, render, asImage } = options;
@@ -90,7 +90,8 @@ export async function fetchRecordBlob(filePath, options = {}) {
   if (mimeType.split(';')[0].trim() === 'text/plain') {
     return { mimeType, pageCount, text: await res.text() };
   }
-  return { mimeType, pageCount, url: URL.createObjectURL(await res.blob()) };
+  const blob = await res.blob();
+  return { mimeType, pageCount, blob, url: URL.createObjectURL(blob) };
 }
 
 /**

@@ -620,6 +620,44 @@ describe('one car, three documents, three records', () => {
     expect(match?.keepBothTitle).toBeNull();
   });
 
+  it('DOES offer keep-both for a CLIENT\'s document on the same identifier', async () => {
+    // An original Aadhaar and its signed, self-attested copy are one person's one
+    // ID, filed under one client — both are wanted. The lookup is confined to the
+    // client, so the pair is never two subjects. Only this write path is relaxed.
+    nextAvailableTitle.mockResolvedValue('Aadhaar Card - Kishan (2)');
+    const lookup = store([RC_ON_FILE]);
+    const match = await resolveDuplicate({ ...carCtx(), clientId: 'client-1' }, {
+      categoryId: 'cat-rc',
+      categoryKey: KEY.rc,
+      title: 'Aadhaar Card - Kishan',
+      fileName: 'signed.pdf',
+      searchHashes: REG,
+      identifiers: identifiersFor('vehicle', 'registration_certificate'),
+    }, lookup);
+
+    expect(match?.id).toBe('rc-1');
+    expect(match?.reason).toBe('dedupeField');
+    expect(keepBothAllowed(match!)).toBe(true);
+    expect(match?.keepBothTitle).toBe('Aadhaar Card - Kishan (2)');
+  });
+
+  it('numbers the client keep-both title in the category when none was passed', async () => {
+    nextAvailableTitle.mockResolvedValue('X (2)');
+    categoryIdFor.mockResolvedValue('cat-resolved');
+    const match = await resolveDuplicate({ ...carCtx(), clientId: 'client-1' }, {
+      categoryId: null,
+      categoryKey: KEY.rc,
+      title: 'X',
+      fileName: 'x.pdf',
+      searchHashes: REG,
+      identifiers: identifiersFor('vehicle', 'registration_certificate'),
+    }, store([RC_ON_FILE]));
+
+    expect(categoryIdFor).toHaveBeenCalledWith(expect.anything(), KEY.rc);
+    expect(nextAvailableTitle).toHaveBeenCalledWith(expect.anything(), 't1', 'cat-resolved', 'X');
+    expect(keepBothAllowed(match!)).toBe(true);
+  });
+
   it('does not make a PUC a duplicate of a domicile certificate', async () => {
     // Eight categories are identified by `certificate_number`, from different
     // issuers with unrelated numbering. Being required on both sides is no

@@ -811,6 +811,9 @@ export default function OnboardingWizard() {
                       the Continue button, and an admin who reads "Allow" as the
                       whole decision grants an account that can store nothing.
                     */}
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Not now? You can skip this &mdash; we&rsquo;ll ask again the first time you save a file.
+                    </p>
                     <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
                       On Google&rsquo;s screen, tick{' '}
                       <span className="font-semibold text-foreground">
@@ -826,14 +829,21 @@ export default function OnboardingWizard() {
             <CardFooter className="flex flex-col-reverse gap-3 border-t p-4 bg-muted/20 sm:flex-row sm:justify-between sm:p-6">
               <Button variant="ghost" className="w-full sm:w-auto" onClick={() => goTo(STEP_WELCOME)}>Back</Button>
               {/*
-                No skip. Google Drive is where every file is stored — DocsNX
-                keeps only metadata — so an account without a grant has
-                nowhere to put anything and every upload would fail.
+                Skippable, to keep sign-up short. Google Drive is where every
+                file is stored — DocsNX keeps only metadata — so a workspace
+                that skips it cannot save anything yet. The first save raises a
+                "Connect Google Drive" prompt (DriveConnectPrompt), and
+                Settings and the dashboard checklist offer it any time.
               */}
-              <Button onClick={handleNext} disabled={!isDriveConnected} className={FOOTER_NEXT}>
-                {isDriveConnected ? 'Continue' : 'Connect Drive to continue'}{' '}
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
+              {isDriveConnected ? (
+                <Button onClick={handleNext} className={FOOTER_NEXT}>
+                  Continue <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              ) : (
+                <Button onClick={handleNext} variant="outline" className={FOOTER_NEXT}>
+                  Skip for now <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              )}
             </CardFooter>
           </>
         )}
@@ -1203,6 +1213,11 @@ export default function OnboardingWizard() {
               <CardTitle className="text-3xl">All Set!</CardTitle>
               <CardDescription className="text-base mt-2">
                 Your tenant is configured and ready to go. You can always manage these settings later from the dashboard.
+                {!isDriveConnected && (
+                  <span className="mt-2 block text-sm">
+                    Google Drive isn&rsquo;t connected yet. You can connect it from Settings, or we&rsquo;ll ask when you first save something.
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6 pb-8 flex justify-center">

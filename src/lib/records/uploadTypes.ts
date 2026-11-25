@@ -204,6 +204,40 @@ export function extensionOf(fileName: string): string {
   return match ? match[0].toLowerCase() : '';
 }
 
+const FILE_TYPE_LABEL_OVERRIDES: Record<string, string> = {
+  jpg: 'JPEG',
+  jpeg: 'JPEG',
+  tif: 'TIFF',
+  tiff: 'TIFF',
+  heif: 'HEIC',
+};
+
+/**
+ * Short, human label for a stored file's type — "PDF", "JPEG", "DOCX" — for
+ * display. Never the raw MIME string (`application/vnd.openxmlformats-…`).
+ *
+ * Resolution order: the MIME type's known extension, then the file name's
+ * extension (Windows often reports `.xlsx` as `application/octet-stream`), then
+ * a short MIME subtype. Returns '—' when nothing usable is found.
+ */
+export function formatFileType(mimeType?: string | null, fileName?: string | null): string {
+  const mime = (mimeType ?? '').toLowerCase().split(';')[0].trim();
+  const generic = !mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream';
+
+  let ext = generic ? '' : extensionForMime(mime);
+  if (!ext) ext = extensionOf(fileName ?? '');
+  let key = ext.replace(/^\./, '');
+
+  if (!key && !generic) {
+    // Unknown MIME, no usable file name: fall back to its subtype, trimmed.
+    const subtype = mime.split('/')[1] ?? '';
+    key = subtype.replace(/^(vnd\.|x-)/, '').split(/[.+-]/).pop() ?? '';
+  }
+
+  if (!key || key.length > 6) return '—';
+  return FILE_TYPE_LABEL_OVERRIDES[key] ?? key.toUpperCase();
+}
+
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║   A NAME THE DEVICE MADE UP IDENTIFIES NOTHING                           ║

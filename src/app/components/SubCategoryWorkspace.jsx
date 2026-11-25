@@ -63,6 +63,7 @@ import {
 } from '@/lib/sharePrintHelper';
 import { reportShareResult } from '@/lib/shareToast';
 import { apiRequest } from '@/lib/net/apiRequest';
+import { applyRotation } from '@/lib/records/applyRotation';
 import { clientIdFromPath } from '@/lib/net/useWorkspaceApi';
 import { toastApiError } from '@/lib/net/toastApiError';
 import FilePreviewPane from '@/components/records/FilePreviewPane';
@@ -604,17 +605,19 @@ export default function SubCategoryWorkspace({
    */
   const saveRotation = async (degrees) => {
     const id = previewRecord?.id;
-    if (!id) return;
-    const outcome = await apiRequest(
-      `/api/documents/${id}/rotation${companyParam ? `?${companyParam}` : ''}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rotation: degrees }),
-      });
-    if (!outcome.ok) throw new Error('Could not save the rotation');
-    setPreviewRecord((prev) => (prev && prev.id === id ? { ...prev, rotation: degrees } : prev));
-    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, rotation: degrees } : r)));
+    if (!id) return undefined;
+    // Rewrites the stored file (rotation → 0, new size) — or, for a type that
+    // cannot be rewritten, keeps only the display preference.
+    const outcome = await applyRotation((url, init) => apiRequest(
+      companyParam ? `${url}${url.includes('?') ? '&' : '?'}${companyParam}` : url,
+      init,
+    ), id, degrees);
+    const patch = outcome.mode === 'file'
+      ? { rotation: 0, ...(outcome.fileSize ? { fileSize: outcome.fileSize } : {}) }
+      : { rotation: outcome.rotation };
+    setPreviewRecord((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+    setRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    return outcome;
   };
 
   const download = async (record) => {
@@ -1343,7 +1346,7 @@ export default function SubCategoryWorkspace({
           other made them look like two different things. */}
       <Dialog open={!!previewRecord} onOpenChange={(open) => { if (!open) { setPreviewRecord(null); setPreviewAttachment(null); } }}>
         {previewRecord && (
-          <DialogContent aria-describedby={undefined} className="max-w-[800px] border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
+          <DialogContent aria-describedby={undefined} className="max-w-4xl border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
             <DialogHeader className="border-b border-border pb-3">
               <DialogTitle className="text-base font-bold truncate">
                 Preview: {previewRecord.title}
@@ -1392,7 +1395,8 @@ export default function SubCategoryWorkspace({
               /* The saved turn belongs to the record's own document, not to a
                  photo attachment shown in its place. */
               rotation={previewAttachment ? 0 : (previewRecord.rotation || 0)}
-              onRotate={canEdit && !previewAttachment ? saveRotation : null}
+              tall
+              onSaveRotation={canEdit && !previewAttachment ? saveRotation : null}
               emptyMessage={`No preview available for ${previewRecord.title}`}
               fallbackAction={canShare ? (
                 <Button className="mt-4 gap-1.5" onClick={() => download(previewRecord)}>

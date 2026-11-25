@@ -55,6 +55,7 @@ export type { UploadStage, UploadOutcome } from '@/lib/net/outcome';
 import type { UploadOutcome, UploadStage } from '@/lib/net/outcome';
 import { retryAfterBorrow } from '@/lib/net/creditBorrow';
 import { reportClientFailure } from '@/lib/net/outcome';
+import { promptIfDriveMissing } from '@/lib/driveConnectPrompt';
 
 export interface PostUploadOptions {
   /**
@@ -101,6 +102,10 @@ export async function postUpload(
   if (!outcome.ok && outcome.kind === 'http' && outcome.status === 402) {
     const retried = await retryAfterBorrow(outcome.json, () => postUploadOnce(url, formData, options));
     if (retried) return retried;
+  }
+  // A workspace that skipped Drive at sign-up: this save is the moment to ask.
+  if (!outcome.ok && outcome.kind === 'http') {
+    promptIfDriveMissing(options.method ?? 'POST', outcome.json);
   }
   return outcome;
 }

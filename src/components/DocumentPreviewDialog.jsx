@@ -35,6 +35,7 @@ export default function DocumentPreviewDialog({ doc, onClose, fallbackAction = n
           </DialogHeader>
           <FilePreviewPane
             className="mt-4 min-h-[350px] max-h-[70vh] flex-1"
+            tall
             source={{
               kind: 'record',
               filePath: doc.filePath,

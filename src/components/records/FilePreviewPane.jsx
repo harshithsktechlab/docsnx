@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ChevronLeft, ChevronRight, FileText, Loader2, RotateCcw, RotateCw,
+  AlertCircle, ChevronLeft, ChevronRight, FileText, Loader2, RotateCcw, RotateCw, Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { fetchRecordBlob } from '@/lib/sharePrintHelper';
@@ -71,12 +71,30 @@ export default function FilePreviewPane({
    * who may only view one should not rewrite it for everyone else.
    */
   onRotate = /** @type {((degrees: number) => Promise<unknown>) | undefined} */ (undefined),
+  /**
+   * Makes a turn PERMANENT: `(degrees) => Promise<{ mode: 'file' | 'view' }>`,
+   * rejecting on failure (see `applyRotation`). When given it replaces
+   * `onRotate`: the buttons only turn a DRAFT, and a "Save rotation" button
+   * rewrites the stored file so download and print come out upright too.
+   * `mode: 'view'` means the type could not be rewritten and only the display
+   * preference was kept.
+   */
+  onSaveRotation = /** @type {((degrees: number) => Promise<{ mode?: string } | void>) | undefined} */ (undefined),
+  /** A modal with room to spare: give a PDF most of the viewport's height
+   *  instead of the 350px minimum, which showed a whole page as a postage stamp. */
+  tall = false,
 }) {
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
   const [servedType, setServedType] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // The bytes behind `url`, so a draft PDF turn can be made without fetching a
+  // blob: URL back (which a connect-src policy may refuse).
+  const [blob, setBlob] = useState(null);
+  // Bumped after a save so the stored file is fetched again, now turned.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const isFile = source?.kind === 'file';
   const file = isFile ? source.file : null;
@@ -135,10 +153,45 @@ export default function FilePreviewPane({
   const saveChain = useRef(Promise.resolve());
   if (confirmed.current.key !== sourceKey) confirmed.current = { key: sourceKey, deg: saved };
 
+  // Set when the server could only keep the turn as a display preference (a
+  // HEIC, a TIFF…): `deg` is then already saved, so there is nothing to offer.
+  const [viewSaved, setViewSaved] = useState({ key: '', deg: 0 });
+  const baseline = viewSaved.key === sourceKey ? viewSaved.deg : 0;
+  const canSave = Boolean(onSaveRotation) && !isFile;
+  const dirty = canSave && deg !== baseline;
+
+  const save = async () => {
+    if (!canSave || saving || !dirty) return;
+    const forKey = sourceKey;
+    const forDeg = deg;
+    setSaving(true);
+    try {
+      const outcome = await onSaveRotation(forDeg);
+      if (outcome?.mode === 'view') {
+        setViewSaved({ key: forKey, deg: forDeg });
+        toast.message('Saved for viewing only', {
+          id: 'preview-rotation',
+          description: 'This file type cannot be rotated permanently, so downloads stay as scanned.',
+        });
+      } else {
+        setTurnState({ key: forKey, deg: 0 });
+        setViewSaved({ key: forKey, deg: 0 });
+        setReloadKey((k) => k + 1);
+        toast.success('Rotation saved to the file', { id: 'preview-rotation' });
+      }
+    } catch (err) {
+      toast.error(err?.message || 'Could not save the rotation', { id: 'preview-rotation' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const turn = (delta) => {
     const next = normaliseTurn(deg + delta);
     setTurnState({ key: sourceKey, deg: next });
-    if (!onRotate) return;
+    // With a Save button the turn is a draft: nothing is remembered until it is
+    // pressed. Without one, the old behaviour — remembered as it is made.
+    if (!onRotate || onSaveRotation) return;
     const forKey = sourceKey;
     saveChain.current = saveChain.current
       .then(() => onRotate(next))
@@ -176,6 +229,34 @@ export default function FilePreviewPane({
     };
   }, [kind, url, deg]);
   const shownUrl = deg !== 0 && turned.src === url && turned.deg === deg ? turned.out : url;
+
+  // The same for a PDF, turned by setting each page's /Rotate (pdf-lib, loaded
+  // only when a PDF is actually turned). The server uses the very same function
+  // to make it permanent, so what is previewed here is what gets stored.
+  const [turnedPdf, setTurnedPdf] = useState({ src: '', deg: 0, out: '' });
+  useEffect(() => {
+    if (kind !== 'pdf' || !url || !blob || deg === 0) return undefined;
+    let cancelled = false;
+    let made = '';
+    (async () => {
+      const { rotatePdfBytes } = await import('@/lib/records/rotatePdf');
+      const out = await rotatePdfBytes(new Uint8Array(await blob.arrayBuffer()), deg);
+      const objectUrl = URL.createObjectURL(new Blob([out], { type: 'application/pdf' }));
+      if (cancelled) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      made = objectUrl;
+      setTurnedPdf({ src: url, deg, out: objectUrl });
+    })().catch(() => {
+      if (!cancelled) toast.error('This PDF could not be rotated here', { id: 'preview-rotation' });
+    });
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [kind, url, blob, deg]);
+  const shownPdfUrl = deg !== 0 && turnedPdf.src === url && turnedPdf.deg === deg ? turnedPdf.out : url;
 
   useEffect(() => {
     if (!renderable) {
@@ -215,6 +296,7 @@ export default function FilePreviewPane({
       }
 
       objectUrl = URL.createObjectURL(file);
+      setBlob(file);
       setUrl(objectUrl);
       setLoading(false);
       return () => {
@@ -237,6 +319,7 @@ export default function FilePreviewPane({
           return;
         }
         objectUrl = made.url || '';
+        setBlob(made.blob || null);
         setUrl(made.url || '');
         setText(made.text || '');
         setServedType(made.mimeType || '');
@@ -254,7 +337,7 @@ export default function FilePreviewPane({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       setUrl('');
     };
-  }, [renderable, isFile, file, filePath, page]);
+  }, [renderable, isFile, file, filePath, page, reloadKey]);
 
   const frame = `flex flex-col overflow-hidden rounded-xl bg-background/25 p-3 ${className}`;
   const centred = 'flex flex-1 items-center justify-center overflow-auto';
@@ -290,8 +373,8 @@ export default function FilePreviewPane({
     </div>
   ) : null;
 
-  /** Rotate left / right — images only; a PDF in the browser's viewer or a text
-   *  preview has nothing to turn. */
+  /** Rotate left / right — images and PDFs; a text preview has nothing to turn.
+   *  With `onSaveRotation`, a Save button appears once there is a turn to keep. */
   const turnBar = (
     <div className="mt-2 flex shrink-0 items-center justify-center gap-1">
       <Button
@@ -301,6 +384,7 @@ export default function FilePreviewPane({
         className="h-7 gap-1 px-2"
         aria-label="Rotate left"
         title="Rotate left"
+        disabled={saving}
         onClick={() => turn(-90)}
       >
         <RotateCcw size={14} />
@@ -313,11 +397,25 @@ export default function FilePreviewPane({
         className="h-7 gap-1 px-2"
         aria-label="Rotate right"
         title="Rotate right"
+        disabled={saving}
         onClick={() => turn(90)}
       >
         <RotateCw size={14} />
         <span className="text-xs">Rotate right</span>
       </Button>
+      {dirty && (
+        <Button
+          type="button"
+          size="sm"
+          className="ml-2 h-7 gap-1 px-3"
+          disabled={saving}
+          title="Rotate the stored file so downloads and prints are upright too"
+          onClick={save}
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          <span className="text-xs">{saving ? 'Saving…' : 'Save rotation'}</span>
+        </Button>
+      )}
     </div>
   );
 
@@ -380,12 +478,20 @@ export default function FilePreviewPane({
 
   if (kind === 'pdf') {
     return (
-      <div className={frame}>
+      <div
+        className={frame}
+        // A definite height, or `h-full` inside the min-height-only flex frame
+        // resolves to the 350px minimum and the browser shrinks a whole page into
+        // it. `view=FitH` opens at page width so text is legible, and the page
+        // scrolls inside the frame.
+        style={tall ? { height: 'max(380px, calc(100vh - 320px))', maxHeight: 'none' } : undefined}
+      >
         <iframe
-          src={`${url}#toolbar=0`}
+          src={`${shownPdfUrl}#toolbar=0&view=FitH`}
           title={`Preview: ${name}`}
-          className="h-full w-full flex-1 rounded-lg border-none shadow"
+          className="min-h-0 w-full flex-1 rounded-lg border-none shadow"
         />
+        {turnBar}
         {pager}
       </div>
     );

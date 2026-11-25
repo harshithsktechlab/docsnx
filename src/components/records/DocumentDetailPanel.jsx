@@ -52,6 +52,7 @@ import { parseMultiValue, describeFieldErrors } from '@/lib/records/fieldValidat
 import { parseLinkedCards, LINKED_CARDS_KEY, CARD_NETWORKS, CARD_TYPES } from '@/lib/records/linkedCards';
 import { acceptsCustomLabel } from '@/lib/documentCategories';
 import { categoryDisplayName } from '@/lib/records/customSubcategory';
+import { formatFileType } from '@/lib/records/uploadTypes';
 
 /** The editable block that is open, or '' for none. */
 const FILING = 'filing';
@@ -171,7 +172,7 @@ export default function DocumentDetailPanel({
   onEditAll,
   /** Open the large preview dialog. */
   onExpandPreview,
-  onRotate,
+  onSaveRotation,
   categoryOptions = [],
   /**
    * Set ONLY for a CLIENT's document (the client page's table). Such a document is
@@ -344,8 +345,9 @@ export default function DocumentDetailPanel({
     || [doc.categoryRef?.moduleName, categoryDisplayName(doc.categoryRef, doc.customSubcategory)].filter(Boolean).join(' - ');
 
   const busy = saving || loading;
+  const fileTypeLabel = formatFileType(doc.mimeType, doc.fileName);
   const fileMeta = [
-    doc.mimeType,
+    fileTypeLabel === '—' ? '' : fileTypeLabel,
     doc.fileSize ? formatBytes(doc.fileSize) : '',
     doc.pageCount > 1 ? `${doc.pageCount} pages` : '',
   ].filter(Boolean).join(' · ');
@@ -450,7 +452,7 @@ export default function DocumentDetailPanel({
                     name: doc.title, pageCount: doc.pageCount, fileSize: doc.fileSize,
                   }}
                   rotation={doc.rotation || 0}
-                  onRotate={canEdit ? onRotate : null}
+                  onSaveRotation={canEdit ? onSaveRotation : null}
                   emptyMessage={`No preview available for ${doc.title}`}
                   fallbackAction={may('share') ? (
                     <Button className="mt-4 gap-1.5" onClick={onDownload}><Download size={16} />Download File</Button>
@@ -653,7 +655,7 @@ export default function DocumentDetailPanel({
             <Section title="File information">
               <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
                 <Row label="Original file name" className="sm:col-span-2">{doc.fileName || '—'}</Row>
-                <Row label="Type">{doc.mimeType || '—'}</Row>
+                <Row label="Type">{formatFileType(doc.mimeType, doc.fileName)}</Row>
                 <Row label="Size">{doc.fileSize ? formatBytes(doc.fileSize) : '—'}</Row>
                 <Row label="Pages">{doc.pageCount || 1}</Row>
                 <Row label="Uploaded by">{doc.user?.name || '—'}</Row>

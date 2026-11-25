@@ -37,6 +37,8 @@ import { mapPairForOwner, noteMessage } from '@/lib/clients/ownerCategory';
 import { categoryLabel } from '@/lib/documentCategories';
 import { postUpload, uploadErrorMessage } from '@/lib/records/uploadRequest';
 import { useWorkspaceCompanyId, withCompany } from '@/lib/net/useWorkspaceApi';
+import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog';
+import useDuplicateResolve from '@/components/records/useDuplicateResolve';
 
 /** `pan_number` → `Pan Number`: enough to recognise a value without a spec fetch. */
 const label = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -67,6 +69,7 @@ export default function ClientDocPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(null);
+  const { intercept, dialogProps } = useDuplicateResolve();
 
   const source = owners.sourcePair || state.pair;
   const record = {
@@ -93,7 +96,13 @@ export default function ClientDocPanel({
     });
   };
 
-  const save = async () => {
+  /**
+   * `option` is the answer to a duplicate prompt, absent on the first save:
+   *   · `{ force: true }`    → keep the new one: overwrite the matched record.
+   *   · `{ keepBoth: true }` → file this upload beside it under a numbered title.
+   * `match` is the 409 body that raised the prompt (carries `existingId`).
+   */
+  const save = async (option, match) => {
     setError('');
     if (unresolved) { setError('Choose which client this document belongs to.'); return; }
     if (!categoryId) { setError('That document type is not available for this client any more. Pick another.'); return; }
@@ -110,6 +119,8 @@ export default function ClientDocPanel({
     body.append('taxonomyFields', 'true');
     if (searchText) body.append('searchText', searchText);
     if (usageIds?.length) body.append('aiUsageIds', JSON.stringify(usageIds));
+    if (option?.force && match?.existingId) body.append('replaceId', match.existingId);
+    else if (option?.keepBoth) body.append('keepBoth', 'true');
 
     setSaving(true);
     const outcome = await postUpload(withCompany('/api/documents', companyId), body);
@@ -126,10 +137,13 @@ export default function ClientDocPanel({
       onSaved(state.clientId);
       return;
     }
-    if (outcome.status === 409 && json?.requiresConfirmation) {
-      setError('This looks like a document already on file for this client. Open the client’s page to replace or review it.');
-      return;
-    }
+    // A duplicate is a question, not a failure: show the record on file beside
+    // this upload and let the user keep either or both.
+    if (intercept({ status: outcome.status }, json, {
+      newFile: file,
+      newTitle: title.trim(),
+      resubmit: (answer) => save(answer, json),
+    })) return;
     setError(
       json?.fieldErrors ? Object.values(json.fieldErrors).filter(Boolean).join(' ')
         : (json?.error || 'Could not save this document.'),
@@ -210,11 +224,17 @@ export default function ClientDocPanel({
           className="text-xs font-semibold text-muted-foreground hover:text-primary w-fit">
           Not a client document? Use the normal form
         </button>
-        <Button type="button" onClick={save} disabled={saving || unresolved} className="gap-2">
+        <Button type="button" onClick={() => save()} disabled={saving || unresolved} className="gap-2">
           {saving && <Loader2 size={14} className="animate-spin" />}
           {saving ? 'Saving…' : 'Save to client'}
         </Button>
       </div>
+
+      <DuplicateResolveDialog
+        {...dialogProps}
+        busy={saving}
+        existingHref={state.clientId ? `/business/${companyId}/clients/${state.clientId}` : undefined}
+      />
 
       <ClientFormDialog
         open={Boolean(adding)}

@@ -90,18 +90,18 @@
 | TC ID | Field | Type | Input / Steps | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|---|
 | AUTH-FLD-031 | Both | Negative | Submit both fields empty. | Toast "Please fill in all fields"; no request sent. | — | — |
-| AUTH-FLD-032 | Email | Negative | Valid-format but unregistered email + any password. | Generic "Invalid credentials" (must NOT reveal that the account does not exist). | — | — |
-| AUTH-FLD-033 | Password | Negative | Registered email + wrong password. | Generic "Invalid credentials" — identical message to AUTH-FLD-032. | — | — |
+| AUTH-FLD-032 | Email | Negative | Valid-format but unregistered email + any password. | HTTP 404; inline notice "This account does not exist. Please sign up first." with a "Sign up →" link; no toast. | — | — |
+| AUTH-FLD-033 | Password | Negative | Registered email + wrong password. | HTTP 401; toast "Incorrect username or password." (different from AUTH-FLD-032). | — | — |
 | AUTH-FLD-034 | Identifier | Positive | Log in using the registered **phone number** instead of the email. | Login succeeds. | — | — |
 | AUTH-FLD-035 | Identifier | Edge | Email with leading/trailing whitespace: `  qa.admin.a@example.com  `. | Trimmed client-side; login succeeds. | — | — |
 | AUTH-FLD-036 | Identifier | Edge | Email in a different case than registered. | Login succeeds (identifier lower-cased server-side). | — | — |
 | AUTH-FLD-037 | Password | Edge | Password differing only in case. | Rejected — password comparison is case-sensitive. | — | — |
-| AUTH-FLD-038 | Identifier | Negative | SQL-injection payload `' OR 1=1 --` in the identifier. | Rejected as invalid credentials; no error page; no rows leaked. | — | — |
+| AUTH-FLD-038 | Identifier | Negative | SQL-injection payload `' OR 1=1 --` in the identifier. | Rejected as "account does not exist"; no error page; no rows leaked. | — | — |
 | AUTH-FLD-039 | Password | Boundary | Empty password with a valid email. | Blocked client-side; if bypassed, server rejects with "Password is required". | — | — |
-| AUTH-FLD-039a | Identifier | Positive | Email of an account that was **erased** from Settings → Delete account + any password. | HTTP 410; inline notice "This account was permanently deleted on DD/MM/YYYY…" with a "Create a new account →" link; toast with the same sentence. NOT "Invalid credentials". | — | — |
-| AUTH-FLD-039b | Identifier | Positive | The erased account's **mobile number** (any spelling: `98765 43210`, `+919876543210`) + any password. | Same 410 notice as AUTH-FLD-039a — the lookup matches on the normalised number. | — | — |
-| AUTH-FLD-039c | Identifier | Negative | Email of a **user** (STANDARD) of an erased workspace. | 410 notice reads "The workspace "<name>" this account belonged to was permanently deleted by its admin on …". | — | — |
-| AUTH-FLD-039d | Password | Negative | A **live** account's email + wrong password, where the same email also has an older erasure record (register → erase → register again). | Generic "Invalid credentials" — the erased notice must never appear for a live account. | — | — |
+| AUTH-FLD-039a | Identifier | Positive | Email of an account that was **erased** from Settings → Delete account + any password. | HTTP 404; same inline notice as AUTH-FLD-032 ("This account does not exist. Please sign up first." + "Sign up →"); no deletion date, no toast. | — | — |
+| AUTH-FLD-039b | Identifier | Positive | The erased account's **mobile number** (any spelling: `98765 43210`, `+919876543210`) + any password. | Same 404 notice as AUTH-FLD-039a. | — | — |
+| AUTH-FLD-039c | Identifier | Negative | Email of a **user** (STANDARD) of an erased workspace. | Same 404 "does not exist" notice (no workspace name). | — | — |
+| AUTH-FLD-039d | Password | Negative | A **live** account's email + wrong password, where the same email also has an older erasure record (register → erase → register again). | "Incorrect username or password." — the "does not exist" notice must never appear for a live account. | — | — |
 
 ### 2.3 OTP verification (`/verify-email`)
 

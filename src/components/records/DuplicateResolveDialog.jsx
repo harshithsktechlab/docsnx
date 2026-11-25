@@ -89,6 +89,7 @@ export default function DuplicateResolveDialog({
   onKeepExisting,
   onKeepNew,
   onKeepBoth,
+  existingHref,
 }) {
   /**
    * Which workspace this upload is happening in — read from the route, so the
@@ -118,9 +119,12 @@ export default function DuplicateResolveDialog({
    */
   const misfiled = Boolean(existingCategory && newCategory && existingCategory !== newCategory);
   const prefix = companyId ? `/business/${companyId}` : '';
-  const workspace = match.existingModuleKey && match.existingDocumentKey
-    ? `${prefix}${subCategoryPath(match.existingModuleKey, match.existingDocumentKey)}?tab=files&search=${encodeURIComponent(match.existingTitle || '')}`
-    : null;
+  // A caller whose records do not live at a sub-category path (a client's
+  // documents) names the page itself.
+  const workspace = existingHref
+    || (match.existingModuleKey && match.existingDocumentKey
+      ? `${prefix}${subCategoryPath(match.existingModuleKey, match.existingDocumentKey)}?tab=files&search=${encodeURIComponent(match.existingTitle || '')}`
+      : null);
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onKeepExisting(); }}>

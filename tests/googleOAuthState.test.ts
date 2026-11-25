@@ -112,6 +112,20 @@ describe('sanitizeReturnTo', () => {
     }
   });
 
+  it('keeps record-section paths so a first save can return to its own screen', () => {
+    for (const path of ['/documents', '/documents/bulk-scan', '/passwords', '/vehicles', '/business/abc-123/documents']) {
+      expect(sanitizeReturnTo(path)).toBe(path);
+    }
+  });
+
+  it('rejects section look-alikes and traversal', () => {
+    expect(sanitizeReturnTo('/documents/../admin')).toBe('/dashboard');
+    expect(sanitizeReturnTo('/documents//evil.example.com')).toBe('/dashboard');
+    expect(sanitizeReturnTo('/documents?x=1')).toBe('/dashboard');
+    expect(sanitizeReturnTo('/documentsx')).toBe('/dashboard');
+    expect(sanitizeReturnTo('/api/auth/me')).toBe('/dashboard');
+  });
+
   it('falls back to /dashboard for anything off the allow-list', () => {
     // Open-redirect attempts and protocol-relative URLs must never survive.
     expect(sanitizeReturnTo('https://evil.example.com')).toBe('/dashboard');

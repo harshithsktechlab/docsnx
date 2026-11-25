@@ -3,7 +3,6 @@ import { comparePassword, signToken } from '@/lib/auth';
 import { authRateLimiter } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
 import { findUserByIdentifier } from '@/lib/authLookup';
-import { findErasedAccount, erasedAccountResponse } from '@/lib/account/erasedAccountLookup';
 import { isSignInDisabled, signInDisabledResponse } from '@/lib/account/signInDisabled';
 import { issueOtpChallenge, isFullyVerified } from '@/lib/otpChallenge';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
@@ -64,15 +63,15 @@ export async function POST(req: Request) {
     const user = await findUserByIdentifier(loginIdentifier, { intent: 'login', whatsappEnabled });
 
     if (!user) {
-      // No live account — but was there one? An admin who erased their
-      // workspace and forgot is told so, with the date, rather than being
-      // left to retry a password that can never work. Only on a MISS: a wrong
-      // password on a live account stays the generic 401 below. See the
-      // header of erasedAccountLookup.ts for what this deliberately reveals.
-      const erased = await findErasedAccount(loginIdentifier);
-      if (erased) return erasedAccountResponse(erased, loginIdentifier);
-
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+      // No live account: never registered, or since permanently deleted. Both
+      // get the same answer — retyping the password cannot help, so the page
+      // points at sign-up. This deliberately tells the caller the identifier is
+      // not registered (the wrong-password answer below is a different one);
+      // authRateLimiter above is the brake on probing.
+      return NextResponse.json({
+        error: 'This account does not exist. Please sign up first.',
+        accountNotFound: true,
+      }, { status: 404 });
     }
 
     if (user.tenant && !user.tenant.isActive) {
@@ -94,7 +93,7 @@ export async function POST(req: Request) {
 
     const isValid = await comparePassword(password, user.passwordHash);
     if (!isValid) {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+      return NextResponse.json({ error: 'Incorrect username or password.' }, { status: 401 });
     }
 
     // After the password, so only someone who already holds it learns why.

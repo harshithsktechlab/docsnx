@@ -141,7 +141,7 @@ describe('which renderer draws it', () => {
 
     // The record says .docx. The bytes are a PDF. The PDF wins.
     await waitFor(() => expect(container.querySelector('iframe')).toBeTruthy());
-    expect(container.querySelector('iframe')?.getAttribute('src')).toBe('blob:made#toolbar=0');
+    expect(container.querySelector('iframe')?.getAttribute('src')).toBe('blob:made#toolbar=0&view=FitH');
   });
 
   it('draws a split PDF page as the image it actually is', async () => {
@@ -277,11 +277,11 @@ describe('rotating an image (0085)', () => {
     expect(screen.getByRole('button', { name: 'Rotate right' })).toBeTruthy();
   });
 
-  it('offers none for a PDF or for text', async () => {
+  it('offers rotate controls on a PDF too, but none on text', async () => {
     const { unmount } = render(<FilePreviewPane source={record()} />);
     await waitFor(() => expect(fetchRecordBlob).toHaveBeenCalled());
     await screen.findByTitle(/Preview: Lease agreement/);
-    expect(screen.queryByRole('button', { name: 'Rotate right' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Rotate right' })).toBeTruthy();
     unmount();
 
     fetchRecordBlob.mockResolvedValue({ text: 'hello', mimeType: 'text/plain' });
@@ -339,5 +339,73 @@ describe('rotating an image (0085)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
     // 90, not 180: the second document started upright.
     await waitFor(() => expect(onRotate).toHaveBeenLastCalledWith(90));
+  });
+});
+
+describe('saving a rotation into the file', () => {
+  const image = () => {
+    fetchRecordBlob.mockResolvedValue({ url: 'blob:made', mimeType: 'image/jpeg' });
+    return record({ mimeType: 'image/jpeg' });
+  };
+
+  it('treats a turn as a draft: nothing is sent until Save is pressed', async () => {
+    const onRotate = vi.fn(async (_deg: number) => undefined);
+    const onSaveRotation = vi.fn(async (_deg: number) => ({ mode: 'file' }));
+    render(<FilePreviewPane source={image()} onRotate={onRotate} onSaveRotation={onSaveRotation} />);
+    await screen.findByRole('img');
+
+    expect(screen.queryByRole('button', { name: /Save rotation/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+
+    expect(onRotate).not.toHaveBeenCalled();
+    expect(onSaveRotation).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Save rotation/ })).toBeTruthy();
+  });
+
+  it('sends the turn, refetches the file and drops the Save button once it is stored', async () => {
+    const onSaveRotation = vi.fn(async (_deg: number) => ({ mode: 'file' }));
+    render(<FilePreviewPane source={image()} onSaveRotation={onSaveRotation} />);
+    await screen.findByRole('img');
+    const fetchesBefore = fetchRecordBlob.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save rotation/ }));
+
+    await waitFor(() => expect(onSaveRotation).toHaveBeenCalledWith(270));
+    await waitFor(() => expect(fetchRecordBlob.mock.calls.length).toBeGreaterThan(fetchesBefore));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Save rotation/ })).toBeNull());
+  });
+
+  it('keeps the draft and the button when the save fails', async () => {
+    const onSaveRotation = vi.fn(async (_deg: number) => { throw new Error('nope'); });
+    render(<FilePreviewPane source={image()} onSaveRotation={onSaveRotation} />);
+    await screen.findByRole('img');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save rotation/ }));
+
+    await waitFor(() => expect(onSaveRotation).toHaveBeenCalledWith(90));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save rotation/ })).toBeTruthy());
+  });
+
+  it('stops offering Save once only the display preference could be kept', async () => {
+    const onSaveRotation = vi.fn(async (_deg: number) => ({ mode: 'view' }));
+    render(<FilePreviewPane source={image()} onSaveRotation={onSaveRotation} />);
+    await screen.findByRole('img');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save rotation/ }));
+
+    await waitFor(() => expect(onSaveRotation).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Save rotation/ })).toBeNull());
+  });
+
+  it('is not offered for a file picked from disk', async () => {
+    const onSaveRotation = vi.fn();
+    const file = new File(['x'], 'scan.jpg', { type: 'image/jpeg' });
+    render(<FilePreviewPane source={{ kind: 'file', file }} onSaveRotation={onSaveRotation} />);
+    await screen.findByRole('img');
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right' }));
+    expect(screen.queryByRole('button', { name: /Save rotation/ })).toBeNull();
   });
 });

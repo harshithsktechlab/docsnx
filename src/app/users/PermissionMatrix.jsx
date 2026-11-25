@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { ALL_NAV_MODULES, UTILITY_MODULES, PERMISSION_MODULE_KEYS } from '@/lib/moduleRegistry';
+import { isBusinessModule } from '@/lib/documentCategories';
+import { CLIENT_INDIVIDUAL_MODULE, CLIENT_COMPANY_MODULE } from '@/lib/clientCategories';
 import {
   LEVELS,
   PRESETS,
@@ -67,14 +69,25 @@ const PERMISSION_FLAGS = [
   { key: 'canShare', label: 'Share', accent: 'accent-blue-500' },
 ];
 
+const CLIENT_KEYS = [CLIENT_INDIVIDUAL_MODULE, CLIENT_COMPANY_MODULE];
+
+/** What the single Client Documents row shows: the strongest of the two stored rows. */
+function clientFlags(rows) {
+  const out = { ...emptyFlags };
+  for (const p of rows) {
+    if (!CLIENT_KEYS.includes(p.module) || p.documentKey) continue;
+    for (const f of Object.keys(out)) out[f] = out[f] || !!p[f];
+  }
+  return out;
+}
+
 const MODULE_LABELS = {
   ...Object.fromEntries(ALL_NAV_MODULES.map((m) => [m.key, m.name])),
   ...Object.fromEntries(UTILITY_MODULES.filter((m) => m.key).map((m) => [m.key, m.name])),
   other: 'Others (unfiled scans)',
   // Client Documents are two flat rows: what a company tracks per client is its
   // own setting (Client Documents → Configure), not a per-member sub-category grant.
-  biz_client_individual: 'Client Documents — Individual clients',
-  biz_client_company: 'Client Documents — Company clients',
+  biz_client_individual: 'Client Documents',
   audit_logs: 'Audit Logs',
   invoices: 'Invoices',
   ai_analysis: 'AI Analysis — refresh / generate',
@@ -261,7 +274,9 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
   const [showOtherAccount, setShowOtherAccount] = useState(false);
 
   const findPerm = (module, documentKey = null) =>
-    value.find((p) => p.module === module && (p.documentKey ?? null) === documentKey);
+    module === CLIENT_INDIVIDUAL_MODULE && !documentKey
+      ? { module, documentKey: null, ...clientFlags(value) }
+      : value.find((p) => p.module === module && (p.documentKey ?? null) === documentKey);
 
   /** What a sub-category actually obeys: its override, else the module default. */
   const effectivePerm = (module, documentKey) =>
@@ -273,7 +288,12 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
     return counts;
   }, [value]);
 
-  const summary = useMemo(() => summarizePermissions(value), [value]);
+  // Client Documents is ONE permission to the admin, stored as one row per client
+  // type (the server checks each type by its own key). Count it once.
+  const summary = useMemo(
+    () => summarizePermissions(value.filter((p) => p.module !== CLIENT_COMPANY_MODULE)),
+    [value],
+  );
 
   /**
    * Derived, never remembered: a preset card is lit only while the permissions
@@ -288,6 +308,21 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
    * other account" has no row yet — mapping over `value` alone made it ungrantable.
    */
   const updateModuleRow = (module, update) => {
+    // One Client Documents control writes BOTH client-type rows with the same flags,
+    // computed from what the admin sees (the union), so the two never drift apart.
+    if (CLIENT_KEYS.includes(module)) {
+      const flags = update({ module, documentKey: null, ...clientFlags(value) });
+      const next = value.filter((p) => !(CLIENT_KEYS.includes(p.module) && !p.documentKey));
+      onChange([
+        ...next,
+        ...CLIENT_KEYS.map((m) => ({
+          module: m, documentKey: null,
+          canView: flags.canView, canAdd: flags.canAdd, canEdit: flags.canEdit,
+          canDelete: flags.canDelete, canShare: flags.canShare,
+        })),
+      ]);
+      return;
+    }
     const existing = findPerm(module);
     onChange(existing
       ? value.map((p) => (p === existing ? update(p) : p))
@@ -406,14 +441,25 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
    * shown then, which is the right answer for the one case with no account.
    */
   const held = new Set(value.map((p) => p.module));
-  const inAccount = (key) => held.size === 0 || held.has(key) || showOtherAccount;
+  /**
+   * Client Documents belong to the COMPANY account. A business member added before
+   * the feature existed holds no client rows, and without this they were counted as
+   * "the other account's modules" — so a tenant admin could not find them to grant.
+   * They show for anyone who holds any company module, at "No access" until a rung
+   * is picked. A personal member (no company module) still does not see them.
+   */
+  const heldBusiness = [...held].some((k) => isBusinessModule(k) && !CLIENT_KEYS.includes(k));
+  const inBusinessAccount = (key) => CLIENT_KEYS.includes(key) && heldBusiness;
+  const inAccount = (key) => held.size === 0 || held.has(key) || inBusinessAccount(key)
+    || showOtherAccount;
 
   const visibleModules = ALL_NAV_MODULES.filter(
     (m) => inAccount(m.key) && passesFilter(m.key)
       && (matches(m.name) || m.subCategories.some((s) => matches(s.name))),
   );
   const visibleFlat = FLAT_MODULE_KEYS.filter(
-    (k) => inAccount(k) && passesFilter(k) && matches(MODULE_LABELS[k] || k),
+    (k) => k !== CLIENT_COMPANY_MODULE && inAccount(k) && passesFilter(k)
+      && matches(MODULE_LABELS[k] || k),
   );
 
   /**
@@ -423,7 +469,7 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
    * prohibition — it just is not the thing an admin trips over.
    */
   const otherAccountCount = held.size === 0 ? 0
-    : PERMISSION_MODULE_KEYS.filter((k) => !held.has(k)).length;
+    : PERMISSION_MODULE_KEYS.filter((k) => !held.has(k) && !inBusinessAccount(k)).length;
 
   /** Strongest rung first — the grant is what an admin is checking for. */
   const summarySegments = [...LEVELS]
@@ -688,7 +734,9 @@ export default function PermissionMatrix({ value, onChange, showPresets = false 
                 <AccessRow
                   key={key}
                   label={MODULE_LABELS[key] || key}
-                  subtitle={levelDescription(flagsToLevel(perm))}
+                  subtitle={key === CLIENT_INDIVIDUAL_MODULE
+                    ? `${levelDescription(flagsToLevel(perm))} — for the client types your company keeps (individual, company or both)`
+                    : levelDescription(flagsToLevel(perm))}
                   level={flagsToLevel(perm)}
                   options={levelOptions}
                   onLevelChange={(lvl) => setModuleLevel(key, lvl)}

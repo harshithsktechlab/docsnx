@@ -225,7 +225,7 @@ Expected ciphertext shape: `iv:salt:tag:ciphertext` (4 hex groups; legacy 3-grou
 | SEC-AUT-008 | Security | Reset the password, then use a session that was open before the reset. | Record actual — continued access after a credential change ⇒ **S2**. | — | — |
 | SEC-AUT-009 | Security | Attempt ~10 rapid failed logins from one IP. | Rate-limited with 429 and a `Retry-After`. | — | — |
 | SEC-AUT-010 | Security | Attempt ~10 rapid registrations from one IP. | Rate-limited with 429. | — | — |
-| SEC-AUT-011 | Security | Compare the error for an unknown email vs. a wrong password. | Identical generic "Invalid credentials" — no user enumeration. | — | — |
+| SEC-AUT-011 | Security | Compare the error for an unknown email vs. a wrong password. | Different by design: unknown → 404 "This account does not exist. Please sign up first."; wrong password → 401 "Incorrect username or password." Probing is limited only by the login rate limit. | — | — |
 | SEC-AUT-012 | Security | Submit a forgot-password request for an unknown address. | Generic success message — no enumeration. | — | — |
 | SEC-AUT-013 | Security | Soft-delete a user, then attempt login. | Rejected. | — | — |
 | SEC-AUT-014 | Security | Suspend a tenant, then attempt login as its user. | Rejected with the suspension message. | — | — |

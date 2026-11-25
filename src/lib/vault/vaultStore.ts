@@ -3,8 +3,8 @@ import type { CategoryKey } from '../documentCategories';
 import type { TenantDriveRow } from '../googleDrive';
 import { encryptField } from '../fieldCrypto';
 import { loadEncryptionPolicy, splitRecordFields } from './fieldSplitter';
-import { storeDocumentFile, trashDocumentFile } from './vaultFiles';
-import { type VaultCtx, upsertRecord } from './vaultRecords';
+import { openDocumentFile, storeDocumentFile, trashDocumentFile } from './vaultFiles';
+import { type VaultCtx, readRecord, upsertRecord } from './vaultRecords';
 import type { VaultModule } from './vaultNaming';
 import { toTaxonomyRecord, toTaxonomyRecordFromFields } from '../records/normalize';
 import { loadCategoryFieldSpec } from '../records/categorySpec';
@@ -539,4 +539,103 @@ export async function discardVaultFile(
   } catch (error) {
     console.error(`[vault] could not discard orphaned Drive file ${driveFileId}:`, error);
   }
+}
+
+/**
+ * Rewrite the BYTES of every page a record already owns, in place.
+ *
+ * Used to make a viewer rotation permanent. Unlike a replace-upload this keeps
+ * every Drive object id, page number and per-page `fileId` (the AAD the page is
+ * sealed against), so `filePath`, the `?page=N` links and the page count are all
+ * untouched — only the ciphertext, the hashes and the sizes change.
+ *
+ * ── ALL-OR-NOTHING WHERE IT CAN BE ─────────────────────────────────────────
+ * Phase one opens and transforms EVERY page in memory; `transform` throwing
+ * (an unsupported type, a corrupt file) aborts before a single Drive write.
+ * Phase two overwrites the pages one at a time (Drive rate-limits; see
+ * `storeRecordInVault`). A Drive failure part-way leaves the earlier pages
+ * already rewritten — each is a valid file on its own — and the JSON store
+ * unchanged, so the caller must tell the member to reload rather than retry
+ * blindly.
+ *
+ * Returns the new totals for the Postgres row, or null when the record has no
+ * stored pages.
+ */
+export async function rewriteVaultPages(input: {
+  tenant: TenantDriveRow & { id: string };
+  tenantId: string;
+  actorUserId: string;
+  /** The record's OWN company (null = personal): bound into every page's AAD. */
+  companyId: string | null;
+  ownerId: string;
+  recordId: string;
+  categoryKey: CategoryKey;
+  transform: (bytes: Buffer, page: { page: number; mimeType: string }) => Promise<Buffer>;
+}): Promise<{ fileSize: number; contentHash: string; encryptedSize: number; driveFileId: string } | null> {
+  const { tenant, tenantId, companyId, categoryKey, recordId } = input;
+  const ctx: VaultCtx = { tenant, tenantId, companyId, userId: input.actorUserId };
+  const vaultModule = categoryKey.moduleKey as VaultModule;
+
+  const stored = await readRecord<any>(ctx, vaultModule, categoryKey, recordId);
+  const pages: any[] = Array.isArray(stored?.pages) ? stored.pages : [];
+  if (pages.length === 0) return null;
+
+  // Phase one — read and transform everything before writing anything.
+  const next: Array<{ page: any; bytes: Buffer }> = [];
+  for (const page of pages) {
+    const bytes = await openDocumentFile({
+      tenant,
+      documentId: recordId,
+      companyId,
+      categoryKey,
+      driveFileId: page.driveFileId,
+      fileId: page.fileId ?? null,
+    });
+    next.push({
+      page,
+      bytes: await input.transform(bytes, { page: page.page, mimeType: page.mimeType ?? stored?.mimeType ?? '' }),
+    });
+  }
+
+  // Phase two — overwrite in place, sequentially.
+  const written = new Map<number, { driveFileId: string; contentHash: string; size: number }>();
+  let encryptedSize = 0;
+  for (const { page, bytes } of next) {
+    const out = await storeDocumentFile({
+      companyId,
+      tenant,
+      documentId: recordId,
+      ownerId: input.ownerId,
+      categoryKey,
+      bytes,
+      fileId: page.fileId,
+      existingFileId: page.driveFileId,
+    });
+    encryptedSize += out.encryptedSize;
+    written.set(page.page, { driveFileId: out.driveFileId, contentHash: out.contentHash, size: bytes.length });
+  }
+
+  const fileSize = [...written.values()].reduce((sum, w) => sum + w.size, 0);
+  let primaryHash = '';
+  let primaryDriveId = '';
+  await upsertRecord<any>(ctx, vaultModule, categoryKey, recordId, (previous) => {
+    const prev = previous ?? {};
+    const updated = (Array.isArray(prev.pages) ? prev.pages : []).map((pg: any) => {
+      const w = written.get(pg.page);
+      return w ? { ...pg, driveFileId: w.driveFileId, contentHash: w.contentHash, size: w.size } : pg;
+    });
+    primaryHash = updated[0]?.contentHash ?? '';
+    primaryDriveId = updated[0]?.driveFileId ?? '';
+    return {
+      ...prev,
+      pages: updated,
+      fileSize,
+      driveFileId: primaryDriveId,
+      contentHash: primaryHash,
+      updatedAt: new Date().toISOString(),
+      updatedBy: input.actorUserId,
+    };
+  });
+
+  return { fileSize, contentHash: primaryHash, encryptedSize, driveFileId: primaryDriveId };
 }

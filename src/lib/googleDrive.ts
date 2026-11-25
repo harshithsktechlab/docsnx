@@ -99,8 +99,29 @@ export function getGoogleOAuthClient(req?: Request) {
 /** Internal paths a connect flow is allowed to return to. */
 const RETURN_TO_ALLOWLIST = ['/settings', '/onboarding', '/backup', '/billing', '/dashboard'];
 
+/**
+ * Record sections a tenant can be saving into when the "Connect Google Drive"
+ * prompt fires (see DriveConnectPrompt). Drive is optional at sign-up, so the
+ * first save of anything can be what sends the admin to Google, and they must
+ * land back on that same screen. Sub-paths are allowed (`/documents/bulk-scan`,
+ * `/business/<company>/...`) but only as plain lowercase segments — no dots,
+ * no `//`, no query — so this can never become an open redirect.
+ */
+const RETURN_TO_SECTIONS = [
+  'documents', 'passwords', 'bank-info', 'important-contacts', 'investments',
+  'invoices', 'lic-mediclaim', 'loans-debt', 'medical', 'rentals',
+  'tax-compliance', 'todos', 'trading', 'utility-bills', 'vehicles', 'warranty',
+  'wills-estate', 'employment-payroll', 'follow-up', 'business', 'modules',
+];
+const RETURN_TO_SECTION_PATH = new RegExp(
+  `^/(?:${RETURN_TO_SECTIONS.join('|')})(?:/[a-z0-9_-]+)*$`,
+  'i',
+);
+
 export function sanitizeReturnTo(returnTo: string | null | undefined): string {
-  return returnTo && RETURN_TO_ALLOWLIST.includes(returnTo) ? returnTo : '/dashboard';
+  if (!returnTo) return '/dashboard';
+  if (RETURN_TO_ALLOWLIST.includes(returnTo)) return returnTo;
+  return RETURN_TO_SECTION_PATH.test(returnTo) ? returnTo : '/dashboard';
 }
 
 export interface GoogleOAuthState {

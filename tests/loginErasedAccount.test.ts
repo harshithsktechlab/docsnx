@@ -1,22 +1,19 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   POST /api/auth/login — an erased account is told so, a live one is not ║
+ * ║   POST /api/auth/login — "no such account" vs "wrong password"           ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * The lookup itself is pinned in tests/erasedAccountLookup.test.ts. What this
- * suite guards is WHEN the route asks it:
- *
- *   • only after the live lookup missed — a wrong password on an existing
- *     account must never consult the retention table, or the route would
- *     grow a second thing it can say about a live account;
- *   • a miss that IS erased answers 410 with the flag and the sentence;
- *   • a miss that is not erased stays the 401 it always was.
+ *   • no live account (never registered OR since permanently deleted) answers
+ *     404 with `accountNotFound` and a sign-up sentence — the same answer for
+ *     both, with no deletion date or workspace name;
+ *   • a wrong password on a live account answers 401 "Incorrect username or
+ *     password." and never the not-found answer;
+ *   • login no longer consults the erased-account retention table at all.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let foundUser: any = null;
-let erased: any = null;
-const findErasedAccount = vi.fn(async () => erased);
+const findErasedAccount = vi.fn(async () => ({ erasedAt: new Date('2026-09-21T09:21:36Z'), role: 'TENANT_ADMIN', tenantName: 'dev5 workspace' }));
 
 vi.mock('@/lib/authLookup', () => ({ findUserByIdentifier: async () => foundUser }));
 vi.mock('@/lib/account/erasedAccountLookup', async () => ({
@@ -56,46 +53,46 @@ function loginRequest(identifier: string) {
   });
 }
 
-const ERASED = { erasedAt: new Date('2026-09-21T09:21:36Z'), role: 'TENANT_ADMIN', tenantName: 'dev5 workspace' };
+const NOT_FOUND = {
+  error: 'This account does not exist. Please sign up first.',
+  accountNotFound: true,
+};
 
 beforeEach(() => {
   foundUser = null;
-  erased = null;
   findErasedAccount.mockClear();
   comparePassword.mockClear();
 });
 
-describe('POST /api/auth/login — erased accounts', () => {
-  it('answers 410 with the deleted sentence when the identifier belongs to an erased account', async () => {
-    erased = ERASED;
-    const res = await login(loginRequest('dev5.hsktechlab@gmail.com'));
-    expect(res.status).toBe(410);
-    const body = await res.json();
-    expect(body.accountErased).toBe(true);
-    expect(body.error).toContain('permanently deleted on 21/09/2026');
-    expect(body.identifier).toBe('dev5.hsktechlab@gmail.com');
-    expect(findErasedAccount).toHaveBeenCalledWith('dev5.hsktechlab@gmail.com');
-  });
-
-  it('stays the generic 401 when the identifier is simply unknown', async () => {
+describe('POST /api/auth/login — account not found', () => {
+  it('answers 404 "does not exist" for an identifier that was never registered', async () => {
     const res = await login(loginRequest('nobody@example.test'));
-    expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: 'Invalid credentials' });
-    expect(findErasedAccount).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(NOT_FOUND);
   });
 
-  it('never consults the retention table for a wrong password on a LIVE account', async () => {
+  it('answers the same 404 for a deleted account, without the deletion date', async () => {
+    // findErasedAccount would return a row for this identifier; login must not
+    // use it, so nothing about the earlier account leaks.
+    const res = await login(loginRequest('dev5.hsktechlab@gmail.com'));
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body).toEqual(NOT_FOUND);
+    expect(JSON.stringify(body)).not.toContain('permanently deleted');
+    expect(findErasedAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/auth/login — wrong password', () => {
+  it('answers 401 "Incorrect username or password." for a live account', async () => {
     foundUser = {
       id: 'user-1', email: 'asha@example.test', name: 'Asha', role: 'TENANT_ADMIN',
       tenantId: 'tenant-1', passwordHash: 'hash', tenant: { isActive: true },
       emailVerified: true, phoneVerified: true,
     };
-    // Even if a stale retention row existed under the same address (register,
-    // erase, register again), the live account is the one being signed into.
-    erased = ERASED;
     const res = await login(loginRequest('asha@example.test'));
     expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: 'Invalid credentials' });
+    expect(await res.json()).toEqual({ error: 'Incorrect username or password.' });
     expect(comparePassword).toHaveBeenCalledTimes(1);
     expect(findErasedAccount).not.toHaveBeenCalled();
   });

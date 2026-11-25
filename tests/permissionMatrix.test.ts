@@ -12,9 +12,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import PermissionMatrix from '../src/app/users/PermissionMatrix';
 import {
+  BUSINESS_PERMISSION_KEYS,
   DEFAULT_PERSONAL_PERMISSIONS,
   PERMISSION_MODULE_KEYS,
 } from '../src/lib/moduleRegistry';
@@ -61,7 +62,8 @@ describe('<PermissionMatrix> — the Access step', () => {
     );
     expect(screen.getByText('This user gets')).toBeInTheDocument();
     expect(
-      screen.getByText(`${PERMISSION_MODULE_KEYS.length} Full access`),
+      // Client Documents is one row for the admin, though it is stored as two.
+      screen.getByText(`${PERMISSION_MODULE_KEYS.length - 1} Full access`),
     ).toBeInTheDocument();
     expect(screen.getByText('1 category override')).toBeInTheDocument();
     expect(screen.getByText(/Also clears 1 category override/)).toBeInTheDocument();
@@ -84,6 +86,40 @@ describe('<PermissionMatrix> — the Access step', () => {
     const next = onChange.mock.calls[0][0];
     expect(next).toHaveLength(PERMISSION_MODULE_KEYS.length);
     expect(next.every((r: { documentKey: string | null }) => r.documentKey === null)).toBe(true);
+    cleanup();
+  });
+
+  it('lists Client Documents for a business member who holds no client rows yet', () => {
+    const held = permissionsForLevel(
+      BUSINESS_PERMISSION_KEYS.filter((k) => !k.startsWith('biz_client_')), 'contribute',
+    );
+    render(matrix({ value: held }));
+    // ONE row for both client types, not two.
+    expect(screen.getAllByText('Client Documents')).toHaveLength(1);
+    expect(screen.queryByText(/Company clients/)).toBeNull();
+    cleanup();
+  });
+
+  it('keeps Client Documents out of a personal member\'s list', () => {
+    render(matrix({ value: DEFAULT_PERSONAL_PERMISSIONS }));
+    expect(screen.queryByText('Client Documents')).toBeNull();
+    cleanup();
+  });
+
+  it('writes both client-type rows with the same flags from the one control', () => {
+    const held = permissionsForLevel(
+      BUSINESS_PERMISSION_KEYS.filter((k) => !k.startsWith('biz_client_')), 'contribute',
+    );
+    const onChange = vi.fn();
+    render(matrix({ value: held, onChange }));
+    let row: HTMLElement | null = screen.getByText('Client Documents');
+    while (row && !row.querySelector('[aria-label="Set individual permissions"]')) row = row.parentElement;
+    fireEvent.click(row!.querySelector('[aria-label="Set individual permissions"]')!);
+    fireEvent.click(within(row!).getByLabelText('Delete'));
+    const next = onChange.mock.calls.at(-1)![0] as Array<Record<string, unknown>>;
+    const client = next.filter((p) => String(p.module).startsWith('biz_client_'));
+    expect(client.map((p) => p.module).sort()).toEqual(['biz_client_company', 'biz_client_individual']);
+    for (const p of client) expect(p).toMatchObject({ canView: true, canDelete: true });
     cleanup();
   });
 });

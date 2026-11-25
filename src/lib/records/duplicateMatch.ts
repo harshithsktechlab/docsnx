@@ -32,6 +32,15 @@
  * therefore false for `reason: 'dedupeField'`, and `createRecord` refuses a
  * keep-both answer to one even if a client offers it anyway.
  *
+ * ── THE ONE EXCEPTION: A CLIENT'S DOCUMENT ─────────────────────────────────
+ * An agent files an original Aadhaar and then its signed, self-attested copy
+ * under the same client; both are the same person's same ID and both are
+ * wanted. The contradiction above does not arise: the arm-1 lookup is confined
+ * to the one client (`inClient(ctx.clientId)`), so two records sharing a number
+ * are always one person's two copies, never two subjects. A match made while
+ * writing a client's document is therefore `forkable`, and carries the numbered
+ * title keep-both would use. Personal and company records are unchanged.
+ *
  * Enforcing that needs one thing the codebase did not have: a single definition
  * of "duplicate" that every writer consults. It used to be spread across three
  * places that disagreed about both halves of the question —
@@ -143,6 +152,11 @@ export interface DuplicateMatch {
   /** The record the incoming write should overwrite. */
   id: string;
   reason: DuplicateReason;
+  /**
+   * An identifier match that may nevertheless be forked — set ONLY by arm 1, and
+   * only for a CLIENT's document. See "KEEP BOTH IS NOT OFFERED …" in the header.
+   */
+  forkable?: boolean;
   /** Human phrase naming what matched, for the 409 message. */
   detail: string;
   /**
@@ -186,7 +200,7 @@ export interface DuplicateMatch {
  * `fileContent` match asks the question rather than deciding it.
  */
 export function keepBothAllowed(match: DuplicateMatch): boolean {
-  return match.reason !== 'dedupeField';
+  return match.reason !== 'dedupeField' || match.forkable === true;
 }
 
 export interface DuplicateCandidate {
@@ -341,6 +355,20 @@ export async function resolveDuplicate(
     const hit = (await findBySearchHash(ctx, fieldKey, hash, categoryKey!))
       .find((row) => row.id !== candidate.excludeId);
     if (hit) {
+      // A CLIENT's document may be forked: an original and its signed or
+      // self-attested copy are one person's one ID, and the lookup is already
+      // confined to that client (`inClient`), so the pair can never straddle two
+      // clients. Everyone else keeps the refusal — see the header.
+      const forkable = Boolean(ctx.clientId);
+      const keepBothTitle = forkable
+        ? await withTenant(user.tenantId, async (tx) => {
+          const categoryId = candidate.categoryId
+            ?? await categoryIdFor(tx, categoryKey!);
+          return categoryId
+            ? nextAvailableTitle(tx, user.tenantId, categoryId as string, candidate.title)
+            : null;
+        })
+        : null;
       return {
         id: hit.id,
         reason: 'dedupeField',
@@ -349,8 +377,10 @@ export async function resolveDuplicate(
         moduleKey: hit.categoryModuleKey,
         documentKey: hit.categoryDocumentKey,
         file: fileOf(hit),
-        // Two records must never claim one identifier — see the header.
-        keepBothTitle: null,
+        // Two records must never claim one identifier — see the header — except
+        // for a client's document.
+        ...(forkable ? { forkable: true } : {}),
+        keepBothTitle,
         intoModuleKey: categoryKey?.moduleKey ?? null,
         intoDocumentKey: categoryKey?.documentKey ?? null,
       };

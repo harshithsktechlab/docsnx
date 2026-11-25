@@ -82,6 +82,7 @@ import PageContainer from '@/app/components/PageContainer';
 import MultiPageCapture from '@/app/components/MultiPageCapture';
 import { stashPendingFiles, takePendingFiles, takePendingHint, pendingFileCount, onPendingFiles } from '@/lib/pendingUpload';
 import { apiDownload } from '@/lib/net/apiRequest';
+import { applyRotation, fromWorkspaceApi } from '@/lib/records/applyRotation';
 import { useWorkspaceApi, withCompany } from '@/lib/net/useWorkspaceApi';
 import { acceptsCustomLabel, belongsToWorkspace, isCatchAll } from '@/lib/documentCategories';
 import { utilityNavPath } from '@/lib/moduleRegistry';
@@ -2243,14 +2244,16 @@ export default function DocumentsPage() {
    * with and turn the scan back.
    */
   const saveRotation = async (docId, degrees) => {
-    const { json } = await api(`/api/documents/${docId}/rotation`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rotation: degrees }),
-    });
-    if (!json?.success) throw new Error(json?.error || 'Could not save the rotation');
-    setDocuments((prev) => prev.map((d) => (d.id === docId ? { ...d, rotation: degrees } : d)));
-    setPreviewDoc((prev) => (prev && prev.id === docId ? { ...prev, rotation: degrees } : prev));
+    // Rewrites the stored file (rotation → 0, new size) — or, for a type that
+    // cannot be rewritten, keeps only the display preference.
+    const outcome = await applyRotation(fromWorkspaceApi(api), docId, degrees);
+    const patch = outcome.mode === 'file'
+      ? { rotation: 0, ...(outcome.fileSize ? { fileSize: outcome.fileSize } : {}) }
+      : { rotation: outcome.rotation };
+    setDocuments((prev) => prev.map((d) => (d.id === docId ? { ...d, ...patch } : d)));
+    setPreviewDoc((prev) => (prev && prev.id === docId ? { ...prev, ...patch } : prev));
+    setDetailDoc((prev) => (prev && prev.id === docId ? { ...prev, ...patch } : prev));
+    return outcome;
   };
 
   /**
@@ -3093,14 +3096,14 @@ export default function DocumentsPage() {
           onDelete={async () => { if (await handleDelete(detailDoc.id)) setDetailDoc(null); }}
           onEditAll={() => { const d = detailDoc; setDetailDoc(null); openEditModal(d); }}
           onExpandPreview={() => { const d = detailDoc; setDetailDoc(null); openPreview(d); }}
-          onRotate={(deg) => saveRotation(detailDoc.id, deg)}
+          onSaveRotation={(deg) => saveRotation(detailDoc.id, deg)}
         />
       )}
 
       {/* Preview Modal */}
       <Dialog open={!!previewDoc} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
         {previewDoc && (
-          <DialogContent aria-describedby={undefined} className="max-w-[800px] border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
+          <DialogContent aria-describedby={undefined} className="max-w-4xl border-border/50 bg-popover/95 backdrop-blur shadow-glass flex flex-col gap-4">
             <DialogHeader className="border-b border-border pb-3">
               <DialogTitle className="text-base font-bold truncate">
                 Preview: {previewDoc.title}
@@ -3126,8 +3129,9 @@ export default function DocumentsPage() {
                 name: previewDoc.title,
                 pageCount: previewDoc.pageCount,
               }}
+              tall
               rotation={previewDoc.rotation}
-              onRotate={may(previewDoc, 'edit') ? (deg) => saveRotation(previewDoc.id, deg) : null}
+              onSaveRotation={may(previewDoc, 'edit') ? (deg) => saveRotation(previewDoc.id, deg) : null}
               emptyMessage={`No preview available for ${previewDoc.title}`}
               /* `previewDoc` carries the row's categoryRef for exactly this, so
                  the modal asks the same question the row did. */

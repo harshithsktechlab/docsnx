@@ -48,6 +48,7 @@ import type { ApiOutcome } from './outcome';
 import { reportClientFailure } from './outcome';
 import { apiErrorMessage, type MessageOptions } from './apiErrorMessage';
 import { retryAfterBorrow } from './creditBorrow';
+import { promptIfDriveMissing } from '../driveConnectPrompt';
 
 export type { ApiOutcome } from './outcome';
 
@@ -284,6 +285,9 @@ export async function apiCall<T = any>(
     if (typeof json.error !== 'string' || !json.error) {
       json.error = apiErrorMessage(outcome, described);
     }
+    // First save on a workspace that skipped Drive at sign-up: open the connect
+    // prompt. The caller still gets the body and shows its own error line.
+    promptIfDriveMissing(init.method, json);
     return { res: { ok: false, status }, json, outcome };
   }
 

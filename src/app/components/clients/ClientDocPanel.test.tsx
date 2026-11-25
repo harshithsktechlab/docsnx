@@ -24,6 +24,13 @@ vi.mock('@/lib/records/uploadRequest', () => ({
   postUpload: (...a: any[]) => postUpload(...a),
   uploadErrorMessage: () => 'Network error',
 }));
+vi.mock('next/link', () => ({
+  default: ({ children, href }: any) => <a href={href}>{children}</a>,
+}));
+vi.mock('@/lib/sharePrintHelper', () => ({
+  fetchRecordBlob: vi.fn(async () => ({ url: 'blob:existing', mimeType: 'application/pdf' })),
+  getFileUrl: (p: string) => p,
+}));
 vi.mock('@/lib/net/apiRequest', () => ({
   apiCall: vi.fn(async () => ({ json: { success: true }, res: { ok: true } })),
 }));
@@ -156,5 +163,84 @@ describe('handing back to the ordinary form', () => {
     const props = mount(scanFor());
     fireEvent.click(screen.getByText(/use the normal form/i));
     expect(props.onUseNormalForm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a document already on file for this client', () => {
+  const conflict = (over: Record<string, unknown> = {}) => ({
+    ok: false, kind: 'http', status: 409,
+    json: {
+      error: "'PAN Card - Ram Das' already has this title, in this category.",
+      requiresConfirmation: true,
+      existingId: 'doc-old',
+      existingTitle: 'PAN Card - Ram Das',
+      existingModuleKey: 'biz_client_individual',
+      existingDocumentKey: 'identity-pan_card',
+      reason: 'title',
+      keepBothAllowed: true,
+      keepBothTitle: 'PAN Card - Ram Das (2)',
+      keepNewAllowed: true,
+      existingFile: null,
+      ...over,
+    },
+  });
+  const save = () => fireEvent.click(screen.getByRole('button', { name: /save to client/i }));
+
+  it('shows the old and new side by side instead of a dead-end message', async () => {
+    postUpload.mockResolvedValueOnce(conflict());
+    const props = mount(scanFor());
+    save();
+    expect(await screen.findByText('Duplicate Document Found')).toBeTruthy();
+    expect(screen.getByText('Already on file')).toBeTruthy();
+    expect(screen.getByText('Uploading now')).toBeTruthy();
+    expect(screen.queryByText(/open the client.s page to replace/i)).toBeNull();
+    // The link goes to the client's own page, not a sub-category path.
+    expect(screen.getByRole('link', { name: /open in its workspace/i }).getAttribute('href'))
+      .toBe('/business/co-1/clients/client-ram');
+    expect(props.onSaved).not.toHaveBeenCalled();
+  });
+
+  it('"Keep the new one" posts again with replaceId', async () => {
+    postUpload.mockResolvedValueOnce(conflict()).mockResolvedValueOnce({ ok: true, status: 200, json: { success: true } });
+    const props = mount(scanFor());
+    save();
+    fireEvent.click(await screen.findByRole('button', { name: /keep the new one/i }));
+    await waitFor(() => expect(postUpload).toHaveBeenCalledTimes(2));
+    const body = postUpload.mock.calls[1][1];
+    expect(body.get('replaceId')).toBe('doc-old');
+    expect(body.get('keepBoth')).toBeNull();
+    expect(body.get('clientId')).toBe('client-ram');
+    await waitFor(() => expect(props.onSaved).toHaveBeenCalledWith('client-ram'));
+  });
+
+  it('"Keep both" posts again with keepBoth', async () => {
+    postUpload.mockResolvedValueOnce(conflict()).mockResolvedValueOnce({ ok: true, status: 200, json: { success: true } });
+    const props = mount(scanFor());
+    save();
+    fireEvent.click(await screen.findByRole('button', { name: /keep both/i }));
+    await waitFor(() => expect(postUpload).toHaveBeenCalledTimes(2));
+    const body = postUpload.mock.calls[1][1];
+    expect(body.get('keepBoth')).toBe('true');
+    expect(body.get('replaceId')).toBeNull();
+    await waitFor(() => expect(props.onSaved).toHaveBeenCalledWith('client-ram'));
+  });
+
+  it('"Keep the existing one" posts nothing more and leaves the panel open', async () => {
+    postUpload.mockResolvedValueOnce(conflict());
+    const props = mount(scanFor());
+    save();
+    fireEvent.click(await screen.findByRole('button', { name: /keep the existing one/i }));
+    await waitFor(() => expect(screen.queryByText('Duplicate Document Found')).toBeNull());
+    expect(postUpload).toHaveBeenCalledTimes(1);
+    expect(props.onSaved).not.toHaveBeenCalled();
+    expect(screen.getByTestId('client-doc-panel')).toBeTruthy();
+  });
+
+  it('does not offer "Keep both" for an identifier match', async () => {
+    postUpload.mockResolvedValueOnce(conflict({ reason: 'dedupeField', keepBothAllowed: false, keepBothTitle: null }));
+    mount(scanFor());
+    save();
+    await screen.findByRole('button', { name: /keep the new one/i });
+    expect(screen.queryByRole('button', { name: /keep both/i })).toBeNull();
   });
 });
