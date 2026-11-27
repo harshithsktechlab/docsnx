@@ -783,7 +783,9 @@ describe('Document category field dictionary', () => {
           // …and every module's own `other` (0084).
           && !isModuleOther(p)
           // …and 0096's resume / CV.
-          && !(p.moduleKey === 'employment' && p.documentKey === 'resume_cv'),
+          && !(p.moduleKey === 'employment' && p.documentKey === 'resume_cv')
+          // …and 0103's corporate health insurance.
+          && !(p.moduleKey === 'insurance' && p.documentKey === 'corporate_health_insurance'),
       );
       expect(stated).toHaveLength(expected.length);
       expect([...stated].sort()).toEqual(

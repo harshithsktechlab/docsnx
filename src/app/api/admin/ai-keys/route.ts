@@ -6,6 +6,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { encryptField } from '@/lib/fieldCrypto';
 import { defaultModelFor } from '@/lib/aiModels';
 import { serverError } from '@/lib/routeError';
+import { isUniqueViolation } from '@/lib/dbErrors';
 
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,12 @@ export async function GET(req: Request) {
       apiKeyMasked: true,
     }));
 
-    return NextResponse.json({ success: true, keys: safeKeys });
+    return NextResponse.json({
+      success: true,
+      keys: safeKeys,
+      // Whether the server's env key exists — never its value.
+      envFallbackConfigured: !!process.env.GEMINI_API_KEY,
+    });
   } catch (error) {
     return serverError(error, 'listing AI keys');
   }
@@ -47,7 +53,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Access denied. Super Admin only.' }, { status: 403 });
     }
 
-    const { label, apiKey, provider, model, dailyLimit, priority } = await req.json();
+    const { label, apiKey, provider, model, dailyLimit, priority, isFallback } = await req.json();
 
     if (!label || !apiKey) {
       return NextResponse.json({ error: 'Label and API Key are required.' }, { status: 400 });
@@ -66,6 +72,7 @@ export async function POST(req: Request) {
       dailyLimit: parseInt(dailyLimit) || (resolvedProvider === 'openai' ? 500 : 1500),
       priority: parseInt(priority) || 0,
       isActive: true,
+      isFallback: isFallback === true,
       dailyUsage: 0,
       lastResetAt: new Date(),
     }).returning();
@@ -79,6 +86,13 @@ export async function POST(req: Request) {
       },
     }, { status: 201 });
   } catch (error) {
+    // The only unique index on api_keys is the one-fallback rule.
+    if (isUniqueViolation(error)) {
+      return NextResponse.json(
+        { error: 'A fallback key is already set. Edit or delete it first.' },
+        { status: 409 },
+      );
+    }
     return serverError(error, 'creating AI key');
   }
 }

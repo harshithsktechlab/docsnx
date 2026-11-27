@@ -76,6 +76,13 @@ export async function POST(req: Request) {
 
     const latencyMs = Date.now() - startTime;
 
+    // A key that just answered is healthy, so any earlier error is stale.
+    if (success) {
+      await db.update(apiKeys)
+        .set({ errorCount: 0, lastError: null })
+        .where(eq(apiKeys.id, id));
+    }
+
     return NextResponse.json({
       success,
       testResult,

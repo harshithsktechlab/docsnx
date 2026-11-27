@@ -101,6 +101,8 @@ export default function AISettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  // Whether the server has GEMINI_API_KEY; null until the keys have loaded.
+  const [envFallback, setEnvFallback] = useState(null);
   // Add/Edit modal state
   const [showAddForm, setShowAddForm] = useState(false);
   const [editKey, setEditKey] = useState(null);
@@ -113,6 +115,7 @@ export default function AISettingsPage() {
     model: DEFAULT_GEMINI_MODEL,
     dailyLimit: 1500,
     priority: 0,
+    isFallback: false,
   });
 
   const [saving, setSaving] = useState(false);
@@ -235,6 +238,7 @@ export default function AISettingsPage() {
       const { json: data } = await apiCall('/api/admin/ai-keys');
       if (data.success) {
         setKeys(data.keys || []);
+        setEnvFallback(!!data.envFallbackConfigured);
       } else {
         setError(data.error || 'Failed to load API keys.');
       }
@@ -250,7 +254,7 @@ export default function AISettingsPage() {
     }
   };
 
-  const openAddForm = () => {
+  const openAddForm = ({ isFallback = false } = {}) => {
     setFormData({
       label: '',
       provider: 'gemini',
@@ -258,6 +262,7 @@ export default function AISettingsPage() {
       model: DEFAULT_GEMINI_MODEL,
       dailyLimit: 1500,
       priority: 0,
+      isFallback,
     });
     setEditKey(null);
     setShowKeyValue(false);
@@ -272,6 +277,7 @@ export default function AISettingsPage() {
       model: k.model,
       dailyLimit: k.dailyLimit,
       priority: k.priority,
+      isFallback: !!k.isFallback,
     });
     setEditKey(k);
     setShowKeyValue(false);
@@ -385,6 +391,7 @@ export default function AISettingsPage() {
           model: formData.model,
           dailyLimit: formData.dailyLimit,
           priority: formData.priority,
+          isFallback: formData.isFallback,
           }),
         });
         if (data.success) {
@@ -454,6 +461,19 @@ export default function AISettingsPage() {
     }
   };
 
+  const handleDismissError = async (key) => {
+    const { json: data } = await apiCall(`/api/admin/ai-keys/${key.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clearError: true }),
+    });
+    if (data.success) {
+      setKeys(prev => prev.map(k => (k.id === key.id ? { ...k, lastError: null } : k)));
+    } else {
+      toast.error(data.error || 'Failed to dismiss the error.');
+    }
+  };
+
   const handleTestKey = async (key) => {
     setTestingId(key.id);
     // clear old test result
@@ -470,6 +490,10 @@ export default function AISettingsPage() {
         timeoutMs: 120_000,
       });
       setTestResults(prev => ({ ...prev, [key.id]: data }));
+      // The server cleared the old error on success; drop it from the card too.
+      if (data.success) {
+        setKeys(prev => prev.map(k => (k.id === key.id ? { ...k, errorCount: 0, lastError: null } : k)));
+      }
     } catch (err) {
       console.error('[admin/ai-settings] key test threw', err);
       setTestResults(prev => ({
@@ -482,6 +506,159 @@ export default function AISettingsPage() {
   };
 
   const modelOptions = formData.provider === 'gemini' ? GEMINI_MODELS : OPENAI_MODELS;
+  const poolKeys = keys.filter(k => !k.isFallback);
+  const fallbackKey = keys.find(k => k.isFallback);
+  const uncoveredNote = envFallback
+    ? 'The server’s .env key is being used as the fallback.'
+    : 'There is no fallback: if every key above fails, AI features stop working.';
+
+  const renderKeyCard = (key, isPrimary = false) => {
+    const pStyle = PROVIDER_COLORS[key.provider] || PROVIDER_COLORS.gemini;
+    const testResult = testResults[key.id];
+    return (
+      <Card
+        key={key.id}
+        className={`border-border/50 bg-card backdrop-blur shadow-glass border-l-4 border-l-${key.provider === 'openai' ? 'emerald-500' : 'blue-500'} ${key.isActive ? '' : 'opacity-60'} transition-opacity duration-250 animate-fade-in`}
+      >
+        <CardContent className="p-6 flex flex-col gap-4">
+          {/* Header Row */}
+          <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-extrabold text-foreground text-base truncate">
+                  {key.label}
+                </span>
+                <Badge variant="outline" className={`${pStyle.bg} ${pStyle.border} ${pStyle.text} font-bold text-xs`}>
+                  {pStyle.label}
+                </Badge>
+                <StatusBadge isActive={key.isActive} errorCount={key.errorCount} />
+                {isPrimary && (
+                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/15 border-transparent text-xs font-bold">
+                    ⚡ Primary
+                  </Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Brain size={12} /> {key.model}
+                </span>
+                <span className="flex items-center gap-1 font-mono">
+                  <Shield size={12} /> {key.apiKey}
+                </span>
+                {!key.isFallback && (
+                  <span className="flex items-center gap-1">
+                    <Activity size={12} /> Priority: {key.priority}
+                  </span>
+                )}
+                {key.lastUsedAt && (
+                  <span className="flex items-center gap-1">
+                    <Clock size={12} /> Last used: {new Date(key.lastUsedAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1.5 w-full md:w-auto flex-shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleTestKey(key)}
+                disabled={testingId === key.id}
+                className="h-8 text-xs gap-1 font-bold"
+              >
+                {testingId === key.id ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                <span>Test</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => openEditForm(key)}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              >
+                <Edit2 size={13} />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handleToggleActive(key)}
+                className={`h-8 w-8 ${key.isActive ? 'text-emerald-500 hover:text-emerald-600' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {key.isActive ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handleDelete(key)}
+                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10 border-red-500/20"
+              >
+                <Trash2 size={13} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Usage Bar */}
+          {key.isFallback ? (
+            <span className="text-xs text-muted-foreground">
+              Used today: {key.dailyUsage} · no daily limit
+            </span>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground uppercase font-bold tracking-wider">
+                Daily Usage Limit
+              </span>
+              <UsageBar used={key.dailyUsage} limit={key.dailyLimit} />
+            </div>
+          )}
+
+          {/* Test Result */}
+          {testResult && (
+            <div className={`p-4 rounded-xl border flex flex-col gap-1.5 ${
+              testResult.success 
+                ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+                : 'bg-red-500/5 border-red-500/20 text-red-600 dark:text-red-400'
+            }`}>
+              <div className="flex items-center gap-2">
+                {testResult.success
+                  ? <CheckCircle size={14} className="text-emerald-500" />
+                  : <XCircle size={14} className="text-red-500" />
+                }
+                <span className="text-xs font-bold">
+                  {testResult.success ? `✓ Key Connection Success — ${testResult.latencyMs}ms` : 'Test Connection Failed'}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground pl-5 leading-relaxed">
+                {/* `errorMessage` is the route's own classified sentence;
+                    `error` is what apiCall synthesises when the route never
+                    answered. Without the fallback a non-200 renders an empty
+                    line under "Test Connection Failed", which is exactly what
+                    hid the 405 this button used to provoke. */}
+                {testResult.success ? testResult.testResult : (testResult.errorMessage || testResult.error)}
+              </p>
+            </div>
+          )}
+
+          {/* Last Error */}
+          {key.lastError && key.errorCount > 0 && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/5 border border-red-500/15 text-xs text-muted-foreground">
+              <div className="flex-1 min-w-0 break-words">
+                <span className="text-red-500 font-bold mr-1">Last connection error:</span> {key.lastError}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDismissError(key)}
+                aria-label="Dismiss error"
+                title="Dismiss"
+                className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <PageContainer width="narrow">
@@ -493,7 +670,7 @@ export default function AISettingsPage() {
           <p className="text-muted-foreground text-sm">Manage LLM endpoint credentials for OCR and document understanding</p>
         </div>
         <Button 
-          onClick={openAddForm} 
+          onClick={() => openAddForm()} 
           className="flex items-center gap-2 h-10 px-4"
         >
           <Plus size={16} />
@@ -514,7 +691,11 @@ export default function AISettingsPage() {
           <DialogHeader>
             <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
               <Key className="text-primary" size={20} />
-              <span>{editKey ? 'Edit API Key Configuration' : 'Add New API Endpoint Key'}</span>
+              <span>
+                {formData.isFallback
+                  ? (editKey ? 'Edit Fallback API Key' : 'Set Fallback API Key')
+                  : (editKey ? 'Edit API Key Configuration' : 'Add New API Endpoint Key')}
+              </span>
             </DialogTitle>
           </DialogHeader>
 
@@ -582,38 +763,44 @@ export default function AISettingsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="dailyLimit">Daily Request Limit</Label>
-                <Input
-                  id="dailyLimit"
-                  type="number"
-                  min={1}
-                  value={formData.dailyLimit}
-                  onChange={e => setFormData(prev => ({ ...prev, dailyLimit: parseInt(e.target.value) || 1500 }))}
-                  disabled={saving}
-                  className="h-11 rounded-xl"
-                />
-                <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
-                  {formData.provider === 'openai' ? 'OpenAI: check plan limit' : 'Gemini free tier: ~1500/day'}
-                </p>
+            {formData.isFallback ? (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                The fallback key is tried only after every other key has failed or reached its limit. It has no daily limit or priority.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="dailyLimit">Daily Request Limit</Label>
+                  <Input
+                    id="dailyLimit"
+                    type="number"
+                    min={1}
+                    value={formData.dailyLimit}
+                    onChange={e => setFormData(prev => ({ ...prev, dailyLimit: parseInt(e.target.value) || 1500 }))}
+                    disabled={saving}
+                    className="h-11 rounded-xl"
+                  />
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
+                    {formData.provider === 'openai' ? 'OpenAI: check plan limit' : 'Gemini free tier: ~1500/day'}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="priority">Priority (0 = highest)</Label>
+                  <Input
+                    id="priority"
+                    type="number"
+                    min={0}
+                    value={formData.priority}
+                    onChange={e => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
+                    disabled={saving}
+                    className="h-11 rounded-xl"
+                  />
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
+                    Lower priority values are rotated and used first
+                  </p>
+                </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="priority">Priority (0 = highest)</Label>
-                <Input
-                  id="priority"
-                  type="number"
-                  min={0}
-                  value={formData.priority}
-                  onChange={e => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
-                  disabled={saving}
-                  className="h-11 rounded-xl"
-                />
-                <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
-                  Lower priority values are rotated and used first
-                </p>
-              </div>
-            </div>
+            )}
 
             <DialogFooter className="mt-4 gap-2">
               <Button 
@@ -627,7 +814,7 @@ export default function AISettingsPage() {
               </Button>
               <Button type="submit" disabled={saving} className="gap-1.5 rounded-xl font-bold px-6 shadow-md">
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                <span>{editKey ? 'Save Changes' : 'Add Key'}</span>
+                <span>{editKey ? 'Save Changes' : formData.isFallback ? 'Set Fallback Key' : 'Add Key'}</span>
               </Button>
             </DialogFooter>
           </form>
@@ -641,7 +828,7 @@ export default function AISettingsPage() {
             <Skeleton key={i} className="h-32 w-full rounded-xl" />
           ))}
         </div>
-      ) : keys.length === 0 ? (
+      ) : poolKeys.length === 0 ? (
         <Card className="border-dashed border-border p-12 text-center animate-fade-in">
           <CardContent className="flex flex-col items-center justify-center gap-4 p-0 text-muted-foreground">
             <Key size={40} className="text-faint" />
@@ -649,152 +836,25 @@ export default function AISettingsPage() {
             <p className="text-sm max-w-md">
               Add Gemini or OpenAI API keys to enable AI scanning and parsing. The system will rotate active keys automatically.
             </p>
-            <Button onClick={openAddForm} className="gap-1.5">
+            <Button onClick={() => openAddForm()} className="gap-1.5">
               <Plus size={16} /> Add Your First API Key
             </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
-          {keys.map((key, index) => {
-            const pStyle = PROVIDER_COLORS[key.provider] || PROVIDER_COLORS.gemini;
-            const testResult = testResults[key.id];
-            return (
-              <Card
-                key={key.id}
-                className={`border-border/50 bg-card backdrop-blur shadow-glass border-l-4 border-l-${key.provider === 'openai' ? 'emerald-500' : 'blue-500'} ${key.isActive ? '' : 'opacity-60'} transition-opacity duration-250 animate-fade-in`}
-              >
-                <CardContent className="p-6 flex flex-col gap-4">
-                  {/* Header Row */}
-                  <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-extrabold text-foreground text-base truncate">
-                          {key.label}
-                        </span>
-                        <Badge variant="outline" className={`${pStyle.bg} ${pStyle.border} ${pStyle.text} font-bold text-xs`}>
-                          {pStyle.label}
-                        </Badge>
-                        <StatusBadge isActive={key.isActive} errorCount={key.errorCount} />
-                        {index === 0 && key.isActive && (
-                          <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/15 border-transparent text-xs font-bold">
-                            ⚡ Primary
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Brain size={12} /> {key.model}
-                        </span>
-                        <span className="flex items-center gap-1 font-mono">
-                          <Shield size={12} /> {key.apiKey}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Activity size={12} /> Priority: {key.priority}
-                        </span>
-                        {key.lastUsedAt && (
-                          <span className="flex items-center gap-1">
-                            <Clock size={12} /> Last used: {new Date(key.lastUsedAt).toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-1.5 w-full md:w-auto flex-shrink-0">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTestKey(key)}
-                        disabled={testingId === key.id}
-                        className="h-8 text-xs gap-1 font-bold"
-                      >
-                        {testingId === key.id ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
-                        <span>Test</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => openEditForm(key)}
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                      >
-                        <Edit2 size={13} />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleToggleActive(key)}
-                        className={`h-8 w-8 ${key.isActive ? 'text-emerald-500 hover:text-emerald-600' : 'text-muted-foreground hover:text-foreground'}`}
-                      >
-                        {key.isActive ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleDelete(key)}
-                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10 border-red-500/20"
-                      >
-                        <Trash2 size={13} />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Usage Bar */}
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs text-muted-foreground uppercase font-bold tracking-wider">
-                      Daily Usage Limit
-                    </span>
-                    <UsageBar used={key.dailyUsage} limit={key.dailyLimit} />
-                  </div>
-
-                  {/* Test Result */}
-                  {testResult && (
-                    <div className={`p-4 rounded-xl border flex flex-col gap-1.5 ${
-                      testResult.success 
-                        ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
-                        : 'bg-red-500/5 border-red-500/20 text-red-600 dark:text-red-400'
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        {testResult.success
-                          ? <CheckCircle size={14} className="text-emerald-500" />
-                          : <XCircle size={14} className="text-red-500" />
-                        }
-                        <span className="text-xs font-bold">
-                          {testResult.success ? `✓ Key Connection Success — ${testResult.latencyMs}ms` : 'Test Connection Failed'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground pl-5 leading-relaxed">
-                        {/* `errorMessage` is the route's own classified sentence;
-                            `error` is what apiCall synthesises when the route never
-                            answered. Without the fallback a non-200 renders an empty
-                            line under "Test Connection Failed", which is exactly what
-                            hid the 405 this button used to provoke. */}
-                        {testResult.success ? testResult.testResult : (testResult.errorMessage || testResult.error)}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Last Error */}
-                  {key.lastError && key.errorCount > 0 && (
-                    <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/15 text-xs text-muted-foreground">
-                      <span className="text-red-500 font-bold mr-1">Last connection error:</span> {key.lastError}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {poolKeys.map((key, index) => renderKeyCard(key, index === 0 && key.isActive))}
         </div>
       )}
 
       {/* Summary Stats */}
-      {keys.length > 0 && (
+      {poolKeys.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 animate-fade-in stagger-2">
           {[
-            { label: 'Total Keys', value: keys.length, icon: Key, color: 'text-indigo-400 bg-indigo-500/10' },
-            { label: 'Active Keys', value: keys.filter(k => k.isActive).length, icon: CheckCircle, color: 'text-emerald-500 bg-emerald-500/10' },
-            { label: 'Total Capacity', value: keys.filter(k => k.isActive).reduce((a, k) => a + k.dailyLimit, 0).toLocaleString(), icon: Server, color: 'text-amber-500 bg-amber-500/10' },
-            { label: 'Used Today', value: keys.reduce((a, k) => a + k.dailyUsage, 0).toLocaleString(), icon: Activity, color: 'text-primary bg-primary/10' },
+            { label: 'Total Keys', value: poolKeys.length, icon: Key, color: 'text-indigo-400 bg-indigo-500/10' },
+            { label: 'Active Keys', value: poolKeys.filter(k => k.isActive).length, icon: CheckCircle, color: 'text-emerald-500 bg-emerald-500/10' },
+            { label: 'Total Capacity', value: poolKeys.filter(k => k.isActive).reduce((a, k) => a + k.dailyLimit, 0).toLocaleString(), icon: Server, color: 'text-amber-500 bg-amber-500/10' },
+            { label: 'Used Today', value: poolKeys.reduce((a, k) => a + k.dailyUsage, 0).toLocaleString(), icon: Activity, color: 'text-primary bg-primary/10' },
           ].map(stat => (
             <Card key={stat.label} className="border-border/50 bg-card backdrop-blur shadow-glass p-4 flex items-center gap-3.5">
               <span className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${stat.color}`}>
@@ -807,6 +867,38 @@ export default function AISettingsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Fallback Key — hidden until loaded, so it never claims "none" wrongly */}
+      {!loading && envFallback !== null && (
+        <Card className="border-border/50 bg-card backdrop-blur shadow-glass mt-4 animate-fade-in stagger-3">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold flex items-center gap-2">
+              <Shield size={20} className="text-primary" />
+              Fallback API Key
+            </CardTitle>
+            <CardDescription>
+              The last resort, tried only after every other key has failed or reached its limit. A key set here replaces the one in the server&apos;s .env file.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {fallbackKey ? (
+              <>
+                {renderKeyCard(fallbackKey)}
+                {!fallbackKey.isActive && (
+                  <p className="text-sm text-muted-foreground">This key is switched off. {uncoveredNote}</p>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">No fallback key is set here. {uncoveredNote}</p>
+                <Button onClick={() => openAddForm({ isFallback: true })} className="gap-1.5">
+                  <Plus size={16} /> Set Fallback Key
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* AI Action Base Costs Form */}

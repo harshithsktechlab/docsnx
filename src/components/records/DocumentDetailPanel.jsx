@@ -50,6 +50,9 @@ import { holdersForWrite } from '@/lib/records/holderScope';
 import { docCustomFields } from '@/lib/records/docFieldsClient';
 import { parseMultiValue, describeFieldErrors } from '@/lib/records/fieldValidation';
 import { parseLinkedCards, LINKED_CARDS_KEY, CARD_NETWORKS, CARD_TYPES } from '@/lib/records/linkedCards';
+import {
+  COVERED_MEMBERS_KEY, coveredMembersSummary, formatCoveredMembers,
+} from '@/lib/records/coveredMembers';
 import { acceptsCustomLabel } from '@/lib/documentCategories';
 import { categoryDisplayName } from '@/lib/records/customSubcategory';
 import { formatFileType } from '@/lib/records/uploadTypes';
@@ -67,6 +70,7 @@ function readable(spec, raw) {
   if (!value) return '';
   const options = spec.options ?? [];
   const labelOf = (v) => options.find((o) => o.value === v)?.label ?? v;
+  if (spec.fieldKey === COVERED_MEMBERS_KEY) return formatCoveredMembers(value);
   switch (spec.dataType) {
     case 'date': return formatDate(value) || value;
     case 'boolean': return value === 'true' ? 'Yes' : value === 'false' ? 'No' : value;
@@ -581,7 +585,11 @@ export default function DocumentDetailPanel({
                           {shown ? (
                             <span className="inline-flex items-center gap-1.5">
                               <span className={cn(spec.dataType === 'longtext' && 'whitespace-pre-wrap')}>
-                                {hide ? maskTail(shown) : shown}
+                                {hide
+                                  ? (spec.fieldKey === COVERED_MEMBERS_KEY
+                                    ? `•••• ${coveredMembersSummary(stored)}`
+                                    : maskTail(shown))
+                                  : shown}
                               </span>
                               {spec.isPii && (
                                 <button

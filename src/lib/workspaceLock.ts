@@ -38,6 +38,8 @@ export interface PlanStatusPayload {
   accountType?: string | null;
   axes?: Partial<Record<LockAxis, AxisLockState>>;
   fullyLapsed?: boolean;
+  /** The free trial, from /api/auth/me. See src/lib/trial.ts. */
+  trial?: { active?: boolean; ended?: boolean; daysLeft?: number } | null;
   /** Pre-axes shape, still sent. Used only as the fallback below. */
   isExpired?: boolean;
   hasPlan?: boolean;
@@ -73,6 +75,16 @@ export function workspaceLock(
   const axes = planStatus?.axes;
 
   /**
+   * An ended free trial closes the whole account, whichever URL this is. The
+   * axis rule below would leave a company-less page open on a business-only
+   * account (it has no personal half to be lapsed), and nothing was ever paid
+   * for, so there is no other half to fall back to.
+   */
+  if (planStatus?.trial?.ended) {
+    return { locked: true, fullyLapsed: true, axis, otherHalfOpen: false };
+  }
+
+  /**
    * Before the axes block existed the answer was one boolean for the whole app.
    * A client that has not reloaded since a deploy — or any caller passing an
    * older payload — falls back to it rather than reading `undefined` as "open",
@@ -104,6 +116,24 @@ export function workspaceLock(
     axis,
     otherHalfOpen: live(axis === 'personal' ? 'business' : 'personal'),
   };
+}
+
+/** Where a member of a locked account is sent; they cannot pay. */
+export const MEMBER_LOCK_PATH = '/billing/expired';
+
+/**
+ * The pages a locked-out user may still open (each covers its sub-pages).
+ *
+ * A lapsed PAID plan leaves Billing and Settings. An ended free trial leaves
+ * billing alone: nothing was ever paid for, so there is nothing to manage but
+ * the payment. An admin gets /billing; a member, who cannot pay, gets the lock
+ * screen — sending them to /billing would bounce the two redirects forever.
+ *
+ * The server's half is `requireActivePlan` and `requireTrialNotEnded`.
+ */
+export function lockedPaths(isTenantAdmin: boolean, trialEnded: boolean): string[] {
+  const billing = isTenantAdmin ? '/billing' : MEMBER_LOCK_PATH;
+  return trialEnded ? [billing] : [billing, '/settings'];
 }
 
 /** "Personal" / "Business", for a message that has to name the half that lapsed. */

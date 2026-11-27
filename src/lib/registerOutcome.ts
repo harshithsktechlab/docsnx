@@ -3,9 +3,12 @@
  * ║   WHAT TO DO WITH A POST /api/auth/register ANSWER                       ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * Five meaningfully different shapes come back from that route, and the one
+ * Six meaningfully different shapes come back from that route, and the one
  * that matters most here is the one that must NOT navigate:
  *
+ *   invited  an admin already added this person and they never set a password.
+ *            STAYS ON THE PAGE, which asks for the code and then which account
+ *            to continue with (src/app/register/InvitedSignup.jsx).
  *   verify   signed up, codes are out. → /verify-email
  *   billing  signed up, nothing to verify. → /billing, which is the only place
  *            a tenant with no plan can reach anyway (see Shell.js).
@@ -28,13 +31,14 @@
  *
  * So the refusal is now answered where it happened: the field is marked, and
  * `signInHref` is the escape hatch, carrying the typed address so /login opens
- * with it already in the box. The ONLY outcome without an `href` — which is
- * what the switch in the page keys off, and what the test pins down.
+ * with it already in the box. It has no `href` — which is what the switch in the
+ * page keys off, and what the test pins down.
  *
  * Pure: no fetch, no React, no router. The register page carries JSX in a .js
  * file and cannot be imported by Vitest, so the decision lives here instead.
  */
 import type { Flash } from '@/lib/flashToast';
+import type { ChallengeView } from '@/lib/otpForm';
 
 /** What `setFlash` takes: a `Flash` minus the timestamp it stamps itself. */
 export type FlashInput = Omit<Flash, 'at'>;
@@ -43,6 +47,7 @@ export type FlashInput = Omit<Flash, 'at'>;
 export type FieldErrors = Record<string, string>;
 
 export type RegisterOutcome =
+  | { kind: 'invited'; view: ChallengeView }
   | { kind: 'verify'; flash: FlashInput; href: string }
   | { kind: 'billing'; flash: FlashInput; href: string }
   | { kind: 'pending'; flash: FlashInput; href: string }
@@ -58,6 +63,7 @@ export interface RegisterResponse {
   requireVerification?: boolean;
   requiresVerification?: boolean;
   accountExists?: boolean;
+  invitedSignup?: boolean;
   identifier?: string;
   emailHint?: string;
   phoneHint?: string;
@@ -99,6 +105,20 @@ export function resolveRegisterOutcome(
   typedEmail: string,
 ): RegisterOutcome {
   const body = res || {};
+
+  // Ahead of the rest: it arrives with `success: false` and an `error` meant
+  // only for an older bundle that does not know this answer.
+  if (body.invitedSignup) {
+    return {
+      kind: 'invited',
+      view: {
+        needsEmailCode: !!body.needsEmailCode,
+        needsPhoneCode: !!body.needsPhoneCode,
+        emailHint: body.emailHint || '',
+        phoneHint: body.phoneHint || '',
+      },
+    };
+  }
 
   if (body.success) {
     if (body.requireVerification) {

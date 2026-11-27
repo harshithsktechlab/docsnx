@@ -175,6 +175,25 @@ export const tenants = pgTable("tenants", {
    */
   businessPlanNoticeStage: varchar("business_plan_notice_stage", { length: 16 }),
   businessPlanNoticeSentAt: timestamp("business_plan_notice_sent_at", { withTimezone: true }),
+  /**
+   * ── THE 7-DAY FREE TRIAL (0101) ──────────────────────────────────────────
+   *
+   * A trial is written into the ordinary plan/expiry columns above, so every
+   * existing gate ends it on time with no job to run. These columns only say
+   * that the term in them was NOT paid for. Rules: src/lib/trial.ts.
+   *
+   * `trialEligible` is set where a person opens their own account; it defaults
+   * to false so no account that predates trials, and none a super admin or a
+   * partner provisions, can start one.
+   *
+   * `trialStartedAt` set and `trialConvertedAt` null = on an unpaid trial
+   * (running, or over once `trialEndsAt` has passed).
+   */
+  trialEligible: boolean("trial_eligible").default(false).notNull(),
+  trialPlanId: uuid("trial_plan_id"),
+  trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  trialConvertedAt: timestamp("trial_converted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -1222,8 +1241,16 @@ export const apiKeys = pgTable("api_keys", {
   lastResetAt: timestamp("last_reset_at", { withTimezone: true }).defaultNow().notNull(),
   errorCount: integer("error_count").default(0).notNull(),
   lastError: text("last_error"),
+  /** The last-resort key: tried after the pool, in place of GEMINI_API_KEY. */
+  isFallback: boolean("is_fallback").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => {
+  return {
+    singleFallbackIdx: uniqueIndex("api_keys_single_fallback_uq")
+      .on(table.isFallback)
+      .where(sql`is_fallback`),
+  };
 });
 
 export const aiApiKeys = pgTable("ai_api_keys", {
@@ -1560,9 +1587,17 @@ export const notifications = pgTable("notifications", {
   };
 });
 
+/**
+ * Who has had a free trial: one per person, by email or by mobile number.
+ * Written when a trial STARTS (not at signup), and deliberately kept when the
+ * account is deleted, so closing it and signing up again buys no second week.
+ * Rows from the earlier trial scheme carry an email only and still count.
+ */
 export const trialUsedEmails = pgTable("trial_used_emails", {
   id: uuid("id").primaryKey().defaultRandom(),
-  email: varchar("email", { length: 255 }).unique().notNull(),
+  email: varchar("email", { length: 255 }).unique(),
+  /** Normalised dial string, the form `users.phone_dial` holds. */
+  phoneDial: varchar("phone_dial", { length: 20 }).unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

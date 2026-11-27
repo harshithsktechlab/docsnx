@@ -10,6 +10,7 @@ import { defaultWorkspaceName } from '@/lib/workspaceName';
 import { issueOtpChallenge, isFullyVerified } from '@/lib/otpChallenge';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { isReclaimablePending } from '@/lib/pendingSignup';
+import { claimFromMatches, INVITE_UNAVAILABLE_MESSAGE } from '@/lib/account/invitedSignup';
 import { toDialString } from '@/lib/phone';
 import {
   isDuplicatePhone, DUPLICATE_PHONE_MESSAGE,
@@ -203,6 +204,53 @@ export async function POST(req: Request) {
     const collisions = [byEmail, byPhone].filter(Boolean) as NonNullable<typeof byEmail>[];
     const unique = collisions.filter((row, i) => collisions.findIndex((o) => o.id === row.id) === i);
 
+    // ── INVITED, AND SIGNING UP HERE INSTEAD OF USING THE LINK ──────────────
+    // A seat already holds the typed address and/or number and its person has
+    // never set a password. A code goes to the contacts that are BOTH typed here
+    // and on the invitation; once one is proved, /register asks whether to
+    // continue in that workspace or open an account of their own
+    // (./invite/verify and ./invite/complete). Only the code is written here,
+    // and neither the workspace nor the inviter is named yet.
+    const invite = await claimFromMatches(byEmail, byPhone);
+    if (invite.kind !== 'none') {
+      const refuse = () => NextResponse.json({
+        error: INVITE_UNAVAILABLE_MESSAGE,
+        fieldErrors: byEmail
+          ? { email: INVITE_UNAVAILABLE_MESSAGE }
+          : { phoneNumber: INVITE_UNAVAILABLE_MESSAGE },
+      }, { status: 409 });
+      if (invite.kind === 'blocked') return refuse();
+
+      const challenge = await issueOtpChallenge({
+        ...invite.anchor,
+        email: invite.matched.email ? invite.anchor.email : null,
+        phoneNumber: invite.matched.phone ? invite.anchor.phoneNumber : null,
+      }, { allChannels: true });
+
+      // No channel at all: a number-only invitation while WhatsApp is off.
+      if (!challenge.needsEmailCode && !challenge.needsPhoneCode) return refuse();
+
+      const arrived = [challenge.channels.email, challenge.channels.phone]
+        .some((outcome) => outcome === 'sent' || outcome === 'warm');
+      if (!arrived) {
+        return NextResponse.json({
+          error: 'We could not send your verification code. Please try again in a moment.',
+        }, { status: 503 });
+      }
+
+      // `success: false` on purpose: an older cached bundle then shows `error`
+      // instead of treating this as a finished sign-up.
+      return NextResponse.json({
+        success: false,
+        invitedSignup: true,
+        error: 'Please refresh this page to continue signing up.',
+        emailHint: challenge.emailHint,
+        phoneHint: challenge.phoneHint,
+        needsEmailCode: challenge.needsEmailCode,
+        needsPhoneCode: challenge.needsPhoneCode,
+      }, { status: 409 });
+    }
+
     // ── RECLAIM, OR REFUSE WITH SOMEWHERE TO GO ─────────────────────────────
     // `isReclaimablePending` (src/lib/pendingSignup.ts) states the rule; this
     // loop is only the part that has to go and count rows for it.
@@ -236,20 +284,10 @@ export async function POST(req: Request) {
         ),
         columns: { id: true, role: true, activatedAt: true },
       });
-      if (seats.length > 0 && seats.every((s) => s.role === 'STANDARD')) {
-        if (!seats.some((s) => s.activatedAt)) {
-          // Invited, never set up: their stored password is random, so there is
-          // nothing to prove it with. /activate is the door that sends them a code.
-          const message = 'You were added to an account but have not set it up yet. Use “Set up my account” on the sign-in page first, then come back to open your own account.';
-          return NextResponse.json({
-            error: message,
-            fieldErrors: { email: message },
-            requiresActivation: true,
-          }, { status: 409 });
-        }
-        if (await comparePassword(password, byEmail.passwordHash)) {
-          attachIdentityId = byEmail.identityId;
-        }
+      if (seats.length > 0 && seats.every((s) => s.role === 'STANDARD')
+        && seats.some((s) => s.activatedAt)
+        && await comparePassword(password, byEmail.passwordHash)) {
+        attachIdentityId = byEmail.identityId;
       }
     }
 
@@ -288,7 +326,8 @@ export async function POST(req: Request) {
       // where their own account is opened.
       if (row.role === 'STANDARD') {
         // Invited and never set up: there is no password to sign in with, so
-        // "sign in" would be a dead end. Same sentence the attach branch uses.
+        // "sign in" would be a dead end. Reached only when the other contact
+        // typed here belongs to somebody else — otherwise it is a claim, above.
         if (!row.activatedAt) {
           const message = 'You were added to an account but have not set it up yet. Use “Set up my account” on the sign-in page first, then come back to open your own account.';
           return NextResponse.json({
@@ -366,9 +405,10 @@ export async function POST(req: Request) {
      * expiry as "never expires". A null here would hand every new account an
      * unlimited free workspace — the exact opposite of what this change is for.
      *
-     * `trial_used_emails` is no longer read or written. The table stays: it
-     * holds the history of who took a trial while trials existed, and nothing
-     * else in the product consults it.
+     * `trialEligible` below lets the new account try one plan free for 7 days,
+     * from /billing and not from here: `trial_used_emails` is written when a
+     * trial STARTS (src/lib/account/startTrial.ts), so an abandoned sign-up
+     * does not spend anyone's trial.
      */
     const planValues: ReturnType<typeof newTenantPlanValues> = {
       ...newTenantPlanValues(null),
@@ -417,6 +457,8 @@ export async function POST(req: Request) {
       const [tenant] = await tx.insert(tenants).values({
         name: workspaceName,
         accountType,
+        // May start the 7-day free trial from /billing (src/lib/trial.ts).
+        trialEligible: true,
         ...planValues,
       }).returning();
 

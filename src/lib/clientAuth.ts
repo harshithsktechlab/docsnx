@@ -258,3 +258,46 @@ export function clientCan(
   if (action === 'share') return !!perm.canShare;
   return false;
 }
+
+/** One POST whose refusal body (flags included) is the answer, as for register. */
+async function postForAnswer(url: string, body: unknown, failure: string): Promise<any> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ...data, success: false, error: data.error || failure };
+    return data;
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : failure };
+  }
+}
+
+/**
+ * An invited person signing up: prove the contact they were invited on. The
+ * answer carries a claim token and who added them to which workspace.
+ */
+export function clientVerifyInvite(input: {
+  email: string;
+  phoneNumber: string;
+  emailOtp?: string;
+  phoneOtp?: string;
+}): Promise<any> {
+  return postForAnswer('/api/auth/register/invite/verify', input, 'Could not check that code.');
+}
+
+/** Carry out their choice: that workspace, or an account of their own first. */
+export function clientCompleteInvite(input: {
+  token: string;
+  choice: 'workspace' | 'own';
+  seatId?: string;
+  name: string;
+  email: string;
+  phoneNumber: string;
+  password: string;
+  consentDataProcessing: boolean;
+}): Promise<any> {
+  return postForAnswer('/api/auth/register/invite/complete', input, 'Could not finish signing you up.');
+}

@@ -292,6 +292,8 @@ export async function runAutofill(input: {
     category: {
       moduleName: display?.moduleName ?? input.categoryKey.moduleKey,
       documentName: display?.documentName ?? input.categoryKey.documentKey,
+      // Picks up the sub-category's own reading notes (CATEGORY_PROMPT_NOTES).
+      documentKey: input.categoryKey.documentKey,
     },
     fields,
   }, input.tenantId, input.userId, input.companyId ?? null, {

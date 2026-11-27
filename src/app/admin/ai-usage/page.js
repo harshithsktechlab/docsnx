@@ -453,11 +453,11 @@ export default function AiUsagePage() {
               <>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-2xs uppercase tracking-wider text-muted-foreground">From</Label>
-                  <Input type="date" className="h-9" value={from || ''} max={to || undefined} onChange={(e) => update({ from: e.target.value })} />
+                  <Input type="date" className="h-9 w-44" value={from || ''} max={to || undefined} onChange={(e) => update({ from: e.target.value })} />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-2xs uppercase tracking-wider text-muted-foreground">To</Label>
-                  <Input type="date" className="h-9" value={to || ''} min={from || undefined} onChange={(e) => update({ to: e.target.value })} />
+                  <Input type="date" className="h-9 w-44" value={to || ''} min={from || undefined} onChange={(e) => update({ to: e.target.value })} />
                 </div>
               </>
             )}

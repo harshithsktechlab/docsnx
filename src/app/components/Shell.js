@@ -51,7 +51,7 @@ import { personalWorkspaceName } from '@/lib/workspaceName';
 import BrandWordmark from '@/app/components/BrandWordmark';
 import GlobalSearch from '@/app/components/GlobalSearch';
 import { ONBOARDING_PATH } from '@/lib/onboardingGate';
-import { expiryWarningDays, lockAxisFor, lockAxisLabel, workspaceLock } from '@/lib/workspaceLock';
+import { expiryWarningDays, lockAxisFor, lockAxisLabel, workspaceLock, lockedPaths, MEMBER_LOCK_PATH } from '@/lib/workspaceLock';
 import { formatDate } from '@/lib/dateHelper';
 import { setMaxUploadBytes, setScanLimits } from '@/lib/records/uploadTypes';
 import { cn } from '@/lib/utils';
@@ -106,19 +106,23 @@ const PUBLIC_PATHS = [
 
 // Public routes a *signed-in* user must still be able to complete, so the
 // billing / AMC-lock / onboarding gates below must not redirect away from them.
-const AUTH_FLOW_PATHS = ['/forgot-password', '/reset-password', '/verify-email', '/activate'];
+// The legal pages are on it because every consent box links to them, including
+// from forms a gated account can still reach.
+const AUTH_FLOW_PATHS = [
+  '/forgot-password', '/reset-password', '/verify-email', '/activate', '/privacy', '/terms',
+];
 
 // ─── What survives an expired plan ──────────────────────────────────────────
-// Two things, and they differ by role. The admin gets Billing, because they are
+// `lockedPaths` (src/lib/workspaceLock.ts) lists it. After a lapsed PAID plan,
+// two things, and they differ by role. The admin gets Billing, because they are
 // the one who can pay; a member gets the lock screen instead, because /billing
 // bounces anyone who is not a TENANT_ADMIN and the two redirects would otherwise
-// ping-pong forever. Both keep Settings.
+// ping-pong forever. Both keep Settings. An ended FREE TRIAL keeps only the
+// first of the two: billing.
 //
 // This is COURTESY, exactly like clientCan: the server answers 402 PLAN_EXPIRED
 // on every tenant-data route regardless of what the browser chooses to render.
-const EXPIRED_PATHS_ADMIN  = ['/billing', '/settings'];
-const EXPIRED_PATHS_MEMBER = ['/billing/expired', '/settings'];
-const PLAN_LOCK_PATH = '/billing/expired';
+const PLAN_LOCK_PATH = MEMBER_LOCK_PATH;
 
 // The gates a member cannot navigate away from. The back button is suppressed
 // here: the redirects above would land them right back on the gate, so a button
@@ -175,9 +179,11 @@ function announcePlanExpiry(status, axis, nameTheAxis, destination) {
    * never subscribed and true for one whose term ran out. That is the question
    * this sentence is actually asking.
    */
-  const message = axisStatus?.hasPlan && expiresAt
-    ? `Your ${which} expired on ${formatDate(expiresAt)}. Renew to restore access.`
-    : `Your workspace has no active ${which}. Choose one to restore access.`;
+  const message = status?.trial?.ended
+    ? `Your free trial ended on ${formatDate(status.trial.endsAt)}. Subscribe to restore access.`
+    : axisStatus?.hasPlan && expiresAt
+      ? `Your ${which} expired on ${formatDate(expiresAt)}. Renew to restore access.`
+      : `Your workspace has no active ${which}. Choose one to restore access.`;
 
   if (destination) {
     setFlash({ message, type: 'error', pin: destination, tag: 'plan-expiry', duration: 8000 });
@@ -562,11 +568,11 @@ export default function Shell({ children }) {
           // The PATH id deliberately, not the chrome's `activeCompanyId`. The
           // four account pages carry `?company=`, and locking on that would
           // make /audit-logs?company=acme redirect to /billing?expired=1 the
-          // moment the business half lapsed — closing a door EXPIRED_PATHS_*
+          // moment the business half lapsed — closing a door `lockedPaths`
           // above exists to hold open.
           const lockNow = workspaceLock(data.planStatus, pathCompanyId);
           if (lockNow.locked) {
-            const allowed = isTenantAdmin ? EXPIRED_PATHS_ADMIN : EXPIRED_PATHS_MEMBER;
+            const allowed = lockedPaths(isTenantAdmin, !!data.planStatus?.trial?.ended);
             // /login and /register stay reachable, as they did before the lock:
             // a signed-in user who navigates back to them must not be trapped.
             const onAllowed = pathname === '/login' || pathname === '/register'
@@ -989,6 +995,9 @@ export default function Shell({ children }) {
   // The PATH id, like the lock branch in `loadUser` — see the note there.
   const lock = workspaceLock(planState, pathCompanyId);
   const planLocked = !!user && !isSuperAdmin && lock.locked;
+  // An ended free trial leaves billing only, so Settings leaves the nav too.
+  const trialEnded = planLocked && !!planState?.trial?.ended;
+  const onTrial = !!planState?.trial?.active;
   // The half the URL is in, not the personal half for every workspace — see
   // `expiryWarningDays` for the "expires today" a business tenant used to get.
   const daysToExpiry = expiryWarningDays(planState, pathCompanyId, EXPIRY_WARNING_DAYS);
@@ -1027,7 +1036,7 @@ export default function Shell({ children }) {
         ...(isTenantAdmin
           ? [{ name: 'Billing', path: '/billing', icon: CreditCard }]
           : [{ name: 'Plan Expired', path: PLAN_LOCK_PATH, icon: Lock }]),
-        { name: 'Settings', path: '/settings', icon: Settings },
+        ...(trialEnded ? [] : [{ name: 'Settings', path: '/settings', icon: Settings }]),
       ],
     },
   ];
@@ -1047,7 +1056,7 @@ export default function Shell({ children }) {
         isTenantAdmin
           ? { name: 'Billing', path: '/billing', icon: CreditCard }
           : { name: 'Plan', path: PLAN_LOCK_PATH, icon: Lock },
-        { name: 'Settings', path: '/settings', icon: Settings },
+        ...(trialEnded ? [] : [{ name: 'Settings', path: '/settings', icon: Settings }]),
       ]
     : user?.role === 'SUPER_ADMIN'
     ? [
@@ -1652,7 +1661,7 @@ export default function Shell({ children }) {
                 Credits, Settings, Audit Logs and Logout. Logout used to be a
                 bare red button right here, between Bell and Theme — the one
                 destructive control in the row, one mis-click away. */}
-            <AccountMenu user={user} planLocked={planLocked} activeCompanyId={activeCompanyId} memberships={memberships} variant="desktop" />
+            <AccountMenu user={user} planLocked={planLocked} trialEnded={trialEnded} activeCompanyId={activeCompanyId} memberships={memberships} variant="desktop" />
           </header>
         )}
         {/* Mobile Header */}
@@ -1787,7 +1796,7 @@ export default function Shell({ children }) {
                   arithmetic described above is unchanged. It opens the bottom
                   sheet — which is also the only route a phone has to Billing
                   and Settings now that the rail's Account group is gone. */}
-              <AccountMenu user={user} planLocked={planLocked} activeCompanyId={activeCompanyId} memberships={memberships} variant="mobile" />
+              <AccountMenu user={user} planLocked={planLocked} trialEnded={trialEnded} activeCompanyId={activeCompanyId} memberships={memberships} variant="mobile" />
             </div>
           </header>
         )}
@@ -1811,7 +1820,9 @@ export default function Shell({ children }) {
               {/* A new account is created with an expiry of "now" and no plan, so
                   `expiresAt` alone would announce an expiry nobody had a plan
                   for. `hasPlan` is the durable "has ever subscribed". */}
-              {planState?.expiresAt && (planState.axes?.[lock.axis]?.hasPlan ?? planState.hasPlan) !== false
+              {trialEnded
+                ? 'Your free trial has ended. Your workspace is locked until a plan is paid for.'
+                : planState?.expiresAt && (planState.axes?.[lock.axis]?.hasPlan ?? planState.hasPlan) !== false
                 ? `Your plan expired on ${formatDate(planState.expiresAt)}. Your workspace is locked until it is renewed.`
                 : 'Your workspace has no active plan. Choose one to unlock it.'}
             </span>
@@ -1821,13 +1832,17 @@ export default function Shell({ children }) {
           <div className="bg-warning-surface border-b border-warning-border px-4 py-2.5 flex items-center gap-2 text-xs font-semibold text-warning-text">
             <AlertTriangle size={14} className="shrink-0" />
             <span>
-              {daysToExpiry === 0
-                ? 'Your plan expires today.'
-                : `Your plan expires in ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} (${formatDate(warnExpiresAt)}).`}
+              {onTrial
+                ? daysToExpiry === 0
+                  ? 'Your free trial ends today.'
+                  : `Free trial: ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} left (ends ${formatDate(warnExpiresAt)}).`
+                : daysToExpiry === 0
+                  ? 'Your plan expires today.'
+                  : `Your plan expires in ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} (${formatDate(warnExpiresAt)}).`}
             </span>
             {isTenantAdmin && (
               <button onClick={() => router.push('/billing')} className="underline underline-offset-2 hover:opacity-80">
-                Renew now
+                {onTrial ? 'Subscribe now' : 'Renew now'}
               </button>
             )}
           </div>

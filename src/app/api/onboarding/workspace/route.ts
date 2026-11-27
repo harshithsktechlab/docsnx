@@ -8,6 +8,7 @@ import { zodFieldErrors, firstFieldError } from '@/lib/zodFieldErrors';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
 import { namesCollide } from '@/lib/workspaceName';
+import { requireTrialNotEnded } from '@/lib/planGate';
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
@@ -56,6 +57,9 @@ export async function POST(req: Request) {
     if (!user || user.role !== 'TENANT_ADMIN') {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
+    // An ended free trial leaves billing only.
+    const trialGate = requireTrialNotEnded(user);
+    if (trialGate) return trialGate;
 
     const parsed = workspaceSchema.safeParse(await req.json());
     if (!parsed.success) {

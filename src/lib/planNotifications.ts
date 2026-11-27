@@ -3,6 +3,7 @@ import { db, withTenant } from './db';
 import { notifications, tenants, users, subscriptionPlans } from '../db/schema';
 import { sendPushNotification } from './push';
 import { sendPlanExpiryEmail } from './mailer';
+import { isUnpaidTrial } from './trial';
 import { getAppBaseUrl } from './appUrl';
 import { axesForAccountType, daysUntil, type AccountAxis } from './planGate';
 import { axisLabel, axisRow } from './billingAxis';
@@ -81,7 +82,29 @@ export function stageAlreadySent(sent: string | null | undefined, due: NoticeSta
  * axes, which is what keeps the single-half tenant (still most of them) from
  * noticing this change at all.
  */
-function copyFor(stage: NoticeStage, planName: string | null, daysLeft: number, half: string | null) {
+function copyFor(
+  stage: NoticeStage,
+  planName: string | null,
+  daysLeft: number,
+  half: string | null,
+  trial = false,
+) {
+  // An unpaid free trial: nothing to "renew", and no half to name — the whole
+  // account was trying one plan.
+  if (trial) {
+    const tried = planName ? `Your free trial of ${planName}` : 'Your free trial';
+    if (stage === 'EXPIRED') {
+      return {
+        title: 'Free trial ended',
+        message: `${tried} has ended. Subscribe from Billing to unlock the workspace — no records have been deleted.`,
+      };
+    }
+    const when = daysLeft <= 0 ? 'today' : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+    return {
+      title: `Free trial ends ${when}`,
+      message: `${tried} ends ${when}. Subscribe to avoid the workspace locking.`,
+    };
+  }
   const plan = planName || 'Your subscription';
   // "Business plan expires in 3 days" — the half goes in the TITLE because that
   // is the line a push and a lock screen show; a body is truncated first.
@@ -186,7 +209,8 @@ export async function notifyPlanExpiry(
   const axes = axesForAccountType(tenant.accountType);
   const hasBothAxes = axes.length > 1;
   const half = hasBothAxes ? axisLabel(axis) : null;
-  const { title, message } = copyFor(stage, plan?.name ?? null, daysLeft, half);
+  const trial = isUnpaidTrial(tenant);
+  const { title, message } = copyFor(stage, plan?.name ?? null, daysLeft, half, trial);
 
   const members = await db.query.users.findMany({
     // Active seats only: a pending invitation's `email` is the invited person's
@@ -265,6 +289,7 @@ export async function notifyPlanExpiry(
         billingUrl,
         adminName: admin && !isAdmin ? admin.name : null,
         half,
+        trial,
       });
       if (sent.success) emailed += 1;
     }
@@ -288,6 +313,27 @@ export interface NoticeTenant {
   businessPlanExpiry?: Date | string | null;
   planNoticeStage?: string | null;
   businessPlanNoticeStage?: string | null;
+  /** Both needed to tell an unpaid free trial from a paid term. */
+  trialStartedAt?: Date | string | null;
+  trialConvertedAt?: Date | string | null;
+}
+
+/**
+ * The stage this axis is due and has not been told about, or null. Shared by the
+ * job and its dry run, so the two cannot disagree.
+ */
+export function dueNoticeStage(tenant: NoticeTenant, axis: AccountAxis): NoticeStage | null {
+  const row = axisRow(tenant, axis);
+  // A new account is created with no plan and an expiry of "now". It has
+  // nothing to expire, and without this it was told its plan had expired the
+  // day it signed up.
+  if (!row.subscriptionPlanId) return null;
+  const due = stageForDaysLeft(daysUntil(row.subscriptionExpiry));
+  if (!due) return null;
+  // A trial is a week long, so its T-7 would arrive the day it started.
+  if (due === 'T-7' && isUnpaidTrial(tenant)) return null;
+  if (stageAlreadySent(stageSentFor(tenant, axis), due)) return null;
+  return due;
 }
 
 /**
@@ -301,13 +347,7 @@ export async function runPlanExpiryCheck(
   tenant: NoticeTenant,
   axis: AccountAxis = 'personal',
 ): Promise<NotifyResult | null> {
-  const row = axisRow(tenant, axis);
-  // A new account is created with no plan and an expiry of "now". It has
-  // nothing to expire, and without this it was told its plan had expired the
-  // day it signed up.
-  if (!row.subscriptionPlanId) return null;
-  const due = stageForDaysLeft(daysUntil(row.subscriptionExpiry));
+  const due = dueNoticeStage(tenant, axis);
   if (!due) return null;
-  if (stageAlreadySent(stageSentFor(tenant, axis), due)) return null;
   return await notifyPlanExpiry(tenant.id, axis, due);
 }

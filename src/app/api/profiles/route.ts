@@ -9,6 +9,7 @@ import { loadProfileIdDocuments } from '@/lib/profileIdDocuments';
 import {
   encryptJsonKeys, decryptJsonKeys, PROFILE_LEGAL_KEYS,
 } from '@/lib/records/jsonFieldCrypto';
+import { requireTrialNotEnded } from '@/lib/planGate';
 
 // Legal identifiers (PAN/Aadhaar/passport) are stored encrypted in legalDetails.
 // The key list and the two helpers moved to jsonFieldCrypto.ts when
@@ -28,6 +29,9 @@ export async function GET(req: Request) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    // An ended free trial leaves billing only.
+    const trialGate = requireTrialNotEnded(user);
+    if (trialGate) return trialGate;
 
     const { searchParams } = new URL(req.url);
     const targetUserId = searchParams.get('userId') || user.id;
@@ -100,6 +104,9 @@ export async function PUT(req: Request) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    // An ended free trial leaves billing only.
+    const trialGate = requireTrialNotEnded(user);
+    if (trialGate) return trialGate;
 
     const { userId, personalDetails, educationDetails, shoppingDetails, legalDetails } = await req.json();
     const targetUserId = userId || user.id;

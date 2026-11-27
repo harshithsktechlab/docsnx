@@ -61,6 +61,8 @@ async function main() {
       businessPlanExpiry: tenants.businessPlanExpiry,
       planNoticeStage: tenants.planNoticeStage,
       businessPlanNoticeStage: tenants.businessPlanNoticeStage,
+      trialStartedAt: tenants.trialStartedAt,
+      trialConvertedAt: tenants.trialConvertedAt,
     })
     .from(tenants)
     .where(and(
@@ -87,17 +89,11 @@ async function main() {
     for (const axis of axesForAccountType(tenant.accountType)) {
       try {
         if (dryRun) {
-          // Same decision, no delivery: import the pure helpers rather than
-          // re-deriving the ladder here, so a dry run cannot disagree with a real one.
-          const { stageForDaysLeft, stageAlreadySent } = await import('../src/lib/planNotifications');
-          const { daysUntil } = await import('../src/lib/planGate');
-          const status = axisStatus(tenant, axis);
-          if (!status.hasPlan) continue;
-          const due = stageForDaysLeft(daysUntil(status.expiresAt));
-          const alreadySent = axis === 'business'
-            ? tenant.businessPlanNoticeStage
-            : tenant.planNoticeStage;
-          if (due && !stageAlreadySent(alreadySent, due)) {
+          // Same decision, no delivery: import the helper the real run uses
+          // rather than re-deriving the ladder here, so the two cannot disagree.
+          const { dueNoticeStage } = await import('../src/lib/planNotifications');
+          const due = dueNoticeStage(tenant, axis);
+          if (due) {
             console.log(`[plan-expiry] would send ${axis} ${due} to ${tenant.name}`);
             sent += 1;
           }

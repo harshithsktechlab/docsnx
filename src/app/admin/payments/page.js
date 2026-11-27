@@ -428,7 +428,7 @@ export default function AdminPaymentsPage() {
               <span className="text-xs text-muted-foreground">From</span>
               <Input
                 type="date"
-                className="h-8 w-[140px] text-xs"
+                className="h-8 w-[170px] text-xs"
                 value={filterDateFrom}
                 onChange={e => setFilterDateFrom(e.target.value)}
               />
@@ -439,7 +439,7 @@ export default function AdminPaymentsPage() {
               <span className="text-xs text-muted-foreground">To</span>
               <Input
                 type="date"
-                className="h-8 w-[140px] text-xs"
+                className="h-8 w-[170px] text-xs"
                 value={filterDateTo}
                 onChange={e => setFilterDateTo(e.target.value)}
               />

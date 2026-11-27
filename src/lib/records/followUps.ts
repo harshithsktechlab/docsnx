@@ -549,6 +549,7 @@ export const PERSONAL_COVER_KEYS = [
   'life_policies',
   'health_policies',
   'term_policies',
+  'corporate_health_insurance',
 ] as const;
 
 export interface GapItem {

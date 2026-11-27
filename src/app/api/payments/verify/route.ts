@@ -17,6 +17,7 @@ import {
   type PlanLineItem,
 } from '@/lib/billingAxis';
 import { UPGRADE_CYCLE } from '@/lib/upgradePricing';
+import { isUnpaidTrial, trialConversionValues } from '@/lib/trial';
 import { parseAddonQuantity } from '@/lib/addonQuantity';
 import { serverError } from '@/lib/routeError';
 
@@ -169,7 +170,12 @@ export async function POST(req: Request) {
          * as 'personal' only as a placeholder, so Business must not become
          * 'both').
          */
-        const neverSubscribed = !currentTenant.subscriptionPlanId && !currentTenant.businessPlanId;
+        const neverSubscribed = isUnpaidTrial(currentTenant)
+          || (!currentTenant.subscriptionPlanId && !currentTenant.businessPlanId);
+        // Paying ends a free trial, and closes any half the trial opened that
+        // this order did not buy. Never overlaps `axisColumns`: it clears only
+        // axes that are not in `axesWritten`.
+        Object.assign(axisColumns, trialConversionValues(currentTenant, axesWritten));
         const widened = widenAccountType(currentTenant.accountType, axesWritten, { neverSubscribed });
         if (widened !== currentTenant.accountType) axisColumns.accountType = widened;
 

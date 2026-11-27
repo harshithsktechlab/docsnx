@@ -35,10 +35,10 @@
  * invoice identical — so this must stay importable by a client component, the
  * same rule `billingAxis.ts` follows.
  */
+import { isUnpaidTrial, type TrialTenant } from '@/lib/trial';
 import {
   axisStatus,
   type AccountAxis,
-  type BillingTenant,
 } from '@/lib/planGate';
 
 /**
@@ -95,7 +95,7 @@ export type UpgradeIneligibleReason =
   | 'no_plan'    // the axis has no plan
   | 'expired'    // the term has lapsed — sold a fresh year
   | 'lifetime'   // no expiry to prorate against
-  | 'trial'      // a free default plan is not a paid term
+  | 'trial'      // a free default plan, or an unpaid trial, is not a paid term
   | 'unpriced';  // the current plan has no yearly price to credit
 
 export type UpgradeEligibility =
@@ -110,7 +110,7 @@ export type UpgradeEligibility =
  * in rather than re-fetched here.
  */
 export function upgradeEligibility(
-  tenant: (BillingTenant & { accountType?: string | null }) | null | undefined,
+  tenant: (TrialTenant & { accountType?: string | null }) | null | undefined,
   currentPlan: UpgradePlan | null | undefined,
   now: Date = new Date(),
 ): UpgradeEligibility {
@@ -120,7 +120,9 @@ export function upgradeEligibility(
 
   const status = axisStatus(tenant, fromAxis);
   if (!status.hasPlan || !currentPlan) return { eligible: false, reason: 'no_plan' };
-  if (currentPlan.isDefault) return { eligible: false, reason: 'trial' };
+  // A free trial is not a paid term either: there is nothing to credit against
+  // the combo, which is bought at its full price.
+  if (currentPlan.isDefault || isUnpaidTrial(tenant)) return { eligible: false, reason: 'trial' };
   // A null expiry on a held plan is lifetime — the same null `planStatus`
   // treats as "never expires", so it is checked before `isExpired`.
   if (currentPlan.isLifetime || !status.expiresAt) return { eligible: false, reason: 'lifetime' };

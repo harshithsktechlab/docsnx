@@ -179,3 +179,24 @@ describe('url builders', () => {
     expect(signInUrl('   ')).toBe('/login');
   });
 });
+
+describe('an invited person', () => {
+  const body = {
+    success: false,
+    invitedSignup: true,
+    error: 'Please refresh this page to continue signing up.',
+    emailHint: 'as••@example.test',
+    needsEmailCode: true,
+    needsPhoneCode: false,
+  };
+
+  it('stays on the page with the code boxes, not treated as a failure', () => {
+    expect(resolveRegisterOutcome(body, 'asha@example.test')).toEqual({
+      kind: 'invited',
+      view: {
+        needsEmailCode: true, needsPhoneCode: false, emailHint: 'as••@example.test', phoneHint: '',
+      },
+    });
+  });
+});
+

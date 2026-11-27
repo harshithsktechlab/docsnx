@@ -6,6 +6,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { encryptField } from '@/lib/fieldCrypto';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { isUnpaidTrial } from '@/lib/trial';
 
 /** Trims, and turns an emptied-out field into a NULL rather than an empty string. */
 function optionalText(value: unknown): string | null | undefined {
@@ -37,7 +38,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const existing = await db.query.tenants.findFirst({
       where: eq(tenants.id, id),
-      columns: { id: true, name: true },
+      columns: {
+        id: true,
+        name: true,
+        subscriptionPlanId: true,
+        subscriptionExpiry: true,
+        trialStartedAt: true,
+        trialConvertedAt: true,
+      },
     });
     if (!existing) {
       return NextResponse.json({ error: 'Tenant not found.' }, { status: 404 });
@@ -56,13 +64,27 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       ? null
       : (typeof apiKey === 'string' && apiKey.trim() ? encryptField(apiKey.trim()) : undefined);
 
+    /**
+     * A super admin who changes the plan or its end date has settled the term
+     * themselves, so it stops being an unpaid trial. Compared by DAY: the form
+     * posts both fields on every save, and its date input drops the time.
+     */
+    const day = (value: Date | null) => value?.toISOString().slice(0, 10) ?? null;
+    const planChanged = !!subscriptionPlanId && subscriptionPlanId !== existing.subscriptionPlanId;
+    const expiryChanged = subscriptionExpiry !== undefined
+      && day(expiryDate) !== day(existing.subscriptionExpiry ?? null);
+    const endsTrial = isUnpaidTrial(existing) && (planChanged || expiryChanged);
+
     const [updatedTenant] = await db.update(tenants).set({
       name: name.trim(),
+      ...(endsTrial ? { trialConvertedAt: new Date() } : {}),
       apiKey: apiKeyValue,
       aiProvider: aiProvider || undefined,
       aiModel: aiModel || undefined,
       subscriptionPlanId: subscriptionPlanId || undefined,
-      subscriptionExpiry: subscriptionExpiry !== undefined ? expiryDate : undefined,
+      subscriptionExpiry: subscriptionExpiry !== undefined && !(isUnpaidTrial(existing) && !expiryChanged)
+        ? expiryDate
+        : undefined,
       isActive: isActive !== undefined ? isActive : undefined,
       billingName: optionalText(billingName),
       billingGst: optionalText(billingGst),

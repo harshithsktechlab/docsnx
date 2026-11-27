@@ -14,9 +14,9 @@
  * and the user had to pick the day again. Here the month and year selects only
  * move the calendar; nothing is committed until a day is clicked.
  */
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { BaseInput } from '@/components/ui/input-base';
 import { cn } from '@/lib/utils';
 import { displayToIso, isoToDisplay } from '@/lib/dateHelper';
 
@@ -27,6 +27,8 @@ const MONTHS = [
 ];
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const MIN_YEAR = 1900;
+// Policy maturities and loan end dates run decades ahead.
+const YEARS_AHEAD = 75;
 
 export const isIsoDate = (value) => ISO.test(String(value ?? ''));
 
@@ -45,7 +47,7 @@ export function todayIso() {
  * @param min,max   optional `YYYY-MM-DD` bounds; days outside them cannot be picked
  */
 export function DateField({
-  id, value, onChange, disabled, min, max, className, ...rest
+  id, value, onChange, disabled, min, max, className, inputRef, ...rest
 }) {
   const iso = String(value ?? '');
   const [draft, setDraft] = useState(() => isoToDisplay(iso));
@@ -81,11 +83,15 @@ export function DateField({
   };
 
   const type = (raw) => {
-    // Slashes inserted as the digits arrive: "16102026" → "16/10/2026".
-    let text = raw;
-    if (/^\d+$/.test(raw) && raw.length <= 8) {
-      text = [raw.slice(0, 2), raw.slice(2, 4), raw.slice(4)].filter(Boolean).join('/');
-    }
+    // Slashes inserted as the digits arrive: "16102026" → "16/10/2026". Each is
+    // added on its own, because typed one key at a time the text already holds
+    // the first slash when the second falls due — and a phone's numeric keypad
+    // often has no "/" to type it with. A pasted ISO date is turned round.
+    const text = isIsoDate(raw)
+      ? isoToDisplay(raw)
+      : raw
+        .replace(/^(\d{2})(\d)/, '$1/$2')
+        .replace(/^(\d{1,2}[/\-.]\d{2})(\d)/, '$1/$2');
     setDraft(text);
     emit(text.trim() === '' ? '' : (displayToIso(text) ?? text));
   };
@@ -116,7 +122,7 @@ export function DateField({
     setView({ year: view.year + Math.floor(m / 12), month: ((m % 12) + 12) % 12 });
   };
 
-  const maxYear = max ? Number(max.slice(0, 4)) : new Date().getFullYear() + 30;
+  const maxYear = max ? Number(max.slice(0, 4)) : new Date().getFullYear() + YEARS_AHEAD;
   const minYear = min ? Number(min.slice(0, 4)) : MIN_YEAR;
   const years = [];
   for (let y = maxYear; y >= minYear; y -= 1) years.push(y);
@@ -134,9 +140,10 @@ export function DateField({
 
   return (
     <div className="relative" ref={root}>
-      <Input
+      <BaseInput
         aria-invalid={draft.trim() !== '' && !ISO.test(iso) ? true : undefined}
         {...rest}
+        ref={inputRef}
         id={id}
         value={draft}
         type="text"
@@ -173,7 +180,7 @@ export function DateField({
         <div
           role="dialog"
           aria-label="Calendar"
-          className="absolute left-0 top-full z-50 mt-1 w-full max-w-[16rem] rounded-xl border border-border bg-popover p-2 shadow-lg"
+          className="absolute left-0 top-full z-50 mt-1 w-full min-w-[15rem] max-w-[16rem] rounded-xl border border-border bg-popover p-2 shadow-lg"
         >
           <div className="mb-1 flex items-center gap-1">
             <button type="button" className={icon} onClick={() => step(-1)} aria-label="Previous month">
@@ -238,3 +245,69 @@ export function DateField({
     </div>
   );
 }
+
+/** Any date text a caller may hold, as `YYYY-MM-DD` where it can be read. */
+const normalise = (value) => {
+  const text = String(value ?? '');
+  const prefix = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(text);
+  return prefix ? prefix[1] : (displayToIso(text) ?? text);
+};
+
+/**
+ * DateField with the contract of `<input type="date">`, which is what
+ * `<Input type="date">` renders: `onChange` gets an event whose `target.value`
+ * is `YYYY-MM-DD` or '', never half-typed text. An unfinished, unreal or
+ * out-of-range date blocks form submission, as the native control does, so it
+ * cannot be saved as a blank without the user knowing.
+ */
+export const DateInput = forwardRef(({ value, onChange, min, max, ...props }, ref) => {
+  const outer = String(value ?? '');
+  const [text, setText] = useState(() => normalise(outer));
+  // What the caller was last told, to tell its own changes apart from echoes.
+  const told = useRef(outer);
+  const input = useRef(null);
+  useImperativeHandle(ref, () => input.current);
+
+  const tell = (next) => {
+    if (next === told.current) return;
+    told.current = next;
+    onChange?.({ target: { value: next, id: props.id, name: props.name } });
+  };
+
+  useEffect(() => {
+    const next = normalise(outer);
+    if (outer !== told.current) {
+      told.current = outer;
+      setText(next);
+    }
+    // A prefill that arrived as DD/MM/YYYY or a timestamp: hand back ISO.
+    if (next !== outer && isIsoDate(next)) tell(next);
+  }, [outer]);
+
+  useEffect(() => {
+    let problem = '';
+    if (text && !(isIsoDate(text) && displayToIso(isoToDisplay(text)))) {
+      problem = 'Enter a real date as DD/MM/YYYY.';
+    } else if (text && min && text < min) {
+      problem = `Enter a date on or after ${isoToDisplay(min)}.`;
+    } else if (text && max && text > max) {
+      problem = `Enter a date on or before ${isoToDisplay(max)}.`;
+    }
+    input.current?.setCustomValidity(problem);
+  }, [text, min, max]);
+
+  return (
+    <DateField
+      {...props}
+      inputRef={input}
+      value={text}
+      min={min}
+      max={max}
+      onChange={(next) => {
+        setText(next);
+        tell(isIsoDate(next) ? next : '');
+      }}
+    />
+  );
+});
+DateInput.displayName = 'DateInput';

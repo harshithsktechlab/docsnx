@@ -122,6 +122,9 @@ export async function priceCartLines(
       subscriptionExpiry: true,
       businessPlanId: true,
       businessPlanExpiry: true,
+      // An unpaid trial is never prorated against — see `upgradeEligibility`.
+      trialStartedAt: true,
+      trialConvertedAt: true,
     },
   });
   if (!tenant) return { ok: false, status: 404, error: 'Account not found.' };

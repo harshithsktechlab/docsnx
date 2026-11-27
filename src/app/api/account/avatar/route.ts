@@ -6,6 +6,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { MAX_AVATAR_BYTES, avatarUrl, sniffAvatarType } from '@/lib/avatarImage';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { serverError } from '@/lib/routeError';
+import { requireTrialNotEnded } from '@/lib/planGate';
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
@@ -22,6 +23,9 @@ export async function PUT(req: Request) {
   try {
     const user = await getUserFromRequest(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // An ended free trial leaves billing only.
+    const trialGate = requireTrialNotEnded(user);
+    if (trialGate) return trialGate;
 
     // Refuse on the declared length first so an oversized body is never buffered.
     const declared = Number(req.headers.get('content-length') || 0);
@@ -70,6 +74,9 @@ export async function DELETE(req: Request) {
   try {
     const user = await getUserFromRequest(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // An ended free trial leaves billing only.
+    const trialGate = requireTrialNotEnded(user);
+    if (trialGate) return trialGate;
 
     await withTenant(user.tenantId, async (tx) => {
       const removed = await tx.delete(userAvatars)

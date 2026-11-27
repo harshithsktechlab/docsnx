@@ -34,6 +34,8 @@ import {
   type AccountAxis,
 } from '@/lib/billingAxis';
 import { upgradeEligibility } from '@/lib/upgradePricing';
+import { TRIAL_DAYS, trialState } from '@/lib/trial';
+import { personHasUsedTrial } from '@/lib/account/startTrial';
 import { serverError } from '@/lib/routeError';
 
 export const dynamic = 'force-dynamic';
@@ -83,6 +85,11 @@ export async function GET(req: Request) {
         extraMembers: true,
         extraMembersPerCompany: true,
         extraCompanies: true,
+        trialEligible: true,
+        trialPlanId: true,
+        trialStartedAt: true,
+        trialEndsAt: true,
+        trialConvertedAt: true,
       },
     });
     if (!tenant) return NextResponse.json({ error: 'Account not found' }, { status: 404 });
@@ -218,8 +225,26 @@ export async function GET(req: Request) {
       }
       : { eligible: false as const, reason: eligibility.reason };
 
+    /**
+     * ── THE FREE TRIAL ───────────────────────────────────────────────────────
+     * `eligible` also asks whether this PERSON has had one, so the button is not
+     * offered only to be refused. `planName` names the plan being tried.
+     */
+    const state = trialState(tenant);
+    const eligible = state.eligible
+      && !(await personHasUsedTrial({ email: user.email, phoneDial: user.phoneDial }));
+    const trial = {
+      ...state,
+      eligible,
+      days: TRIAL_DAYS,
+      planName: state.planId
+        ? planById.get(state.planId)?.name ?? null
+        : null,
+    };
+
     return NextResponse.json({
       success: true,
+      trial,
       /** 'personal' | 'business' | 'both' — which tabs the page should draw. */
       accountType: tenant.accountType,
       upgrade,

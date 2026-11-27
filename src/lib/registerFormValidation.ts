@@ -33,6 +33,7 @@
  * below). Its job is to stop someone being sent through a round-trip only to be
  * refused.
  */
+import { CONSENT_ERROR } from './consent';
 import { validateUserContacts } from './userContactValidation';
 
 export interface RegisterFormValues {
@@ -107,7 +108,7 @@ export function validateRegisterForm(values: RegisterFormValues): RegisterFieldE
   }
 
   if (!values.consentData) {
-    errors.consentData = 'You must agree to the Privacy Policy and Terms of Service to register.';
+    errors.consentData = CONSENT_ERROR;
   }
 
   return errors;

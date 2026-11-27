@@ -20,6 +20,7 @@ import { isWhatsAppEnabled } from '@/lib/whatsapp';
 import { canReceiveInvite, grantsAccess, sendMemberInvite } from '@/lib/memberInvite';
 import { labelForSeat } from '@/lib/account/seatWorkspaceLabel';
 import { decideAttach, reportAttachedInvite } from '@/lib/account/attachDecision';
+import { requireTrialNotEnded } from '@/lib/planGate';
 
 /**
  * Adds a member from the onboarding wizard.
@@ -56,6 +57,9 @@ export async function POST(req: Request) {
     if (!adminUser || adminUser.role !== 'TENANT_ADMIN') {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
+    // An ended free trial leaves billing only.
+    const trialGate = requireTrialNotEnded(adminUser);
+    if (trialGate) return trialGate;
 
     const {
       name, email, password, phoneNumber,

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   CreditCard, Crown, Calendar, CheckCircle2, Clock, IndianRupee,
@@ -62,6 +62,18 @@ export default function BillingPage() {
    * workspace strip the audit and credits pages draw.
    */
   const [billing, setBilling] = useState(null);
+  /**
+   * ── THE FREE TRIAL ───────────────────────────────────────────────────────
+   * From /api/billing/summary (src/lib/trial.ts). While it is unpaid, running
+   * or over, the page reads like a first visit: every plan is on offer,
+   * including the one being tried, and nothing is "current" or "expired".
+   */
+  const trial = billing?.trial ?? null;
+  const onTrial = !!trial && (trial.active || trial.ended);
+  // The plan whose "start trial" confirmation is open.
+  const [trialPlan, setTrialPlan] = useState(null);
+  const [startingTrial, setStartingTrial] = useState(false);
+  const preselected = useRef(false);
   /**
    * The half on screen. `?axis=` wins; without it, a single-account tenant
    * lands on the half they actually hold — a business-only tenant opening a
@@ -207,6 +219,19 @@ export default function BillingPage() {
     if (currentUser) fetchPaymentHistory(activeAxis);
   }, [currentUser, activeAxis, fetchPaymentHistory]);
 
+  // A trial that is over arrives with the tried plan already in the cart. Once:
+  // an admin who removes it to pick another must not get it back.
+  useEffect(() => {
+    if (preselected.current || !billing?.trial?.ended) return;
+    const plan = availablePlans.find((p) => p.id === billing.trial.planId);
+    if (!plan || !isSellable(plan, 'INR')) return;
+    preselected.current = true;
+    setCart((prev) => (Object.keys(prev).length > 0 ? prev : {
+      ...(planCovers(plan.appliesTo, 'personal') ? { personal: plan } : {}),
+      ...(planCovers(plan.appliesTo, 'business') ? { business: plan } : {}),
+    }));
+  }, [billing, availablePlans]);
+
   // Handle autoCheckout once plans are loaded
   useEffect(() => {
     if (availablePlans.length > 0) {
@@ -244,7 +269,7 @@ export default function BillingPage() {
    * is empty (and the strip hides itself) for every personal-only tenant — which
    * is most of them, and which is the page exactly as it was before.
    */
-  const axisTabs = billing?.accountType === 'both'
+  const axisTabs = billing?.accountType === 'both' && !onTrial
     ? [
       { key: 'personal', name: axisLabel('personal'), kind: 'personal' },
       { key: 'business', name: axisLabel('business'), kind: 'business' },
@@ -304,9 +329,9 @@ export default function BillingPage() {
    */
   // The same test as `neverSubscribed` further down, written out because that
   // const is declared after this point in the component.
-  const choosePlanMode = !!billing
-    && !billing.personal?.hasPlan && !billing.business?.hasPlan
-    && billing.accountType === 'personal';
+  const choosePlanMode = !!billing && (onTrial || (
+    !billing.personal?.hasPlan && !billing.business?.hasPlan
+    && billing.accountType === 'personal'));
   const gridPlans = choosePlanMode
     ? sellablePlans
     : isSingleAccount ? plansForAxis.filter((p) => p.appliesTo !== 'both') : plansForAxis;
@@ -395,11 +420,11 @@ export default function BillingPage() {
    */
   const axisHasPlan = axisState ? axisState.hasPlan : !!currentPlan?.id;
   const neverSubscribed = billing
-    ? !billing.personal?.hasPlan && !billing.business?.hasPlan
+    ? onTrial || (!billing.personal?.hasPlan && !billing.business?.hasPlan)
     : false;
 
-  /** A genuine lapse: there IS a plan, and its term has passed. */
-  const showExpiry = axisHasPlan && planExpired;
+  /** A genuine lapse: there IS a paid plan, and its term has passed. */
+  const showExpiry = !onTrial && axisHasPlan && planExpired;
 
   /**
    * Still read, but only for the HEADER copy — "Choose your plan" is about how
@@ -418,6 +443,47 @@ export default function BillingPage() {
     setSelectedPlanForCheckout(plan ? [plan] : []);
     setInitialDiscountCode(discountCode);
     setIsCheckoutOpen(true);
+  };
+
+  /** Starts the free trial of the plan in the confirmation dialog. */
+  const handleStartTrial = async () => {
+    if (!trialPlan) return;
+    setStartingTrial(true);
+    try {
+      const { res, json } = await apiCall('/api/billing/trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: trialPlan.id }),
+      });
+      if (!res.ok || !json.success) {
+        toast.error(json.error || 'Could not start your free trial.');
+        fetchBillingSummary();
+        return;
+      }
+      setCart({});
+      const message = `Your ${trial?.days ?? 7}-day free trial of ${json.planName} has started.`;
+      // The same destinations as after a payment — see ./afterPurchase.ts.
+      const next = afterPurchase({
+        tenant: currentUser?.tenant,
+        accountType: billing?.accountType,
+        boughtCombo: false,
+      });
+      if (next.kind === 'onboarding') {
+        setFlash({
+          message: `${message} Now set up your workspace.`,
+          type: 'success',
+          pin: ONBOARDING_PATH,
+          tag: 'trial-started',
+        });
+        router.push(ONBOARDING_PATH);
+        return;
+      }
+      toast.success(message, { id: 'trial-started' });
+      router.push('/dashboard');
+    } finally {
+      setStartingTrial(false);
+      setTrialPlan(null);
+    }
   };
 
   /** Opens checkout for everything selected across both tabs. */
@@ -467,7 +533,9 @@ export default function BillingPage() {
             {isWelcome ? 'Choose your plan' : 'Billing & Subscription'}
           </h1>
           <p className="text-muted-foreground text-sm">
-            {isWelcome
+            {trial?.eligible
+              ? `Try any plan free for ${trial.days} days, or pay now. No payment details are needed for the trial.`
+              : isWelcome
               ? 'Pick a plan to activate your workspace. You can add extra users and companies at checkout.'
               : 'Manage your plan, upgrade, and view payment history'}
           </p>
@@ -490,6 +558,27 @@ export default function BillingPage() {
             Your {currentPlan?.name || 'plan'} expired on {formatDate(currentPlan.expiry)}. Documents,
             records, passwords and AI are locked for everyone in this workspace until you renew.
             Nothing has been deleted &mdash; pick a plan below to unlock it again.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {trial?.active && (
+        <Alert className="animate-fade-in border-primary/40 bg-primary/5">
+          <Clock size={16} />
+          <AlertDescription className="text-xs font-semibold">
+            Free trial of {trial.planName || 'your plan'}: {trial.daysLeft} day{trial.daysLeft === 1 ? '' : 's'} left
+            (ends {formatDate(trial.endsAt)}). Subscribe any time below &mdash; a paid term starts on the day you pay.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {trial?.ended && (
+        <Alert variant="destructive" className="animate-fade-in">
+          <AlertCircle size={16} />
+          <AlertDescription className="text-xs font-semibold">
+            Your free trial of {trial.planName || 'your plan'} ended on {formatDate(trial.endsAt)}. Only billing
+            is available until a plan is paid for, or activated with a promo code at checkout. Nothing has been
+            deleted.
           </AlertDescription>
         </Alert>
       )}
@@ -682,7 +771,9 @@ export default function BillingPage() {
               // Against THIS axis's plan, not the session's — on the Business
               // tab, `currentPlan` is the household's and would mark the wrong
               // card "Current".
-              const isCurrentPlan = (axisState?.plan?.id ?? currentPlan?.id) === plan.id;
+              // A plan being tried is not yet held: it must stay buyable.
+              const isCurrentPlan = !onTrial && (axisState?.plan?.id ?? currentPlan?.id) === plan.id;
+              const isTrialPlan = onTrial && trial.planId === plan.id;
               const isProcessing = processingPlanId === plan.id;
               // A monthly price of 0 means "not sold monthly" (same rule as
               // `priced()` in planCycles.ts), not a free month — the Business
@@ -702,6 +793,7 @@ export default function BillingPage() {
                     <div className="flex items-center justify-between mb-3">
                       <Badge variant={getPlanBadgeVariant(plan)} className="font-bold text-xs">{plan.name}</Badge>
                       {isCurrentPlan && <Badge variant="secondary" className="text-2xs">Current</Badge>}
+                      {isTrialPlan && <Badge variant="secondary" className="text-2xs">Your trial</Badge>}
                     </div>
 
                     <h3 className="text-lg font-extrabold text-foreground mb-1">{plan.name}</h3>
@@ -847,6 +939,17 @@ export default function BillingPage() {
                         <><ArrowRight size={14} /> Select Plan</>
                       )}
                     </Button>
+
+                    {trial?.eligible && !plan.isDefault && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setTrialPlan(plan)}
+                        disabled={startingTrial}
+                        className="w-full font-bold h-10 text-xs mt-2 border-primary text-primary"
+                      >
+                        <Sparkles size={14} /> Start {trial.days}-day free trial
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -1102,6 +1205,36 @@ export default function BillingPage() {
           </div>
         </div>
       )}
+
+      {/* Asked first because it is the account's one trial. */}
+      <Dialog open={trialPlan !== null} onOpenChange={(open) => { if (!open && !startingTrial) setTrialPlan(null); }}>
+        <DialogContent className="sm:max-w-md bg-card border-border/50 shadow-glass">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-black">
+              <Sparkles className="text-primary" />
+              Start your free trial?
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground pt-2">
+              You get {trialPlan?.name} free for {trial?.days} days. When it ends, only billing stays available
+              until you pay for a plan. The free trial can be used once, so make sure this is the plan you want
+              to try.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:justify-start pt-4 mt-2 border-t border-border/30">
+            <Button type="button" variant="outline" disabled={startingTrial} onClick={() => setTrialPlan(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={startingTrial}
+              onClick={handleStartTrial}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold"
+            >
+              {startingTrial ? <><Loader2 size={14} className="animate-spin" /> Starting...</> : 'Start free trial'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Google Drive Prompt Modal */}
       <Dialog open={showDrivePrompt} onOpenChange={setShowDrivePrompt}>

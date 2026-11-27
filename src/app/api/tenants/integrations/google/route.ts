@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { flushTenant } from '@/lib/vault/storeCache';
 import { serverError } from '@/lib/routeError';
+import { requireTrialNotEnded } from '@/lib/planGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,9 @@ async function requireTenantAdmin(req: Request) {
   if (user.role !== 'TENANT_ADMIN') {
     return { user: null, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
+  // An ended free trial leaves billing only.
+  const trialGate = requireTrialNotEnded(user);
+  if (trialGate) return { user: null, response: trialGate };
   return { user, response: null };
 }
 

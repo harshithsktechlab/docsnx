@@ -28,6 +28,7 @@
  */
 import type { FieldSpec } from '@/lib/documentCategoryFields';
 import { normalisePremiumFrequency } from '@/lib/records/premiumFrequency';
+import { COVERED_MEMBERS_KEY, normaliseCoveredMembers } from './coveredMembers';
 
 /**
  * Answers that mean "the document does not say".
@@ -244,7 +245,11 @@ export function coerceExtracted(spec: FieldSpec, raw: unknown): string | null {
   // is the second lock for an answer that arrives anyway.
   if (spec.dataType === 'member' || spec.dataType === 'record_link') return null;
 
-  // A multiselect is the ONE field whose answer is legitimately a list, so it
+  // The insured members are asked for as an array of objects, and stored as
+  // the JSON text the member rows are drawn from.
+  if (spec.fieldKey === COVERED_MEMBERS_KEY) return normaliseCoveredMembers(raw);
+
+  // A multiselect is the other field whose answer is legitimately a list, so it
   // is asked about before objects and arrays are refused below.
   if (spec.dataType === 'multiselect') return asChoices(spec, raw);
 

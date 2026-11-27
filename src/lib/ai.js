@@ -385,7 +385,7 @@ Your tasks are:
 
 4. FOR EVERY RECORD, set "title": a clean concise name for it (e.g. exactly 'PAN Card' or 'Passport'). Do NOT append index suffixes like 'PAN Card - 1' or 'PAN Card 2'.
 
-5. FOR EVERY RECORD, set "holderName": the person the record is about, exactly as printed on the document — the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). It is the person the record BELONGS TO, never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.${ownerTask}
+5. FOR EVERY RECORD, set "holderName": the person the record is about, exactly as printed on the document — the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). It is the person the record BELONGS TO, never a doctor, dealer, employer, broker, lender or provider. On an employer's group health insurance card the company printed as "Policy holder" is the employer: the holder is the primary insured (the employee). If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.${ownerTask}
 
 ${categoryList}${ownerStanza}
 
@@ -622,12 +622,23 @@ const MAX_PROMPTED_OPTIONS = 50;
  * label to go on the model returned the first prominent name — the holder's.
  */
 const FIELD_PROMPT_HINTS = {
+  covered_members: 'EVERY insured person on the document, one entry each — a file often holds one health card per person. Answer with a JSON ARRAY (not a string) of objects with the keys "name", "relation" (self, spouse, son, daughter, father, mother, father_in_law, mother_in_law or other), "dateOfBirth" (YYYY-MM-DD), "memberId" and "insurerId". Leave a key as an empty string when not printed',
   nominee_name: 'ONLY the person printed under the Nominee / Nomination (e.g. "Nomination u/s 39") heading — NEVER the Proposer, Life Assured, Policyholder, Insured or account holder. Several nominees: comma separated. Omit if no nominee is printed',
   premium_frequency: 'the premium mode / mode of payment / premium paying frequency (Yly or Annual = yearly, Hly = half_yearly, Qly = quarterly, Mly / SSS / ECS / NACH = monthly, Single premium = single)',
   last_premium_paid_date: 'the date the most recent premium was PAID (last premium paid on / premium paid up to / receipt date) — not the policy start date and not the next due date',
   policy_status: 'only when the document states the status (In Force, Lapsed, Paid-up, Matured, Surrendered)',
   renewal_due_date: 'for an insurance policy, the NEXT premium due date (next due / FUP / due date of next premium) as printed',
   issue_date: 'the date the document itself says it was issued or given (issued on / dated / date of issue / given under my hand / date of incorporation or registration) — also when it is written in words, e.g. "SECOND day of APRIL TWO THOUSAND TWENTY SIX" = 2026-04-02. NOT a digital-signature timestamp, print date or validity date; use a signature date only when no other issue date is printed',
+};
+
+/**
+ * Extra instructions for one sub-category, where a field's meaning on that
+ * document differs from what its label or the general rules would suggest.
+ * Keyed by documentKey; a client category (`insurance-<key>`) shares its
+ * source's note.
+ */
+const CATEGORY_PROMPT_NOTES = {
+  corporate_health_insurance: 'This is an employer\'s group health insurance. The company printed as "Policy holder" is the EMPLOYER ("employer_name"), never a person. The "holderName" and "primary_insured_name" are the primary insured — the employee, whose relation is Self. "insurer_name" is the insurance company underwriting the cover (often only a logo); the TPA that processes claims goes in "tpa_provider_name". "employee_id" is the employee code.',
 };
 
 /**
@@ -699,6 +710,11 @@ export async function extractCategoryFields({ files, category, fields }, tenantI
     return `- ${bits.join('; ')}`;
   }).join('\n');
 
+  const noteKey = String(category.documentKey || '').split('-').pop();
+  const categoryNote = CATEGORY_PROMPT_NOTES[noteKey]
+    ? `\n\nABOUT THIS DOCUMENT TYPE\n${CATEGORY_PROMPT_NOTES[noteKey]}`
+    : '';
+
   const systemPrompt = `You are a document reading assistant for DocsNX, a records vault.
 
 The user has uploaded ONE document and has already told us what it is: "${category.documentName}" (module: "${category.moduleName}"). Do not re-classify it. Every page attached belongs to this single document.
@@ -706,7 +722,7 @@ The user has uploaded ONE document and has already told us what it is: "${catego
 Your only job is to read the document and fill in the fields below with what is actually printed on it.
 
 FIELDS — return these keys and no others:
-${fieldList}
+${fieldList}${categoryNote}
 
 RULES
 1. Return a key ONLY when the document actually shows that value. Omit anything you cannot read. Never guess, never infer a plausible-looking number, and never copy an example value from the list above.
@@ -880,7 +896,7 @@ File it by its PRIMARY PURPOSE. Ignore advertisements, promotional banners, offe
 Return:
 1. "candidates" — the master taxonomy pairs this document could be filed under, BEST FIRST, at most three. Each is { "moduleKey": "...", "documentKey": "..." }, where "moduleKey" is the value shown in a module heading below and "documentKey" is one of the quoted keys listed UNDER that same heading. The two MUST come from the same module. Copy both verbatim — do not invent, abbreviate, pluralise or reword them, and never pair a key with a module that does not list it. Give a second and third choice whenever the document could reasonably go elsewhere. Do not answer with the fallback because you are unsure BETWEEN two entries that both fit; answer with both. But pick an entry only when the document's primary purpose genuinely matches that entry's description — when none does, the FIRST candidate must be the fallback. The user files it themselves from there, and a wrong category is worse than the fallback: it hides the document where nobody will look for it.
 2. "title" — a clean, concise name for this document (e.g. exactly 'PAN Card' or 'Passport'). No index suffixes like 'PAN Card - 1'.
-3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). Never a doctor, dealer, employer, broker, lender or provider. If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.${ownerTask}
+3. "holderName" — the person this document is ABOUT, exactly as printed on it: the card holder, the patient, the account holder, the policy holder, the consumer named on a bill, the borrower named on a loan, the candidate or employee a resume / CV belongs to (the name at the top of it). Never a doctor, dealer, employer, broker, lender or provider. On an employer's group health insurance card the company printed as "Policy holder" is the employer: the holder is the primary insured (the employee). If the document names a Hindu Undivided Family (HUF), append " (HUF)" to that name. If no person is named, use an empty string — do not guess.${ownerTask}
 
 ${categoryList}${ownerStanza}
    The fallback above is for pages that are blank or unreadable, and for any document whose purpose matches nothing on this list. Never stretch an entry to fit: a document is not a subscription because it shows a fee, nor a contract because it prints terms.

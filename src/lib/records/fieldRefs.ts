@@ -24,6 +24,7 @@
  * ./fieldRefsServer.ts.
  */
 import { isoToDisplay } from '@/lib/dateHelper';
+import { COVERED_MEMBERS_KEY, formatCoveredMembers } from './coveredMembers';
 
 export const MEMBER_REF_PREFIX = 'member:';
 
@@ -100,12 +101,17 @@ function lookup(
  * own. An id that no longer resolves says so rather than printing a UUID.
  */
 export function formatFieldValue(
-  spec: { dataType?: string },
+  spec: { dataType?: string; fieldKey?: string },
   value: unknown,
   lookups: FieldRefLookups = {},
 ): string {
   if (value === null || value === undefined) return '';
   const text = String(value);
+  // JSON text prints as one line per member. A masked value is not JSON (it is
+  // already the "2 members" summary) and is passed through.
+  if (spec.fieldKey === COVERED_MEMBERS_KEY && /^\s*[[{]/.test(text)) {
+    return formatCoveredMembers(text);
+  }
   if (spec.dataType === 'member') {
     const ref = parseMemberRef(text);
     if (!ref) return '';

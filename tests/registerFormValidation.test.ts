@@ -78,7 +78,7 @@ describe('each mistake lands on its own field', () => {
 
   it('flags an unticked consent', () => {
     expect(check({ consentData: false }).consentData)
-      .toBe('You must agree to the Privacy Policy and Terms of Service to register.');
+      .toBe('Please accept the Privacy Policy and Terms of Service to continue.');
   });
 });
 

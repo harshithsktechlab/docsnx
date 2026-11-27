@@ -25,6 +25,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { apiCall } from '@/lib/net/apiRequest';
+import ConsentCheckbox from '@/app/components/ConsentCheckbox';
+import { CONSENT_ERROR } from '@/lib/consent';
 
 const STEP_TITLES = {
   identify: ['Set up your', 'account'],
@@ -49,6 +51,7 @@ function ActivateFlow() {
   const [firstName, setFirstName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [consent, setConsent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -91,7 +94,10 @@ function ActivateFlow() {
     e.preventDefault();
     if (password.length < 8) { setError('Use at least 8 characters.'); return; }
     if (password !== confirm) { setError('The two passwords do not match.'); return; }
-    const { ok, json } = await post('/api/auth/activate/complete', { token, password });
+    if (!consent) { setError(CONSENT_ERROR); return; }
+    const { ok, json } = await post('/api/auth/activate/complete', {
+      token, password, consentDataProcessing: consent,
+    });
     if (!ok) {
       setError(json.error || 'Could not save your password.');
       if (json.restart) { setStep('identify'); setToken(''); }
@@ -226,6 +232,11 @@ function ActivateFlow() {
                     <Input id="confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} disabled={loading} className="pl-10" />
                   </div>
                 </div>
+                <ConsentCheckbox
+                  checked={consent}
+                  onChange={(checked) => { setConsent(checked); setError(''); }}
+                  disabled={loading}
+                />
                 <Button type="submit" disabled={loading} className="w-full h-11 text-base">
                   {loading ? <><Loader2 size={17} className="animate-spin" /> Saving…</> : <>Save and sign in <CheckCircle size={17} /></>}
                 </Button>

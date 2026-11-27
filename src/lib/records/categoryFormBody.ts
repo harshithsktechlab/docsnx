@@ -31,6 +31,7 @@ import {
   validateRecord,
 } from '@/lib/records/fieldValidation';
 import { LINKED_CARDS_KEY, normaliseLinkedCards } from '@/lib/records/linkedCards';
+import { COVERED_MEMBERS_KEY, normaliseCoveredMembers } from '@/lib/records/coveredMembers';
 import { readRecordRequest, holderFrom, holderIdsFrom } from '@/lib/recordRequest';
 import {
   isAcceptedUpload, isWithinUploadSize, uploadSizeError, uploadTypeError,
@@ -137,6 +138,12 @@ export function buildTaxonomyRecord(
   const cards = normaliseLinkedCards(fields[LINKED_CARDS_KEY]);
   if (cards) record[LINKED_CARDS_KEY] = cards;
   else delete record[LINKED_CARDS_KEY];
+
+  // The insured members, tidied the same way: blank rows go, and a list with
+  // nothing left in it is no field at all.
+  const members = normaliseCoveredMembers(fields[COVERED_MEMBERS_KEY]);
+  if (members) record[COVERED_MEMBERS_KEY] = members;
+  else delete record[COVERED_MEMBERS_KEY];
 
   /**
    * ── THE ALLOWLIST IS THE WHOLE SPEC; WHAT IS JUDGED IS NOT ────────────────

@@ -1,8 +1,9 @@
 /**
  * Loads /privacy in a real browser as a SIGNED-OUT visitor (auth stubbed to
  * fail, so nothing touches the database) and proves: no redirect to /login,
- * all 23 sections render, the document's links are live anchors, and the
- * Privacy Policy link on /register actually lands here.
+ * all 23 sections render with no site nav or footer around them, the
+ * document's links are live anchors, and the Privacy Policy link on /register
+ * actually lands here.
  *
  * Usage: node scripts/verify_privacy_render.mjs [baseURL]
  */
@@ -46,9 +47,12 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(overflow <= 0, `${tag} no horizontal scroll (overflow ${overflow}px)`);
 
-  // Anchor from the TOC must clear the fixed nav.
-  // The page scrolls smoothly, so wait for scrollY to stop moving before
-  // measuring — the heading must sit just below the 80px fixed nav.
+  // The document and nothing else.
+  check((await page.getByRole('link', { name: /Log in|Get Started/ }).count()) === 0, `${tag} no Log in / Get Started`);
+  check((await page.locator('footer').count()) === 0, `${tag} no site footer`);
+
+  // An anchor from the TOC must bring its heading to the top of the screen.
+  // The page scrolls smoothly, so wait for scrollY to stop moving first.
   await page.locator('nav[aria-label="Contents"] a[href="#s16"]').click();
   let prev = -1;
   for (let i = 0; i < 40; i++) {
@@ -58,7 +62,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     prev = y;
   }
   const top = await page.locator('#s16 h2').evaluate((el) => el.getBoundingClientRect().top);
-  check(top >= 80 && top <= 160, `${tag} #s16 heading sits just under the fixed nav (top=${Math.round(top)}px)`);
+  check(top >= 0 && top <= 120, `${tag} #s16 heading sits at the top of the screen (top=${Math.round(top)}px)`);
 
   check(errors.length === 0, `${tag} no page errors ${errors.length ? JSON.stringify(errors) : ''}`);
   await page.screenshot({ path: `${process.env.SHOT_DIR || '.'}/privacy-${viewport.width}.png`, fullPage: false });

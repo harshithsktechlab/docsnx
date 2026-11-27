@@ -1,9 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import PageContainer from '@/app/components/PageContainer';
-import LandingNav from '@/app/components/LandingNav';
-import { APP_MARK, APP_NAME, APP_LEGAL_ENTITY } from '@/lib/brand';
+import { PRIVACY_EMAIL } from '@/lib/consent';
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
@@ -24,9 +22,11 @@ import { APP_MARK, APP_NAME, APP_LEGAL_ENTITY } from '@/lib/brand';
  *   here is that promise, in the route's own words (no backup, one retained
  *   name/phone/email row per member).
  *
- * This is a public page (Shell.js PUBLIC_PATHS), so it owns its viewport and
- * brings its own nav and footer. The typography plugin is not installed —
- * `prose` does nothing here — hence the small helpers below.
+ * This is a public page (Shell.js PUBLIC_PATHS), so it owns its viewport. It
+ * shows the document and nothing else — no site nav, no footer: it is opened
+ * from consent forms and from inside the app, where "Log in" and "Get Started"
+ * make no sense. The typography plugin is not installed — `prose` does nothing
+ * here — hence the small helpers below.
  */
 
 export const metadata = {
@@ -35,7 +35,6 @@ export const metadata = {
 };
 
 const LAST_UPDATED = 'September 2026';
-const PRIVACY_EMAIL = 'info@hsktechlab.com';
 
 /* ── typography helpers ─────────────────────────────────────────────────── */
 
@@ -60,7 +59,7 @@ function Mail() {
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-28">
+    <section id={id} className="scroll-mt-6">
       <h2 className="text-2xl font-bold tracking-tight mt-10 mb-3">{title}</h2>
       {children}
     </section>
@@ -135,9 +134,7 @@ const SECTIONS: Array<[string, string]> = [
 export default function PrivacyPolicy() {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <LandingNav />
-
-      <main className="pt-28 pb-20 px-4 sm:px-6 lg:px-8">
+      <main className="px-4 py-10 sm:px-6 lg:px-8">
         <PageContainer width="narrow" className="space-y-8">
           <header className="space-y-3">
             <h1 className="text-4xl font-extrabold tracking-tight">Privacy Policy</h1>
@@ -669,27 +666,6 @@ export default function PrivacyPolicy() {
           </article>
         </PageContainer>
       </main>
-
-      <footer className="bg-card border-t border-border py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <Link href="/" aria-label="DocsNX home" className="inline-block mb-6 rounded-xl leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-            <Image
-              src={APP_MARK}
-              alt={APP_NAME}
-              width={64}
-              height={64}
-              className="mx-auto object-contain w-auto h-auto opacity-50 hover:opacity-100 transition-opacity rounded-xl border border-border/50 p-2 bg-background/50 shadow-sm"
-            />
-          </Link>
-          <div className="flex justify-center gap-6 mb-4 text-sm font-medium text-muted-foreground">
-            <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} {APP_LEGAL_ENTITY}. All rights reserved.
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }

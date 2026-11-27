@@ -18,6 +18,8 @@ import { setFlash } from '@/lib/flashToast';
 import { cn } from '@/lib/utils';
 import { validateRegisterForm, firstInvalidField } from '@/lib/registerFormValidation';
 import { resolveRegisterOutcome } from '@/lib/registerOutcome';
+import InvitedSignup from './InvitedSignup';
+import ConsentCheckbox from '@/app/components/ConsentCheckbox';
 
 /**
  * The same three things every invalid field in this app does — `aria-invalid`,
@@ -76,15 +78,6 @@ const InputField = ({ label, id, icon: Icon, hint, isPassword, error, action, ..
   );
 };
 
-/**
- * The group-level equivalent, for the answer that is not a text input — the
- * consent box. Without it that failed with a toast and nothing on screen, which
- * is the half of this form people reported as "it just does not submit".
- */
-const FieldError = ({ children }) => (
-  children ? <p className="mt-1.5 text-xs font-medium text-danger-text">{children}</p> : null
-);
-
 export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState('');
@@ -119,6 +112,13 @@ export default function RegisterPage() {
   const [signInHref, setSignInHref] = useState('');
 
   const [consentData, setConsentData] = useState(false);
+
+  /**
+   * `{ details, view }` when an admin has already added this person: the form
+   * gives way to the code and choice screens. `details` is what was posted,
+   * kept in memory only.
+   */
+  const [invited, setInvited] = useState(null);
 
   /** Stop marking a field the moment the person starts fixing it. */
   const clearFieldError = (key) => {
@@ -179,7 +179,7 @@ export default function RegisterPage() {
     setFieldErrors({});
 
     setLoading(true);
-    const res = await clientRegister({
+    const details = {
       name, email, password, phoneNumber,
       consentDataProcessing: consentData,
       // ── NO accountType, NO tenantName, NO companyName, NO planCode ────────
@@ -190,10 +190,11 @@ export default function RegisterPage() {
       // name from `name` (src/lib/workspaceName.ts) and creates the account as
       // 'personal' with no plan. Sending them from here again would make this
       // form the authority on answers it no longer asks for.
-    });
+    };
+    const res = await clientRegister(details);
     setLoading(false);
 
-    // ── WHICH OF THE FIVE ANSWERS THIS IS ───────────────────────────────────
+    // ── WHICH OF THE SIX ANSWERS THIS IS ────────────────────────────────────
     // The route distinguishes a finished account from a sign-up still waiting
     // on its codes from an outright failure, and only some of those have
     // anywhere to send the person. That decision — including the /verify-email
@@ -201,6 +202,12 @@ export default function RegisterPage() {
     // it can be held to account in a test; this file's JSX puts it out of
     // Vitest's reach. Everything below is only the doing.
     const outcome = resolveRegisterOutcome(res, email);
+
+    // Already added by an admin: nothing is navigating and nothing was refused.
+    if (outcome.kind === 'invited') {
+      setInvited({ details, view: outcome.view });
+      return;
+    }
 
     // Handed to the destination rather than raised here: it is read on that
     // screen either way — this page is gone a frame later — and firing it here
@@ -278,6 +285,16 @@ export default function RegisterPage() {
 
 
 
+            {invited ? (
+              <InvitedSignup
+                details={invited.details}
+                initialView={invited.view}
+                onBack={(reason) => {
+                  setInvited(null);
+                  if (reason) toast.error(reason, { id: 'register-failed' });
+                }}
+              />
+            ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-6">
               {/*
                 No section headings any more. There were five — Workspace
@@ -386,32 +403,17 @@ export default function RegisterPage() {
               </div>
 
               {/*
-                One consent, unchanged in wording, and still compulsory — an
-                unticked box refuses the registration here and again at the
-                route. The second box that used to sit beside it asked
-                separately about third-party AI processing; it and its column
-                are gone (0060), because nothing in the product ever read the
-                answer.
+                One consent, and still compulsory — an unticked box refuses the
+                registration here and again at the route. The second box that
+                used to sit beside it asked separately about third-party AI
+                processing; it and its column are gone (0060), because nothing
+                in the product ever read the answer.
               */}
-              <div className="flex flex-col gap-1">
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    id="consentData"
-                    checked={consentData}
-                    onChange={(e) => { setConsentData(e.target.checked); clearFieldError('consentData'); }}
-                    aria-invalid={Boolean(fieldErrors.consentData)}
-                    className={cn(
-                      'mt-1 w-4 h-4 text-primary border-border rounded focus:ring-primary',
-                      fieldErrors.consentData && 'border-danger-border ring-1 ring-danger-border',
-                    )}
-                  />
-                  <label htmlFor="consentData" className="text-sm text-muted-foreground leading-snug cursor-pointer">
-                    I consent to the collection, processing, and storage of my personal and sensitive data as outlined in the <a href="/privacy" target="_blank" className="text-primary hover:underline">Privacy Policy</a> and <a href="/terms" target="_blank" className="text-primary hover:underline">Terms of Service</a>, in compliance with the DPDPA 2023.
-                  </label>
-                </div>
-                <FieldError>{fieldErrors.consentData}</FieldError>
-              </div>
+              <ConsentCheckbox
+                checked={consentData}
+                onChange={(checked) => { setConsentData(checked); clearFieldError('consentData'); }}
+                error={fieldErrors.consentData}
+              />
 
               <Button type="submit" disabled={loading} className="w-full h-11 text-base">
                 {loading ? (
@@ -421,6 +423,7 @@ export default function RegisterPage() {
                 )}
               </Button>
             </form>
+            )}
           </CardContent>
         </Card>
       </div>

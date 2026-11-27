@@ -170,6 +170,8 @@ export const DOCUMENT_CATEGORY_MODULES: readonly DocumentCategoryModule[] = [
       { documentKey: 'home_property_policies', documentName: 'Home / property insurance' },
       { documentKey: 'term_policies', documentName: 'Term insurance' },
       { documentKey: 'premium_receipts', documentName: 'Policy premium receipts' },
+      // The bracket matters: auto titles use the name up to it.
+      { documentKey: 'corporate_health_insurance', documentName: 'Corporate health insurance (employer group mediclaim)' },
       { documentKey: 'other', documentName: 'Other' },
     ],
   },
@@ -943,7 +945,7 @@ export function subCategoriesFor(moduleKey: string): readonly DocumentSubCategor
 const AI_MODULE_HINTS: Readonly<Record<string, string>> = {
   identity: 'Government photo ID and civil identity of a PERSON. Not a company\'s registrations.',
   bank_investments: 'A private individual\'s banking — including bank account statements and passbooks — investments, loans and retirement savings. Also a jeweller\'s or bullion dealer\'s bill for gold, silver or diamonds, and digital gold or Sovereign Gold Bond statements.',
-  insurance: 'Any insurance POLICY or premium receipt — life, health, vehicle, home, term.',
+  insurance: 'Any insurance POLICY or premium receipt — life, health, vehicle, home, term. Also an employer\'s group health insurance policy or e-card, often issued by a TPA, naming an employee code and the employer as policy holder.',
   property_legal: 'Ownership, transfer and inheritance of immovable property; deeds and court orders.',
   education: 'Proof of study: mark sheets, degrees, transfer certificates, exam scorecards.',
   health_medical: 'Anything issued by a doctor, hospital, lab or vaccination centre about a patient.',

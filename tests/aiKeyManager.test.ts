@@ -284,3 +284,45 @@ describe('executeWithRotation — retired model', () => {
     await expect(mod.executeWithRotation(callFn)).rejects.toThrow(/AI Settings/);
   });
 });
+
+describe('executeWithRotation — fallback key', () => {
+  const quota = () => {
+    const err: any = new Error('You exceeded your current quota');
+    err.status = 429;
+    return err;
+  };
+
+  /** Fails every key, so the call order shows the whole pool. */
+  const keysTried = async () => {
+    const callFn = vi.fn().mockRejectedValue(quota());
+    await expect(mod.executeWithRotation(callFn)).rejects.toThrow();
+    return callFn.mock.calls.map((c: any) => c[0].keyId);
+  };
+
+  it('tries the UI fallback last, whatever its priority, and skips the env key', async () => {
+    process.env.GEMINI_API_KEY = 'env-key';
+    poolKeys = [
+      key({ id: 'fb', isFallback: true, priority: 0, apiKey: 'fb-key' }),
+      key({ id: 'pool-1', priority: 5 }),
+    ];
+
+    // 'fb' once at the end; no trailing null, which would be the env key.
+    expect(await keysTried()).toEqual(['pool-1', 'fb']);
+  });
+
+  it('uses the env key when no UI fallback is set', async () => {
+    process.env.GEMINI_API_KEY = 'env-key';
+    poolKeys = [key({ id: 'pool-1' })];
+
+    expect(await keysTried()).toEqual(['pool-1', null]);
+  });
+
+  it('still tries the fallback past its daily limit, unlike a pool key', async () => {
+    poolKeys = [
+      key({ id: 'pool-1', dailyUsage: 100, dailyLimit: 100 }),
+      key({ id: 'fb', isFallback: true, dailyUsage: 100, dailyLimit: 100 }),
+    ];
+
+    expect(await keysTried()).toEqual(['fb']);
+  });
+});

@@ -14,6 +14,8 @@
  * computed here now and read everywhere else.
  */
 
+import { isTrialEnded } from '@/lib/trial';
+
 /** Machine-readable discriminator on the 402 body. Clients branch on this. */
 export const PLAN_EXPIRED_CODE = 'PLAN_EXPIRED';
 
@@ -34,6 +36,9 @@ export function planExpiredMessage(axis: 'personal' | 'business'): string {
     ? 'Your Business plan has expired. Renew it to regain access to your companies.'
     : 'Your Personal plan has expired. Renew it to regain access to your personal records.';
 }
+
+export const TRIAL_ENDED_MESSAGE =
+  'Your free trial has ended. Subscribe from Billing to regain access.';
 
 /**
  * Modules that stay readable while the plan is expired, because they are the
@@ -326,7 +331,7 @@ export function requireActivePlan(user: any): Response | null {
   const status = user.tenant ? planStatus(user.tenant) : null;
   return Response.json(
     {
-      error: PLAN_EXPIRED_MESSAGE,
+      error: isTrialEnded(user.tenant) ? TRIAL_ENDED_MESSAGE : PLAN_EXPIRED_MESSAGE,
       code: PLAN_EXPIRED_CODE,
       expiredAt: status?.expiresAt ? status.expiresAt.toISOString() : null,
     },
@@ -361,11 +366,41 @@ export function requireActivePlanFor(
   const status = axisStatus(user.tenant, axis);
   return Response.json(
     {
-      error: planExpiredMessage(axis),
+      error: isTrialEnded(user.tenant) ? TRIAL_ENDED_MESSAGE : planExpiredMessage(axis),
       code: PLAN_EXPIRED_CODE,
       /** Which half to renew. The client uses it to open the right billing tab. */
       axis,
       expiredAt: status.expiresAt ? status.expiresAt.toISOString() : null,
+    },
+    { status: 402 },
+  );
+}
+
+/**
+ * ── THE EXTRA GATE FOR AN ENDED FREE TRIAL ──────────────────────────────────
+ *
+ * A lapsed paid plan keeps a few things open — the member's own profile and
+ * photo, adding members during setup, the Drive connection. An ended trial
+ * keeps none of them: billing only. So the routes those live on, which carry no
+ * `requireActivePlan`, call this instead. It says nothing about paid plans.
+ *
+ *   const trialGate = requireTrialNotEnded(user);
+ *   if (trialGate) return trialGate;
+ *
+ * Auth, payments, billing (and the billing profile) and notifications never call
+ * it: they are how the account gets back in. Nor do account deletion and
+ * erasure — leaving must not require paying first.
+ */
+export function requireTrialNotEnded(user: any): Response | null {
+  if (!user) return null;
+  if (user.role === 'SUPER_ADMIN') return null;
+  if (!isTrialEnded(user.tenant)) return null;
+
+  return Response.json(
+    {
+      error: TRIAL_ENDED_MESSAGE,
+      code: PLAN_EXPIRED_CODE,
+      expiredAt: new Date(user.tenant.trialEndsAt).toISOString(),
     },
     { status: 402 },
   );

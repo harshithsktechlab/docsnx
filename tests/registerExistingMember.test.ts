@@ -14,8 +14,9 @@
  *   2. NOTHING is sent to a number the caller merely typed. A wrong password is
  *      refused with the words it has always used, and issues no code — so
  *      /register cannot be turned into a message pump aimed at a member.
- *   3. A person who never set a password is pointed at /activate; there is
- *      nothing to prove ownership with.
+ *   3. A person who never set a password has nothing to prove ownership with,
+ *      so a code goes to the invited contact instead and /register then offers
+ *      the choice (tests/invitedSignup.test.ts).
  *   4. Only a person holding member seats only is eligible. Someone who already
  *      owns an account, or whose email and number belong to two different
  *      people, gets the ordinary refusal and no password is even compared.
@@ -215,8 +216,13 @@ describe('everything that is NOT that', () => {
     expect(issueOtpChallenge).not.toHaveBeenCalled();
   });
 
-  it('points a never-activated member at /activate — there is no password to prove it with', async () => {
-    const seat = memberSeat({ activatedAt: null });
+  it('sends a never-activated member into the invited sign-up — there is no password to prove it with', async () => {
+    const seat = memberSeat({
+      activatedAt: null,
+      membershipStatus: 'active',
+      createdAt: new Date('2026-01-01'),
+      tenant: { isActive: true, deletedAt: null },
+    });
     byEmailRow = seat;
     byPhoneRow = seat;
     identitySeats = [seat];
@@ -224,9 +230,9 @@ describe('everything that is NOT that', () => {
     const body = await res.json();
 
     expect(res.status).toBe(409);
-    expect(body.requiresActivation).toBe(true);
+    expect(body.invitedSignup).toBe(true);
     expect(inserts).toEqual([]);
-    expect(issueOtpChallenge).not.toHaveBeenCalled();
+    expect(issueOtpChallenge).toHaveBeenCalledTimes(1);
     expect(comparePassword).not.toHaveBeenCalled();
   });
 

@@ -41,16 +41,17 @@ import { maskSensitiveText } from '../src/lib/aiPrivacyMasker';
  * 0070, which also removed the one-day `wealth` module 0069 had added.
  * Warranty & AMC gained `purchase_bills` in 0073, and Bank & Investments
  * `precious_metals_purchases` in 0074. 0084 gave every module but the
- * catch-all its own `other`.
+ * catch-all its own `other`. Insurance gained `corporate_health_insurance` in
+ * 0103.
  */
-const EXPECTED_PERSONAL_COUNTS = [9, 13, 7, 9, 5, 7, 6, 5, 6, 4, 3, 4, 5, 7, 1];
+const EXPECTED_PERSONAL_COUNTS = [9, 13, 8, 9, 5, 7, 6, 5, 6, 4, 3, 4, 5, 7, 1];
 /**
  * Business modules 101..114, added by 0050, 115 `biz_travel` by 0065, and the
  * company catch-all 116 `biz_other` by 0067.
  */
 const EXPECTED_BUSINESS_COUNTS = [9, 8, 9, 8, 8, 7, 8, 9, 6, 6, 6, 5, 8, 5, 7, 1];
 const EXPECTED_MODULE_COUNTS = [...EXPECTED_PERSONAL_COUNTS, ...EXPECTED_BUSINESS_COUNTS];
-const TOTAL_PERSONAL = 91;
+const TOTAL_PERSONAL = 92;
 const TOTAL_BUSINESS = 110;
 const TOTAL_SUBCATEGORIES = TOTAL_PERSONAL + TOTAL_BUSINESS;
 
@@ -182,7 +183,7 @@ describe('Document category taxonomy', () => {
     });
   });
 
-  describe('Migration parity (drizzle/0023, 0050, 0065, …, 0096)', () => {
+  describe('Migration parity (drizzle/0023, 0050, 0065, …, 0103)', () => {
     // 0023 carries one row per category: the OLD (module_key, document_key) it is
     // matched on, and the NEW module_no / module_key / module_name /
     // document_key / sort_order it is rewritten to. Those new values ARE the
@@ -413,6 +414,27 @@ describe('Document category taxonomy', () => {
       expect(resumeSql).not.toMatch(/DELETE\s+FROM/i);
     });
 
+    /** 0103 adds corporate health insurance and moves `insurance/other` after it. */
+    const corporateSql = readFileSync(
+      join(__dirname, '..', 'drizzle', '0103_corporate_health_insurance.sql'), 'utf8');
+    // Module 3 only: the same migration also adds the derived client row.
+    const corporateRows = Array.from(corporateSql.matchAll(bizRowRe))
+      .filter((m) => m[2] === 'insurance')
+      .map((m) => ({
+        moduleNo: Number(m[1]),
+        moduleKey: m[2],
+        moduleName: m[3].replace(/''/g, "'"),
+        documentKey: m[4],
+        sortOrder: Number(m[6]),
+      }));
+    const CORPORATE_OTHER_SORT = 3008;
+
+    it('adds corporate health insurance additively in 0103', () => {
+      expect(corporateRows.map((r) => r.documentKey)).toEqual(['corporate_health_insurance']);
+      expect(corporateSql).toContain('ON CONFLICT ("module_key","document_key") DO NOTHING');
+      expect(corporateSql).not.toMatch(/DELETE\s+FROM/i);
+    });
+
     it('retires the four old Sales & Marketing keys in 0095 without deleting them', () => {
       expect(salesRows.map((r) => r.documentKey)).toEqual([
         'company_profile', 'pitch_deck', 'marketing_deck', 'marketing_materials',
@@ -454,12 +476,16 @@ describe('Document category taxonomy', () => {
         ...salesRows,
         // 0096 adds the two resume / CV rows; the `other` moves are reconciled below.
         ...resumeRows,
+        // 0103; its `other` move is reconciled below.
+        ...corporateRows,
       ]
         .filter((r) => !(r.moduleKey === 'biz_sales' && SALES_RETIRED.includes(r.documentKey)))
         .map((r) => (r.moduleKey === 'biz_sales' && r.documentKey === 'other'
           ? { ...r, sortOrder: SALES_OTHER_SORT } : r))
         .map((r) => (r.documentKey === 'other' && RESUME_OTHER_SORT[r.moduleKey]
           ? { ...r, sortOrder: RESUME_OTHER_SORT[r.moduleKey] } : r))
+        .map((r) => (r.moduleKey === 'insurance' && r.documentKey === 'other'
+          ? { ...r, sortOrder: CORPORATE_OTHER_SORT } : r))
         .map((r) => ({
           moduleNo: r.moduleNo,
           moduleKey: r.moduleKey,

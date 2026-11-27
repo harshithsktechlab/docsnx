@@ -144,7 +144,7 @@ export default function StandaloneCards({ creditCards, fetchBankInfos, canAdd, c
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label>Expiry (MM/YY) *</Label>
-                <Input placeholder="12/28" value={cardExpiry} onChange={e => setCardExpiry(e.target.value)} disabled={saving} />
+                <Input placeholder="12/28" inputMode="numeric" maxLength={7} value={cardExpiry} onChange={e => setCardExpiry(e.target.value.replace(/^(\d{2})(\d)/, '$1/$2'))} disabled={saving} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>CVV *</Label>

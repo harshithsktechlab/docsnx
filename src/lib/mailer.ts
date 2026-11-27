@@ -356,6 +356,8 @@ export async function sendPlanExpiryEmail(opts: {
    * tenant, where naming the half is noise.
    */
   half?: string | null;
+  /** An unpaid free trial: it is subscribed to, not renewed. */
+  trial?: boolean;
 }) {
   try {
     const mailer = await getMailer();
@@ -378,25 +380,31 @@ export async function sendPlanExpiryEmail(opts: {
      * opened. The half wins there; the plan's name is still named in the body,
      * beside its date. With `half` null this is the plan name exactly as before.
      */
-    const subject = opts.half ? `Your ${opts.half} plan` : plan;
+    const subject = opts.trial ? 'Your free trial' : opts.half ? `Your ${opts.half} plan` : plan;
+    const ends = opts.trial ? 'ends' : 'expires';
 
     const headline = expired
-      ? `${subject} has expired`
+      ? `${subject} has ${opts.trial ? 'ended' : 'expired'}`
       : opts.daysLeft === 0
-        ? `${subject} expires today`
-        : `${subject} expires in ${opts.daysLeft} day${opts.daysLeft === 1 ? '' : 's'}`;
+        ? `${subject} ${ends} today`
+        : `${subject} ${ends} in ${opts.daysLeft} day${opts.daysLeft === 1 ? '' : 's'}`;
 
     // Which workspace actually goes dark. On a two-half account the other half
     // keeps working, so "your workspace is locked" would read as an outage of
     // the whole app to someone whose company is still perfectly usable.
     const yourWorkspace = opts.half ? `your ${opts.half} workspace` : 'your workspace';
-    const consequence = expired
+    const consequence = opts.trial
+      ? expired
+        ? 'Your workspace is locked: only billing is available until a plan is paid for. Nothing has been deleted — everything comes back the moment you subscribe.'
+        : 'When it ends, your workspace locks and only billing is available until a plan is paid for. Nothing is deleted.'
+      : expired
       ? `${opts.half ? `Your ${opts.half} workspace is` : 'Your workspace is'} locked: documents, records, passwords, the dashboard and AI are unavailable until the plan is renewed. Nothing has been deleted — everything comes back the moment the subscription is active again.`
       : `When it lapses, ${yourWorkspace} locks: documents, records, passwords and AI stop being reachable until the plan is renewed. Nothing is deleted.`;
 
+    const verb = opts.trial ? 'subscribe' : 'renew';
     const action = opts.isAdmin
-      ? `Renew from your billing page: ${opts.billingUrl}`
-      : `Only a workspace admin can renew${opts.adminName ? ` — please ask ${opts.adminName}` : ''}.`;
+      ? `${opts.trial ? 'Subscribe' : 'Renew'} from your billing page: ${opts.billingUrl}`
+      : `Only a workspace admin can ${verb}${opts.adminName ? ` — please ask ${opts.adminName}` : ''}.`;
 
     const mailOptions = {
       from,
@@ -410,7 +418,7 @@ export async function sendPlanExpiryEmail(opts: {
           <p style="color: #475569; font-size: 15px;">${plan} ${expired ? 'ended' : 'ends'} on <strong>${when}</strong>.</p>
           <p style="color: #475569; font-size: 15px;">${consequence}</p>
           ${opts.isAdmin
-            ? `<p style="margin: 24px 0;"><a href="${opts.billingUrl}" style="display: inline-block; padding: 12px 22px; background-color: #0f172a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">Renew now</a></p>`
+            ? `<p style="margin: 24px 0;"><a href="${opts.billingUrl}" style="display: inline-block; padding: 12px 22px; background-color: #0f172a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold;">${opts.trial ? 'Subscribe now' : 'Renew now'}</a></p>`
             : `<p style="color: #475569; font-size: 15px;">${action}</p>`}
           <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">— ${platformName}</p>
         </div>

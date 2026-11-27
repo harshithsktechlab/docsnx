@@ -2,14 +2,12 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { companies, identities, profiles, tenants, users } from '@/db/schema';
+import { identities, users } from '@/db/schema';
 import { getUserFromRequest } from '@/lib/auth';
-import { newTenantPlanValues, recordSignupGrant } from '@/lib/planProvisioning';
-import { defaultWorkspaceName } from '@/lib/workspaceName';
+import { createOwnedAccount } from '@/lib/account/createOwnedAccount';
 import { issueOtpChallenge } from '@/lib/otpChallenge';
 import { isFullyVerified } from '@/lib/verificationChannels';
 import { isWhatsAppEnabled } from '@/lib/whatsapp';
-import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { getClientIp } from '@/lib/clientIp';
 import { authRateLimiter } from '@/lib/rateLimit';
 import { serverError } from '@/lib/routeError';
@@ -35,9 +33,7 @@ const bodySchema = z.object({
  * must have proved both their email and their mobile, a member only one), in
  * which case the code goes out and the response says so.
  *
- * Tenant creation mirrors POST /api/auth/register: the account arrives with NO
- * plan and an expiry of "now" — see the long note there for why `null` here
- * would hand out an unlimited free workspace.
+ * The tenant itself is made by `createOwnedAccount`: it arrives with no plan.
  *
  * One owned account per person: someone who already runs a tenant is refused.
  */
@@ -95,12 +91,6 @@ export async function POST(req: Request) {
     }
     const needsEmail = !identity.email;
 
-    const planValues: ReturnType<typeof newTenantPlanValues> = {
-      ...newTenantPlanValues(null),
-      subscriptionExpiry: new Date(),
-    };
-    const workspaceName = defaultWorkspaceName(current.name);
-
     const seat = await db.transaction(async (tx) => {
       // Adding an address is the person editing their own contact: written to
       // the seat they hold, the trigger carries it to the identity and every
@@ -111,63 +101,15 @@ export async function POST(req: Request) {
           .where(and(eq(users.id, current.id), eq(users.tenantId, current.tenantId)));
       }
 
-      const [tenant] = await tx.insert(tenants).values({
-        name: workspaceName,
-        accountType,
-        ...planValues,
-      }).returning();
-
-      const [created] = await tx.insert(users).values({
-        tenantId: tenant.id,
-        identityId: identity.id,
-        // Overwritten with the identity's own by the 0082 trigger; written so the
-        // statement is valid on its own. Never a new password.
-        email: typedEmail ?? identity.email,
-        passwordHash: identity.passwordHash,
+      return createOwnedAccount(tx as any, {
+        identity: { ...identity, email: typedEmail ?? identity.email },
         name: current.name,
-        phoneNumber: identity.phoneNumber,
-        phoneDial: identity.phoneDial,
-        role: 'TENANT_ADMIN',
-        activatedAt: new Date(),
-        consentDataProcessing: true,
+        accountType,
+        companyName,
         consentIpAddress: ip,
-        consentTimestamp: new Date(),
-      }).returning();
-
-      if (accountType !== 'personal' && companyName) {
-        await tx.insert(companies).values({ tenantId: tenant.id, name: companyName });
-      }
-
-      await tx.insert(profiles).values({
-        userId: created.id,
-        personalDetails: {},
-        educationDetails: {},
-        shoppingDetails: {},
-        legalDetails: {},
-      });
-
-      await writeAudit({
-        tenantId: tenant.id,
-        userId: created.id,
-        action: ACTIONS.auth.personal_account_created,
-        details: auditSentence('personal_account_created', {
-          kind: 'account',
-          name: workspaceName,
-          note: 'opened by an existing user of another account; it signs in with their existing password',
-        }),
         req,
-        entityType: 'tenants',
-        entityId: tenant.id,
-      }, tx);
-
-      await recordSignupGrant(tx as any, {
-        tenantId: tenant.id,
-        amount: planValues.aiCreditsBalance,
-        businessAmount: planValues.aiCreditsBalanceBusiness,
-        userId: created.id,
+        auditNote: 'opened by an existing user of another account; it signs in with their existing password',
       });
-
-      return created;
     });
 
     const whatsappEnabled = await isWhatsAppEnabled();

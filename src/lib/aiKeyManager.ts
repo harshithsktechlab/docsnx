@@ -251,7 +251,8 @@ export async function getAvailableKeys() {
   }
   if (resetPromises.length > 0) await Promise.all(resetPromises);
 
-  return keys.filter(k => k.dailyUsage < k.dailyLimit);
+  // The fallback key is the last resort, so a daily limit never removes it.
+  return keys.filter(k => k.isFallback || k.dailyUsage < k.dailyLimit);
 }
 
 // ─── Mark Key State ───────────────────────────────────────────────────────────
@@ -483,8 +484,14 @@ export async function executeWithRotation(callFn: any) {
   const dbKeys = await getAvailableKeys();
   const envKey = process.env.GEMINI_API_KEY;
 
-  const keyPool = [...dbKeys];
-  if (envKey) {
+  // The fallback key always goes last, whatever its priority says. One set in
+  // Admin → AI Settings replaces GEMINI_API_KEY; without one (or with it
+  // switched off) the env key still covers.
+  const uiFallback = dbKeys.find(k => k.isFallback);
+  const keyPool = dbKeys.filter(k => !k.isFallback);
+  if (uiFallback) {
+    keyPool.push(uiFallback);
+  } else if (envKey) {
     const alreadyIn = dbKeys.some(k => (decryptField(k.apiKey) || k.apiKey) === envKey);
     if (!alreadyIn) {
       keyPool.push({
@@ -510,7 +517,7 @@ export async function executeWithRotation(callFn: any) {
   for (const keyEntry of keyPool) {
     const clientInfo = buildClientFromKey(keyEntry);
     const keyLabel = clientInfo.keyId
-      ? `key "${keyEntry.label || clientInfo.keyId.slice(0, 8)}"`
+      ? `${keyEntry.isFallback ? 'fallback key' : 'key'} "${keyEntry.label || clientInfo.keyId.slice(0, 8)}"`
       : 'env fallback key';
 
     try {

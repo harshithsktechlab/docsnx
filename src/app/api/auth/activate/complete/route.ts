@@ -1,6 +1,6 @@
 /**
- * POST { token, password } — step 3 of /activate (0071): the member chooses
- * their password and is signed in.
+ * POST { token, password, consentDataProcessing } — step 3 of /activate (0071):
+ * the member chooses their password, gives their consent, and is signed in.
  */
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
@@ -10,6 +10,7 @@ import { hashPassword } from '@/lib/auth';
 import { hashToken } from '@/lib/fieldCrypto';
 import { authRateLimiter } from '@/lib/rateLimit';
 import { getClientIp } from '@/lib/clientIp';
+import { CONSENT_ERROR } from '@/lib/consent';
 import { canActivate, passwordProblem } from '@/lib/memberActivation';
 import { setSessionCookie } from '@/lib/sessionCookie';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
@@ -17,17 +18,21 @@ import { serverError } from '@/lib/routeError';
 
 export async function POST(req: Request) {
   try {
-    const rate = authRateLimiter.check(getClientIp(req));
+    const ip = getClientIp(req);
+    const rate = authRateLimiter.check(ip);
     if (!rate.success) {
       return NextResponse.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });
     }
 
-    const { token, password } = await req.json().catch(() => ({}));
+    const { token, password, consentDataProcessing } = await req.json().catch(() => ({}));
     if (!token || typeof token !== 'string') {
       return NextResponse.json({ error: 'This setup link has expired. Start again.', restart: true }, { status: 400 });
     }
     const problem = passwordProblem(password);
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    if (consentDataProcessing !== true) {
+      return NextResponse.json({ error: CONSENT_ERROR }, { status: 400 });
+    }
 
     const user = await db.query.users.findFirst({
       where: (u, { eq: equals }) => equals(u.resetToken, hashToken(token) as string),
@@ -40,6 +45,9 @@ export async function POST(req: Request) {
     await db.update(users).set({
       passwordHash: await hashPassword(password),
       activatedAt: new Date(),
+      consentDataProcessing: true,
+      consentTimestamp: new Date(),
+      consentIpAddress: ip,
       requiresPasswordChange: false,
       resetToken: null,
       resetTokenExpiry: null,

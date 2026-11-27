@@ -58,7 +58,7 @@ const { POST: complete } = await import('../src/app/api/auth/activate/complete/r
 
 const post = (body: unknown) => new Request('https://dev.docsnx.com/api/auth/activate', {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.7' },
   body: JSON.stringify(body),
 });
 
@@ -215,27 +215,38 @@ describe('POST /api/auth/activate/verify', () => {
 describe('POST /api/auth/activate/complete', () => {
   it('sets the password, marks the member activated, and signs them in', async () => {
     tokenUser = invitee({ resetToken: hashToken('t'), resetTokenExpiry: new Date(Date.now() + 60_000) });
-    const res = await complete(post({ token: 't', password: 'a good password' }));
+    const res = await complete(post({ token: 't', password: 'a good password', consentDataProcessing: true }));
     expect(res.status).toBe(200);
     const written = updates.at(-1);
     expect(written.passwordHash).toBe('hashed:a good password');
     expect(written.activatedAt).toBeInstanceOf(Date);
     expect(written.resetToken).toBeNull();
+    expect(written.consentDataProcessing).toBe(true);
+    expect(written.consentTimestamp).toBeInstanceOf(Date);
+    expect(written.consentIpAddress).toBe('203.0.113.7');
     expect(res.headers.get('set-cookie')).toMatch(/auth_token=signed-token/);
     expect(writeAudit).toHaveBeenCalledTimes(1);
   });
 
   it('refuses an expired token and asks them to start again', async () => {
     tokenUser = invitee({ resetToken: hashToken('t'), resetTokenExpiry: new Date(Date.now() - 1) });
-    const res = await complete(post({ token: 't', password: 'a good password' }));
+    const res = await complete(post({ token: 't', password: 'a good password', consentDataProcessing: true }));
     expect(res.status).toBe(400);
     expect((await res.json()).restart).toBe(true);
     expect(updates).toHaveLength(0);
   });
 
+  it.each([undefined, false, 'true'])('refuses consent given as %s, and saves nothing', async (consent) => {
+    tokenUser = invitee({ resetToken: hashToken('t'), resetTokenExpiry: new Date(Date.now() + 60_000) });
+    const res = await complete(post({ token: 't', password: 'a good password', consentDataProcessing: consent }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Privacy Policy/);
+    expect(updates).toHaveLength(0);
+  });
+
   it('refuses a short password before touching anything', async () => {
     tokenUser = invitee({ resetToken: hashToken('t'), resetTokenExpiry: new Date(Date.now() + 60_000) });
-    const res = await complete(post({ token: 't', password: 'short' }));
+    const res = await complete(post({ token: 't', password: 'short', consentDataProcessing: true }));
     expect(res.status).toBe(400);
     expect(updates).toHaveLength(0);
   });

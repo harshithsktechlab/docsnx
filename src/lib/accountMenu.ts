@@ -100,6 +100,8 @@ function withWorkspace(
  *   Billing because they are the one who can pay; a member gets the lock screen
  *   instead, because /billing bounces anyone who is not a TENANT_ADMIN and the
  *   two redirects would otherwise ping-pong forever. Both keep Settings.
+ * @param trialEnded The lock is an ended free trial, which leaves billing alone:
+ *   no Settings row either. See `lockedPaths` in src/lib/workspaceLock.ts.
  * @param companyId The workspace these rows are being opened FROM, or null for
  *   the household. See `withWorkspace` — it is what stops the shell reading a
  *   company-less path as "the user went back to Personal".
@@ -108,6 +110,7 @@ export function accountMenuItems(
   viewer: AccountViewer | null | undefined,
   planLocked = false,
   companyId: string | null = null,
+  trialEnded = false,
 ): AccountItem[] {
   const role = viewer?.role;
 
@@ -141,7 +144,7 @@ export function accountMenuItems(
         // account, not a view of a workspace — and the workspace it would name
         // is the one the member has just been locked out of.
         : { key: 'expired', name: 'Plan Expired', path: PLAN_LOCK_PATH },
-      settings,
+      ...(trialEnded ? [] : [settings]),
     ];
   }
 

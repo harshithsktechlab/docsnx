@@ -81,6 +81,8 @@ export default function AccountMenu({
   user = null,
   /** Passed down rather than recomputed: Shell owns the plan state. */
   planLocked = false,
+  /** The lock is an ended free trial, which takes Settings away too. */
+  trialEnded = false,
   /**
    * The workspace these rows are opened FROM, or null for the household.
    *
@@ -103,7 +105,7 @@ export default function AccountMenu({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const items = accountMenuItems(user, planLocked, activeCompanyId);
+  const items = accountMenuItems(user, planLocked, activeCompanyId, trialEnded);
 
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);

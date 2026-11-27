@@ -384,6 +384,7 @@ export async function printRecord(title, fields, detailsText, filePath) {
             font-size: 14px;
             font-weight: 600;
             color: #0f172a;
+            white-space: pre-wrap;
           }
           .details {
             background-color: #f8fafc;
@@ -463,8 +464,9 @@ export async function downloadRecord(title, fields, detailsText, filePath) {
     doc.setFont('helvetica', 'normal');
     fields.forEach(f => {
       if (f && f.value !== undefined && f.value !== null && f.value !== '') {
-        doc.text(`${f.label}: ${f.value}`, 14, yPos);
-        yPos += 7;
+        const lines = `${f.label}: ${f.value}`.split('\n');
+        doc.text(lines.length > 1 ? lines : lines[0], 14, yPos);
+        yPos += 7 * lines.length;
         if (yPos > 280) {
           doc.addPage();
           yPos = 20;
@@ -1131,7 +1133,7 @@ export async function printRecords(items) {
           .field { break-inside: avoid; }
           .label { font-size: 10px; font-weight: 700; text-transform: uppercase;
                    color: #64748b; letter-spacing: 0.05em; }
-          .value { font-size: 14px; font-weight: 600; }
+          .value { font-size: 14px; font-weight: 600; white-space: pre-wrap; }
           .note { margin-top: 16px; font-size: 12px; color: #64748b; font-style: italic; }
           .page-image { page-break-before: always; text-align: center; }
           .page-image img { max-width: 100%; max-height: 95vh; }

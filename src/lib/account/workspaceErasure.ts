@@ -89,6 +89,7 @@ import {
 } from '@/lib/googleDrive';
 import { FOLDER_BUSINESS, FOLDER_PERSONAL } from '@/lib/vault/vaultNaming';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
+import { isUnpaidTrial } from '@/lib/trial';
 
 /** The tenant columns an erasure needs. Never assembled from a request body. */
 export interface ErasableWorkspaceTenant {
@@ -96,6 +97,8 @@ export interface ErasableWorkspaceTenant {
   name: string;
   googleDriveTokens: unknown;
   googleDriveFolderId?: string | null;
+  trialStartedAt?: Date | null;
+  trialConvertedAt?: Date | null;
 }
 
 /** The acting admin. Always from the session — see AGENTS.md §6. */
@@ -431,7 +434,14 @@ async function removeMembers(
 async function loadTenant(tenantId: string): Promise<ErasableWorkspaceTenant | null> {
   const row = await db.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
-    columns: { id: true, name: true, googleDriveTokens: true, googleDriveFolderId: true },
+    columns: {
+      id: true,
+      name: true,
+      googleDriveTokens: true,
+      googleDriveFolderId: true,
+      trialStartedAt: true,
+      trialConvertedAt: true,
+    },
   });
   return row ?? null;
 }
@@ -525,6 +535,9 @@ export async function erasePersonalWorkspace(
       accountType: 'business',
       subscriptionPlanId: null,
       subscriptionExpiry: null,
+      // On an unpaid trial the cleared half must stay closed: a null expiry
+      // reads as lifetime, which would hand it out free (see src/lib/trial.ts).
+      ...(isUnpaidTrial(tenant) ? { subscriptionExpiry: new Date() } : {}),
       extraMembers: 0,
       updatedAt: new Date(),
     })
@@ -712,11 +725,15 @@ export async function eraseBusinessWorkspace(
     }
   }
 
+  const trialTenant = await loadTenant(tenantId);
+
   await db.update(tenants)
     .set({
       accountType: 'personal',
       businessPlanId: null,
       businessPlanExpiry: null,
+      // As in the personal erasure above.
+      ...(isUnpaidTrial(trialTenant) ? { businessPlanExpiry: new Date() } : {}),
       extraMembersPerCompany: 0,
       extraCompanies: 0,
       updatedAt: new Date(),

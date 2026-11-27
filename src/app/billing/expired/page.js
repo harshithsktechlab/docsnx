@@ -80,6 +80,8 @@ export default function PlanExpiredScreen() {
   }
 
   const admin = plan?.admin || null;
+  // An ended free trial leaves billing only, so there is no Settings door.
+  const trialEnded = !!plan?.trial?.ended;
 
   return (
     <PageContainer width="compact">
@@ -91,12 +93,16 @@ export default function PlanExpiredScreen() {
           <CardTitle className="text-xl font-bold text-danger-text">
             {/* Named only on an account that HAS two halves — "your Personal
                 plan expired" is noise to a household that has only one. */}
-            {plan?.accountType === 'both'
+            {trialEnded
+              ? 'Your free trial has ended'
+              : plan?.accountType === 'both'
               ? `Your ${lockAxisLabel(lock?.axis || 'personal')} account is locked`
               : plan?.expiresAt ? 'Your plan has expired' : 'No active plan'}
           </CardTitle>
           <CardDescription className="text-xs">
-            {plan?.expiresAt
+            {trialEnded
+              ? `The trial ended on ${formatDate(plan.trial.endsAt)}.`
+              : plan?.expiresAt
               ? `${plan.planName || 'Your subscription'} ended on ${formatDate(plan.expiresAt)}.`
               : `${user?.tenant?.name || 'This workspace'} does not have a subscription yet.`}
           </CardDescription>
@@ -170,7 +176,7 @@ export default function PlanExpiredScreen() {
                   window.location.href =
                     `mailto:${admin.email}?subject=${encodeURIComponent('DocsNX plan renewal')}` +
                     `&body=${encodeURIComponent(
-                      `Hi ${admin.name},\n\nOur DocsNX workspace is locked because the plan expired. Could you renew it from the Billing page?\n\nThanks,\n${user?.name || ''}`,
+                      `Hi ${admin.name},\n\nOur DocsNX workspace is locked because the ${trialEnded ? 'free trial ended' : 'plan expired'}. Could you ${trialEnded ? 'subscribe' : 'renew it'} from the Billing page?\n\nThanks,\n${user?.name || ''}`,
                     )}`;
                 }}
               >
@@ -181,10 +187,12 @@ export default function PlanExpiredScreen() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => router.push('/settings')}>
-              <SettingsIcon size={14} />
-              <span>Settings</span>
-            </Button>
+            {!trialEnded && (
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => router.push('/settings')}>
+                <SettingsIcon size={14} />
+                <span>Settings</span>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" className="gap-2 text-danger-action hover:bg-destructive/10" onClick={handleLogout}>
               <LogOut size={14} />
               <span>Log out</span>

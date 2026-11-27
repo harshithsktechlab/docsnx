@@ -214,3 +214,36 @@ describe('where a plan notice is filed', () => {
     expect(inserted[0].companyId).toBeNull();
   });
 });
+
+describe('a free trial', () => {
+  const trial = () => ({
+    ...tenant,
+    accountType: 'personal',
+    businessPlanId: null,
+    trialStartedAt: new Date(),
+    trialConvertedAt: null,
+  });
+
+  it('skips the T-7 notice, which would arrive the day it started', async () => {
+    tenant = { ...trial(), subscriptionExpiry: inDays(7) };
+    expect(await runPlanExpiryCheck(tenant, 'personal')).toBeNull();
+  });
+
+  it('warns near the end in trial words', async () => {
+    tenant = { ...trial(), subscriptionExpiry: inDays(3) };
+    expect((await runPlanExpiryCheck(tenant, 'personal'))?.stage).toBe('T-3');
+    expect(inserted[0].title).toBe('Free trial ends in 3 days');
+    expect(inserted[0].message).toContain('Subscribe');
+  });
+
+  it('says the trial ended, not that a plan expired', async () => {
+    tenant = { ...trial(), subscriptionExpiry: inDays(-1) };
+    await runPlanExpiryCheck(tenant, 'personal');
+    expect(inserted[0].title).toBe('Free trial ended');
+  });
+
+  it('is an ordinary term again once paid', async () => {
+    tenant = { ...trial(), trialConvertedAt: new Date(), subscriptionExpiry: inDays(7) };
+    expect((await runPlanExpiryCheck(tenant, 'personal'))?.stage).toBe('T-7');
+  });
+});

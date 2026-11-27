@@ -17,9 +17,10 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import { clientCreateOwnAccount, clientSwitchTenant } from '@/lib/clientMemberships';
+import ConsentCheckbox from '@/app/components/ConsentCheckbox';
+import { CONSENT_ERROR } from '@/lib/consent';
 
 const TYPES = [
   { value: 'personal', label: 'Personal', hint: 'Your own documents and family records.' },
@@ -42,7 +43,7 @@ export default function NewOwnAccountPage() {
     e.preventDefault();
     setError('');
     if (!consent) {
-      setError('Please accept the data processing consent to continue.');
+      setError(CONSENT_ERROR);
       return;
     }
     setLoading(true);
@@ -137,10 +138,11 @@ export default function NewOwnAccountPage() {
               </div>
             )}
 
-            <label className="flex items-start gap-3 text-sm">
-              <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5" />
-              <span>I consent to my data being processed to provide this service.</span>
-            </label>
+            <ConsentCheckbox
+              checked={consent}
+              onChange={(checked) => { setConsent(checked); setError(''); }}
+              disabled={loading}
+            />
 
             {error && <p role="alert" className="text-sm font-medium text-red-500">{error}</p>}
 

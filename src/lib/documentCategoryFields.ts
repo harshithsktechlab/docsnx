@@ -1616,6 +1616,36 @@ const CATEGORY_FIELDS: Readonly<Record<string, Readonly<Record<string, readonly 
       { fieldKey: 'renewal_due_date', fieldLabel: 'Renewal Due Date', dataType: 'date', isPii: false, isRequired: true },
     ],
 
+    // An employer's group mediclaim. One record per e-card file: the shared
+    // facts once, and a row per insured person in `covered_members`.
+    corporate_health_insurance: [
+      { fieldKey: 'employer_name', fieldLabel: 'Policy Holder (Employer)', dataType: 'text', isPii: false, isRequired: true },
+      { fieldKey: 'insurer_name', fieldLabel: 'Insurance Company', dataType: 'text', isPii: false },
+      { fieldKey: 'tpa_provider_name', fieldLabel: 'TPA Name', dataType: 'text', isPii: false },
+      { fieldKey: 'tpa_contact', fieldLabel: 'TPA / Claim Contact', dataType: 'text', isPii: true },
+      // Optional and not an identifier: one group policy number is shared by
+      // every employee's card, and by each family's.
+      { fieldKey: 'policy_number', fieldLabel: 'Policy Number', dataType: 'text', isPii: true, isIdentifier: false },
+      { fieldKey: 'employee_id', fieldLabel: 'Employee Code', dataType: 'text', isPii: true, isIdentifier: false },
+      { fieldKey: 'primary_insured_name', fieldLabel: 'Primary Insured', dataType: 'text', isPii: true, isRequired: true },
+      // JSON text, drawn as rows — see src/lib/records/coveredMembers.ts.
+      { fieldKey: 'covered_members', fieldLabel: 'Covered Members', dataType: 'longtext', isPii: true },
+      {
+        fieldKey: 'group_cover_type', fieldLabel: 'Cover Type', dataType: 'select', isPii: false,
+        options: [
+          { value: 'employee_only', label: 'Employee only' },
+          { value: 'family_floater', label: 'Family floater' },
+          { value: 'individual_per_member', label: 'Individual sum per member' },
+        ],
+      },
+      { fieldKey: 'sum_insured', fieldLabel: 'Sum Insured', dataType: 'currency', isPii: true },
+      { fieldKey: 'room_rent_limit', fieldLabel: 'Room Rent Limit', dataType: 'text', isPii: false },
+      { fieldKey: 'co_pay', fieldLabel: 'Co-pay', dataType: 'text', isPii: false },
+      { fieldKey: 'maternity_limit', fieldLabel: 'Maternity Cover Limit', dataType: 'currency', isPii: true },
+      { fieldKey: 'valid_from', fieldLabel: 'Valid From', dataType: 'date', isPii: false },
+      { fieldKey: 'valid_to', fieldLabel: 'Valid Until', dataType: 'date', isPii: false, isRequired: true },
+    ],
+
     vehicle_policies: [
       { fieldKey: 'policy_number', fieldLabel: 'Policy Number', dataType: 'text', isPii: true, isRequired: true },
       { fieldKey: 'insurer_name', fieldLabel: 'Insurer Name', dataType: 'text', isPii: false },

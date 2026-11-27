@@ -5,6 +5,7 @@ import { tenants, subscriptionPlans, creditTransactions } from '@/db/schema';
 import { writeAudit, ACTIONS, auditSentence } from '@/lib/audit';
 import { CREDIT_REASONS, POOL_LABELS, planCreditGrant, type CreditPool, type CreditReason } from '@/lib/creditLedger';
 import { axesCovered, planColumnsForAxis, widenAccountType } from '@/lib/billingAxis';
+import { isUnpaidTrial, trialConversionValues } from '@/lib/trial';
 
 /**
  * Single source of truth for "apply a subscription plan to a tenant".
@@ -315,6 +316,13 @@ export async function setTenantCredits(
  * creation all key off `account_type`, and leaving it would hide the half just
  * paid for. Never narrows — that is `/api/account/erase`, a confirmed act.
  *
+ * ── FREE TRIALS ───────────────────────────────────────────────────────────
+ * With `trial`, the plan is applied unpaid until `trial.endsAt`: the same
+ * columns, limits and AI credits, plus the `trial_*` markers. WITHOUT it every
+ * call is a paid (or admin-granted) plan, so an account on an unpaid trial is
+ * converted here — see `trialConversionValues`. Whether the account MAY start a
+ * trial is decided by src/lib/account/startTrial.ts, not here.
+ *
  * Callers own idempotency — a payment webhook must not call this twice for the
  * same payment, or the tenant is credited twice.
  */
@@ -330,10 +338,14 @@ export async function applyPlanToTenant(
     reason?: string;
     /** Extra tenant columns to set in the same update (e.g. `isActive`, AMC dates). */
     extraTenantValues?: Record<string, unknown>;
+    /** Apply as a free trial ending then. Overrides `expiry`. */
+    trial?: { endsAt: Date };
   }
 ): Promise<{ creditsGranted: number; expiry: Date | null; personal: number; business: number }> {
-  const { tenantId, plan, userId, action, reason, extraTenantValues } = opts;
-  const expiry = opts.expiry !== undefined ? opts.expiry : planExpiry(plan);
+  const { tenantId, plan, userId, action, reason, extraTenantValues, trial } = opts;
+  const expiry = trial
+    ? trial.endsAt
+    : opts.expiry !== undefined ? opts.expiry : planExpiry(plan);
   // One grant, two pools: the plan names what goes to each, and a combined plan
   // is the sum of the two it combines. `creditsGranted` stays the TOTAL, which is
   // what callers show ("N AI credits granted").
@@ -374,11 +386,27 @@ export async function applyPlanToTenant(
   await lockTenantRow(tx, tenantId);
   const before = await tx.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
-    columns: { accountType: true, subscriptionPlanId: true, businessPlanId: true },
+    columns: {
+      accountType: true,
+      subscriptionPlanId: true,
+      businessPlanId: true,
+      trialStartedAt: true,
+      trialConvertedAt: true,
+    },
   });
   // The first plan a tenant ever takes decides its type outright; a signup is
-  // 'personal' only as a placeholder. See `widenAccountType`.
-  const neverSubscribed = !!before && !before.subscriptionPlanId && !before.businessPlanId;
+  // 'personal' only as a placeholder. See `widenAccountType`. A trial is not a
+  // plan taken: the first PURCHASE after one decides the type the same way.
+  const neverSubscribed = !!before
+    && (isUnpaidTrial(before) || (!before.subscriptionPlanId && !before.businessPlanId));
+  const trialColumns = trial
+    ? {
+      trialPlanId: plan.id,
+      trialStartedAt: new Date(),
+      trialEndsAt: trial.endsAt,
+      trialConvertedAt: null,
+    }
+    : trialConversionValues(before, axesWritten);
   const widened = widenAccountType(before?.accountType, axesWritten, { neverSubscribed });
   const accountTypeColumn = before?.accountType && widened !== before.accountType
     ? { accountType: widened }
@@ -387,6 +415,7 @@ export async function applyPlanToTenant(
   const [updated] = await tx
     .update(tenants)
     .set({
+      ...trialColumns,
       ...axisColumns,
       ...accountTypeColumn,
       ...(grant.personal > 0 ? { aiCreditsBalance: creditBalanceDelta(grant.personal, 'personal') } : {}),
@@ -401,7 +430,7 @@ export async function applyPlanToTenant(
     });
 
   const details = auditSentence('grant', {
-    kind: 'plan',
+    kind: trial ? 'free trial of plan' : 'plan',
     name: plan.name,
     note: [
       grant.personal > 0 && grant.business > 0
@@ -427,13 +456,15 @@ export async function applyPlanToTenant(
   // with THAT pool's balance from the same statement; a zero part writes nothing
   // (`recordCreditMovement` drops it), so a Personal-only plan leaves one row.
   const spread = grant.personal > 0 && grant.business > 0;
+  const ledgerReason = trial ? CREDIT_REASONS.trial_grant : CREDIT_REASONS.plan_grant;
+  const ledgerLabel = trial ? `Free trial of '${plan.name}'` : `Plan '${plan.name}'`;
   await recordCreditMovement(tx, {
     tenantId,
     userId,
     amount: grant.personal,
     balanceAfter: updated?.aiCreditsBalance ?? grant.personal,
-    reason: CREDIT_REASONS.plan_grant,
-    description: `Plan '${plan.name}' — ${grant.personal.toLocaleString()} ${spread ? 'Personal ' : ''}AI credits granted.`,
+    reason: ledgerReason,
+    description: `${ledgerLabel} — ${grant.personal.toLocaleString()} ${spread ? 'Personal ' : ''}AI credits granted.`,
     pool: 'personal',
   });
   await recordCreditMovement(tx, {
@@ -441,8 +472,8 @@ export async function applyPlanToTenant(
     userId,
     amount: grant.business,
     balanceAfter: updated?.aiCreditsBalanceBusiness ?? grant.business,
-    reason: CREDIT_REASONS.plan_grant,
-    description: `Plan '${plan.name}' — ${grant.business.toLocaleString()} ${spread ? 'Business ' : ''}AI credits granted.`,
+    reason: ledgerReason,
+    description: `${ledgerLabel} — ${grant.business.toLocaleString()} ${spread ? 'Business ' : ''}AI credits granted.`,
     pool: 'business',
   });
 

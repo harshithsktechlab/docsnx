@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { trialState } from '@/lib/trial';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { eq } from 'drizzle-orm';
@@ -302,6 +303,11 @@ export async function GET(req: Request) {
         })),
         /** Every axis this tenant has is dead — the whole-account answer. */
         fullyLapsed: tenantFullyLapsed(safeUser.tenant),
+        /**
+         * The free trial (src/lib/trial.ts). `ended` narrows the lock to
+         * billing alone; `active` makes the expiry bar say "free trial".
+         */
+        trial: trialState(safeUser.tenant),
       },
       // The meters describe ONE plan row, but a tenant's credits are two pools
       // that may come from two plans (Personal + a separate Business). The

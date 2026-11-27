@@ -41,13 +41,17 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { DateField } from '@/components/ui/date-field';
+import { DateField, todayIso } from '@/components/ui/date-field';
 import {
   CUSTOM_FIELDS_KEY, FORM_HIDDEN_KEYS, formFields, parseMultiValue,
 } from '@/lib/records/fieldValidation';
 import {
   CARD_NETWORKS, CARD_TYPES, LINKED_CARDS_KEY, normaliseExpiry,
 } from '@/lib/records/linkedCards';
+import {
+  COVERED_MEMBERS_KEY, MEMBER_RELATIONS, blankMember, parseCoveredMembers,
+  serialiseCoveredMembers,
+} from '@/lib/records/coveredMembers';
 import { MemberRefInput, RecordLinkInput } from './FieldRefInputs';
 
 /** The title field is rendered first and drives the record's name. */
@@ -282,6 +286,9 @@ function FieldInput({
     className: cn('text-base sm:text-sm', invalid && 'border-destructive'),
   };
 
+  // Stored as one JSON string, drawn as a row per insured person.
+  const isMemberList = fieldKey === COVERED_MEMBERS_KEY;
+
   return (
     <div className={cn('flex flex-col gap-1.5', dataType === 'longtext' && 'sm:col-span-2')}>
       <Label htmlFor={fieldKey} className="flex items-center gap-1.5">
@@ -308,7 +315,15 @@ function FieldInput({
         )}
       </Label>
 
-      {dataType === 'member' ? (
+      {isMemberList ? (
+        <CoveredMemberRows
+          id={fieldKey}
+          value={value}
+          disabled={disabled}
+          onChange={(next) => onChange(fieldKey, next)}
+          registerRef={(element) => registerRef?.(fieldKey, element)}
+        />
+      ) : dataType === 'member' ? (
         <MemberRefInput
           spec={spec} value={value} disabled={disabled} invalid={invalid}
           onChange={onChange} onBlur={onBlur} registerRef={registerRef}
@@ -379,6 +394,122 @@ function FieldInput({
       ) : validation?.example ? (
         <p className="text-xs text-faint">e.g. {validation.example}</p>
       ) : null}
+    </div>
+  );
+}
+
+/** The inputs of one member row, in reading order. */
+const MEMBER_INPUTS = [
+  { key: 'name', label: 'Name', placeholder: 'As printed on the card' },
+  { key: 'relation', label: 'Relation' },
+  { key: 'dateOfBirth', label: 'Date of Birth' },
+  { key: 'memberId', label: 'Member ID' },
+  { key: 'insurerId', label: 'Insurer ID' },
+];
+
+/**
+ * The people insured under one group health policy.
+ *
+ * Reads and writes the field's own JSON string, so every form that renders this
+ * grid gets the rows with no state of its own. See
+ * src/lib/records/coveredMembers.ts.
+ */
+function CoveredMemberRows({ id, value, onChange, disabled, registerRef }) {
+  const members = parseCoveredMembers(value);
+  const update = (next) => onChange(serialiseCoveredMembers(next));
+  const patch = (i, changes) =>
+    update(members.map((m, j) => (j === i ? { ...m, ...changes } : m)));
+
+  return (
+    <div className="flex flex-col gap-3">
+      {members.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Add each person named on the policy or its health cards.
+        </p>
+      )}
+
+      {members.map((member, i) => (
+        <div
+          key={member.id}
+          role="group"
+          aria-label={`Member ${i + 1}`}
+          className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 p-3"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-semibold text-muted-foreground">
+              {member.name.trim() || `Member ${i + 1}`}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={disabled}
+              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-danger-action"
+              aria-label={`Remove member ${i + 1}`}
+              onClick={() => update(members.filter((_, j) => j !== i))}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {MEMBER_INPUTS.map(({ key, label, placeholder }) => {
+              const inputId = `${id}-${member.id}-${key}`;
+              return (
+                <div key={key} className={cn('flex flex-col gap-1.5', key === 'name' && 'sm:col-span-2')}>
+                  <Label htmlFor={inputId}>{label}</Label>
+                  {key === 'relation' ? (
+                    <Select
+                      value={member.relation}
+                      disabled={disabled}
+                      onValueChange={(next) => patch(i, { relation: next })}
+                    >
+                      <SelectTrigger id={inputId} className="text-base sm:text-sm">
+                        <SelectValue placeholder="Self, Spouse…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MEMBER_RELATIONS.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : key === 'dateOfBirth' ? (
+                    <DateField
+                      id={inputId}
+                      value={member.dateOfBirth}
+                      disabled={disabled}
+                      max={todayIso()}
+                      className="text-base sm:text-sm"
+                      onChange={(next) => patch(i, { dateOfBirth: next })}
+                    />
+                  ) : (
+                    <Input
+                      id={inputId}
+                      value={member[key]}
+                      disabled={disabled}
+                      placeholder={placeholder}
+                      className="text-base sm:text-sm"
+                      onChange={(e) => patch(i, { [key]: e.target.value })}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <Button
+        ref={registerRef}
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        className="h-8 gap-1 self-start text-xs"
+        onClick={() => update([...members, blankMember()])}
+      >
+        <Plus size={12} /> Add member
+      </Button>
     </div>
   );
 }

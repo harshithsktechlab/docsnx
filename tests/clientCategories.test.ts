@@ -135,7 +135,16 @@ describe('drizzle/0098 parity', () => {
   const sql = readFileSync(join(__dirname, '../drizzle/0098_client_document_categories.sql'), 'utf8');
 
   it('seeds exactly the rows CLIENT_CATEGORY_SEED derives', () => {
-    const tuples = [...sql.matchAll(/\((11[78]),'([^']+)','[^']*','([^']+)','[^']*',(\d+)\)/g)];
+    const tupleRe = /\((11[78]),'([^']+)','[^']*','([^']+)','[^']*',(\d+)\)/g;
+    // 0103 shifts the individual rows from 117029 up by one and inserts its own.
+    const later = readFileSync(
+      join(__dirname, '../drizzle/0103_corporate_health_insurance.sql'), 'utf8');
+    expect(later).toContain(`"module_key" = 'biz_client_individual' AND "sort_order" >= 117029`);
+    const tuples = [
+      ...[...sql.matchAll(tupleRe)].map((m) => (m[2] === 'biz_client_individual' && Number(m[4]) >= 117029
+        ? [m[0], m[1], m[2], m[3], String(Number(m[4]) + 1)] : [...m])),
+      ...[...later.matchAll(tupleRe)].map((m) => [...m]),
+    ];
     expect(tuples).toHaveLength(CLIENT_CATEGORY_SEED.length);
     const byKey = new Map(CLIENT_CATEGORY_SEED.map((r) => [`${r.moduleKey}/${r.documentKey}`, r]));
     for (const [, no, moduleKey, documentKey, sort] of tuples) {

@@ -8,6 +8,7 @@ import {
   sanitizeReturnTo,
   signOAuthState,
 } from '@/lib/googleDrive';
+import { isTrialEnded } from '@/lib/trial';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,12 @@ export async function GET(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) {
     return NextResponse.redirect(new URL('/login', getRequestOrigin(req)));
+  }
+
+  // An ended free trial leaves billing only — a browser navigation, so it is
+  // sent there rather than answered with a 402 body.
+  if (isTrialEnded(user.tenant)) {
+    return NextResponse.redirect(new URL('/billing?expired=1', getRequestOrigin(req)));
   }
 
   const { searchParams } = new URL(req.url);

@@ -40,7 +40,7 @@ vi.mock('@/lib/auth', async (importOriginal) => ({
   hasPermission: async (u: any) =>
     u.role === 'TENANT_ADMIN' || (u.permissions || []).some((p: any) => p.module === 'profiles' && p.canView),
 }));
-vi.mock('@/lib/planGate', () => ({ requireActivePlan: () => null }));
+vi.mock('@/lib/planGate', () => ({ requireActivePlan: () => null, requireTrialNotEnded: () => null }));
 vi.mock('@/lib/whatsapp', () => ({ isWhatsAppEnabled: async () => true }));
 vi.mock('@/lib/profileIdDocuments', () => ({ loadProfileIdDocuments: async () => ({ idDocuments: [], backfilled: false }) }));
 vi.mock('@/lib/records/jsonFieldCrypto', () => ({

@@ -109,6 +109,11 @@ const SUB_CATEGORY_ACTIONS: Record<string, RenewalAction> = {
     cta: 'Pay Premium',
     how: 'Pay the premium instalment and file the receipt.',
   },
+  // The employer pays and renews; the household's job is to fetch the new card.
+  'insurance/corporate_health_insurance': {
+    cta: 'Get New Card',
+    how: 'Get the new policy year\'s e-card from your HR team and upload it.',
+  },
   'vehicle/puc_certificate': {
     cta: 'Renew PUC',
     how: 'Get the emissions test done and upload the new PUC certificate.',

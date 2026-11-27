@@ -34,6 +34,7 @@ import DuplicateResolveDialog from '@/components/records/DuplicateResolveDialog'
 import { BLOOD_GROUPS, normaliseBloodGroup, parseBirthPlace } from '@/lib/profileValues';
 import PlanQuotaMeters from '@/app/components/PlanQuotaMeters';
 import { getInitials } from '@/lib/accountMenu';
+import PrivacyPolicyCard from '@/app/components/PrivacyPolicyCard';
 import { registrationFieldFor, registrationHint } from '@/lib/profileRegistration';
 
 /** The member form's three sections. At module scope so `openTabFrom` below can
@@ -1238,6 +1239,7 @@ export default function ProfileScreen({ companyId = null }) {
       <PageContainer width="narrow">
         <AccountUsageCard user={user} planDetails={planDetails} storageData={storageData} />
         <MyProfileSection />
+        <PrivacyPolicyCard user={user} />
       </PageContainer>
     );
   }
@@ -1289,7 +1291,12 @@ export default function ProfileScreen({ companyId = null }) {
       {tab === 'company' && canViewCompany && (
         <CompanyProfileSection companyId={companyId} canEdit={canEditCompany} />
       )}
-      {tab === 'me' && <MyProfileSection heading={false} />}
+      {tab === 'me' && (
+        <>
+          <MyProfileSection heading={false} />
+          <PrivacyPolicyCard user={user} />
+        </>
+      )}
     </PageContainer>
   );
 }

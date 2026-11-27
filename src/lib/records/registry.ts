@@ -137,7 +137,8 @@ export const RECORD_SCOPES: Readonly<Record<string, RecordScopeConfig>> = {
     primaryModule: 'insurance',
     legacyEnvelope: 'policies',
     categories: k('insurance', 'life_policies', 'health_policies', 'vehicle_policies',
-      'home_property_policies', 'term_policies', 'premium_receipts', 'other'),
+      'home_property_policies', 'term_policies', 'premium_receipts',
+      'corporate_health_insurance', 'other'),
   },
   bank_info: {
     ...DEFAULTS,

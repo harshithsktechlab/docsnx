@@ -29,6 +29,7 @@
  */
 import { CUSTOM_FIELDS_KEY } from '@/lib/records/fieldValidation';
 import { LINKED_CARDS_KEY } from '@/lib/records/linkedCards';
+import { COVERED_MEMBERS_KEY } from '@/lib/records/coveredMembers';
 import { type FileBearingRow, servableFilePath } from './fileUrl';
 import { type FieldRefLookups, formatFieldValue } from './fieldRefs';
 
@@ -361,7 +362,8 @@ export function documentFieldList(
     const value = present(masked[key]) ? masked[key] : open[key];
     if (!present(value)) return;
     const shown = dataType === 'member' || dataType === 'record_link'
-      ? formatFieldValue({ dataType }, value, refs)
+      || key === COVERED_MEMBERS_KEY
+      ? formatFieldValue({ dataType, fieldKey: key }, value, refs)
       : String(value);
     out.push({ label, value: shown, ...(dataType ? { dataType } : {}) });
   };

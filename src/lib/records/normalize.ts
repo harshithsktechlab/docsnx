@@ -27,6 +27,7 @@ import {
 // `from '@/lib/records/normalize'` import of these two resolving.
 import { raisesReminder } from './reminderPolicy';
 import { LINKED_CARDS_KEY, linkedCardReminders } from './linkedCards';
+import { COVERED_MEMBERS_KEY, coveredMembersSummary } from './coveredMembers';
 
 export interface Reminder {
   /** The taxonomy fieldKey the date came from. */
@@ -284,7 +285,10 @@ export function toTaxonomyRecordFromFields(
     }
 
     if (shouldMask(spec, identifiers)) {
-      const mask = maskTail(String(value));
+      // A member list is masked as a count: its last four characters are JSON.
+      const mask = spec.fieldKey === COVERED_MEMBERS_KEY
+        ? coveredMembersSummary(value)
+        : maskTail(String(value));
       if (mask) out.masked[spec.fieldKey] = mask;
     }
 

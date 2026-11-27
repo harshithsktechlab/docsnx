@@ -47,7 +47,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const { id } = await params;
     const body = await req.json();
-    const { label, apiKey, provider, model, dailyLimit, priority, isActive } = body;
+    const { label, apiKey, provider, model, dailyLimit, priority, isActive, clearError } = body;
 
     const [existing] = await db.select().from(apiKeys).where(eq(apiKeys.id, id));
     if (!existing) return NextResponse.json({ error: 'Key not found' }, { status: 404 });
@@ -59,8 +59,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (dailyLimit !== undefined) updateData.dailyLimit = parseInt(dailyLimit);
     if (priority !== undefined) updateData.priority = parseInt(priority);
     if (isActive !== undefined) updateData.isActive = Boolean(isActive);
+    // Dismisses the message only. errorCount stays, so rotation order is unchanged.
+    if (clearError === true) updateData.lastError = null;
     // Only update apiKey if a new non-masked value is provided
-    if (apiKey && !apiKey.startsWith('****')) updateData.apiKey = encryptField(apiKey.trim());
+    if (apiKey && !apiKey.startsWith('****')) {
+      updateData.apiKey = encryptField(apiKey.trim());
+      // Earlier errors belonged to the key being replaced.
+      updateData.errorCount = 0;
+      updateData.lastError = null;
+    }
 
     const [updated] = await db.update(apiKeys)
       .set(updateData)
